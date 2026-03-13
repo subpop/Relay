@@ -23,13 +23,18 @@ struct RoomListView: View {
         List(selection: $selectedRoomId) {
             ForEach(filteredRooms) { room in
                 HStack(spacing: 10) {
+                    Circle()
+                        .fill(room.unreadMentions > 0 ? Color.red : Color.accentColor)
+                        .frame(width: 8, height: 8)
+                        .opacity(room.unreadMessages > 0 || room.unreadMentions > 0 ? 1 : 0)
+
                     AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(room.name)
                                 .font(.headline)
-                                .fontWeight(room.unreadMessages > 0 ? .semibold : .regular)
+                                .fontWeight(room.unreadMessages > 0 || room.unreadMentions > 0 ? .semibold : .regular)
                                 .lineLimit(1)
 
                             Spacer()
@@ -41,23 +46,11 @@ struct RoomListView: View {
                             }
                         }
 
-                        HStack {
-                            if let msg = room.lastMessage {
-                                Text(msg)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            Spacer()
-                            if room.unreadMessages > 0 {
-                                Text("\(room.unreadMessages)")
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accentColor, in: Capsule())
-                            }
+                        if let msg = room.lastMessage {
+                            Text(msg)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
                     .padding(4)

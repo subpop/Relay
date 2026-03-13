@@ -41,6 +41,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             lastMessage: "Let's finalize the mockups tomorrow",
             lastMessageTimestamp: .now.addingTimeInterval(-300),
             unreadCount: 3,
+            unreadMentions: 1,
             isDirect: false
         ),
         RoomSummary(
