@@ -11,17 +11,6 @@ struct MainView: View {
         NavigationSplitView {
             RoomListView(selectedRoomId: $selectedRoomId, searchText: $searchText)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            selectedRoomId = nil
-                            isComposing = true
-                        } label: {
-                            Image(systemName: "square.and.pencil")
-                        }
-                        .help("New Conversation")
-                    }
-                }
                 .onChange(of: selectedRoomId) {
                     if selectedRoomId != nil {
                         isComposing = false
@@ -44,6 +33,15 @@ struct MainView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    selectedRoomId = nil
+                    isComposing = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .help("New Conversation")
+            }
             ToolbarItem(placement: .automatic) {
                 Menu {
                     Button("Sign Out", role: .destructive) {
