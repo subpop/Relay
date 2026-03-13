@@ -5,15 +5,34 @@ struct MainView: View {
     @Environment(\.matrixService) private var matrixService
     @State private var selectedRoomId: String?
     @State private var searchText = ""
+    @State private var isComposing = false
 
     var body: some View {
         NavigationSplitView {
             RoomListView(selectedRoomId: $selectedRoomId, searchText: $searchText)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            selectedRoomId = nil
+                            isComposing = true
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .help("New Conversation")
+                    }
+                }
+                .onChange(of: selectedRoomId) {
+                    if selectedRoomId != nil {
+                        isComposing = false
+                    }
+                }
         } detail: {
-            if let selectedRoomId,
-               let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
-               let viewModel = matrixService.makeRoomDetailViewModel(roomId: selectedRoomId) {
+            if isComposing {
+                ComposeRoomView(selectedRoomId: $selectedRoomId, isComposing: $isComposing)
+            } else if let selectedRoomId,
+                      let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
+                      let viewModel = matrixService.makeRoomDetailViewModel(roomId: selectedRoomId) {
                 RoomDetailView(roomName: summary.name, viewModel: viewModel)
                     .id(selectedRoomId)
             } else {
@@ -40,5 +59,6 @@ struct MainView: View {
 
 #Preview {
     MainView()
+        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 800, height: 500)
 }

@@ -2,6 +2,17 @@ import AppKit
 import Foundation
 import MatrixRustSDK
 import RelayCore
+import Synchronization
+
+public enum MatrixServiceError: LocalizedError {
+    case notLoggedIn
+
+    public var errorDescription: String? {
+        switch self {
+        case .notLoggedIn: "Not logged in"
+        }
+    }
+}
 
 @Observable
 public final class MatrixService: MatrixServiceProtocol {
@@ -219,7 +230,7 @@ public final class MatrixService: MatrixServiceProtocol {
     private func refreshRoomList() async {
         guard let client else { return }
 
-        let sdkRooms = client.rooms()
+        let sdkRooms = client.rooms().filter { $0.membership() == .joined }
         var summaries: [RoomSummary] = []
 
         for room in sdkRooms {
@@ -328,6 +339,55 @@ public final class MatrixService: MatrixServiceProtocol {
         return RoomDetailViewModel(room: room, currentUserId: userId())
     }
 
+    // MARK: - Room Management
+
+    public func joinRoom(idOrAlias: String) async throws {
+        guard let client else { return }
+        _ = try await client.joinRoomByIdOrAlias(roomIdOrAlias: idOrAlias, serverNames: [])
+        await refreshRoomList()
+    }
+
+    public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
+        guard let client else { throw MatrixServiceError.notLoggedIn }
+        let params = CreateRoomParameters(
+            name: name,
+            topic: topic,
+            isEncrypted: !isPublic,
+            isDirect: false,
+            visibility: isPublic ? .public : .private,
+            preset: isPublic ? .publicChat : .privateChat
+        )
+        let roomId = try await client.createRoom(request: params)
+        await refreshRoomList()
+        return roomId
+    }
+
+    public func leaveRoom(id: String) async throws {
+        guard let room = room(id: id) else { return }
+        try await room.leave()
+        rooms.removeAll { $0.id == id }
+    }
+
+    // MARK: - Directory Search
+
+    public func searchDirectory(query: String) async throws -> [DirectoryRoom] {
+        guard let client else { return [] }
+        let search = client.roomDirectorySearch()
+        let collector = DirectorySearchCollector()
+
+        let listener = DirectorySearchListenerProxy { updates in
+            collector.apply(updates)
+        }
+
+        let handle = await search.results(listener: listener)
+        try await search.search(filter: query, batchSize: 20, viaServerName: nil)
+        try await Task.sleep(for: .milliseconds(500))
+
+        let results = collector.snapshot()
+        withExtendedLifetime(handle) {}
+        return results
+    }
+
     // MARK: - Media
 
     private static let avatarCache = NSCache<NSString, NSImage>()
@@ -366,5 +426,75 @@ nonisolated final class SyncStateObserverProxy: SyncServiceStateObserver, @unche
 
     func onUpdate(state: SyncServiceState) {
         handler(state)
+    }
+}
+
+// MARK: - Directory Search Collector
+
+nonisolated private final class DirectorySearchCollector: Sendable {
+    private let storage = Mutex<[DirectoryRoom]>([])
+
+    nonisolated func apply(_ updates: [RoomDirectorySearchEntryUpdate]) {
+        storage.withLock { results in
+            for update in updates {
+                switch update {
+                case .append(let values):
+                    results.append(contentsOf: values.map(DirectoryRoom.from))
+                case .clear:
+                    results.removeAll()
+                case .pushBack(let value):
+                    results.append(.from(value))
+                case .pushFront(let value):
+                    results.insert(.from(value), at: 0)
+                case .insert(let index, let value):
+                    results.insert(.from(value), at: Int(index))
+                case .set(let index, let value):
+                    results[Int(index)] = .from(value)
+                case .remove(let index):
+                    results.remove(at: Int(index))
+                case .popFront:
+                    if !results.isEmpty { results.removeFirst() }
+                case .popBack:
+                    if !results.isEmpty { results.removeLast() }
+                case .reset(let values):
+                    results = values.map(DirectoryRoom.from)
+                case .truncate(let length):
+                    results = Array(results.prefix(Int(length)))
+                }
+            }
+        }
+    }
+
+    nonisolated func snapshot() -> [DirectoryRoom] {
+        storage.withLock { $0 }
+    }
+}
+
+// MARK: - Directory Search Listener Bridge
+
+nonisolated final class DirectorySearchListenerProxy: RoomDirectorySearchEntriesListener, @unchecked Sendable {
+    private let handler: @Sendable ([RoomDirectorySearchEntryUpdate]) -> Void
+
+    init(handler: @escaping @Sendable ([RoomDirectorySearchEntryUpdate]) -> Void) {
+        self.handler = handler
+    }
+
+    func onUpdate(roomEntriesUpdate: [RoomDirectorySearchEntryUpdate]) {
+        handler(roomEntriesUpdate)
+    }
+}
+
+// MARK: - RoomDescription → DirectoryRoom
+
+extension DirectoryRoom {
+    nonisolated static func from(_ desc: RoomDescription) -> DirectoryRoom {
+        DirectoryRoom(
+            roomId: desc.roomId,
+            name: desc.name,
+            topic: desc.topic,
+            alias: desc.alias,
+            avatarURL: desc.avatarUrl,
+            memberCount: desc.joinedMembers
+        )
     }
 }

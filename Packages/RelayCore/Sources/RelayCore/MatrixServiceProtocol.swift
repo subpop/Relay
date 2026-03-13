@@ -33,6 +33,10 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     func userId() -> String?
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage?
     func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)?
+    func joinRoom(idOrAlias: String) async throws
+    func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String
+    func leaveRoom(id: String) async throws
+    func searchDirectory(query: String) async throws -> [DirectoryRoom]
 }
 
 // MARK: - Environment Key
@@ -60,4 +64,8 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func userId() -> String? { nil }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
     func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)? { nil }
+    func joinRoom(idOrAlias: String) async throws {}
+    func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String { "" }
+    func leaveRoom(id: String) async throws {}
+    func searchDirectory(query: String) async throws -> [DirectoryRoom] { [] }
 }

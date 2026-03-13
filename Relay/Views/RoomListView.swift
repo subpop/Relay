@@ -15,11 +15,22 @@ struct RoomListView: View {
         }
     }
 
+    @State private var roomToLeave: RoomSummary?
+    @State private var showLeaveConfirmation = false
+
     var body: some View {
         List(selection: $selectedRoomId) {
             ForEach(filteredRooms) { room in
                 RoomRowView(room: room)
                     .tag(room.id)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            roomToLeave = room
+                            showLeaveConfirmation = true
+                        } label: {
+                            Label("Leave", systemImage: "door.right.hand.open")
+                        }
+                    }
             }
         }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
@@ -35,6 +46,17 @@ struct RoomListView: View {
                     )
                 }
             }
+        }
+        .alert("Leave Room", isPresented: $showLeaveConfirmation, presenting: roomToLeave) { room in
+            Button("Cancel", role: .cancel) {}
+            Button("Leave", role: .destructive) {
+                if selectedRoomId == room.id {
+                    selectedRoomId = nil
+                }
+                Task { try? await matrixService.leaveRoom(id: room.id) }
+            }
+        } message: { room in
+            Text("Are you sure you want to leave \"\(room.name)\"? You'll need to be re-invited or rejoin manually.")
         }
     }
 }
