@@ -9,19 +9,32 @@ struct RoomDetailView: View {
     @State var viewModel: any RoomDetailViewModelProtocol
 
     @State private var draftMessage = ""
+    @State private var showingRoomInfo = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            messageList
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                messageList
 
-            Divider()
+                Divider()
 
-            ComposeView(text: $draftMessage, onSend: sendMessage)
+                ComposeView(text: $draftMessage, onSend: sendMessage)
+            }
+            .frame(maxWidth: .infinity)
+
+            if showingRoomInfo {
+                Divider()
+
+                RoomInfoView(roomId: roomId)
+            }
         }
         .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingRoomInfo.toggle()
+                    }
                 } label: {
                     AvatarView(name: roomName, mxcURL: roomAvatarURL, size: 36)
                 }

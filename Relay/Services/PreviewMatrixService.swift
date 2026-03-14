@@ -36,6 +36,28 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             )
         }
     }
+    func roomDetails(roomId: String) async -> RoomDetails? {
+        guard let summary = rooms.first(where: { $0.id == roomId }) else { return nil }
+        return RoomDetails(
+            id: summary.id,
+            name: summary.name,
+            topic: "A place for the team to collaborate and share ideas.",
+            avatarURL: summary.avatarURL,
+            isEncrypted: !summary.isDirect,
+            isPublic: false,
+            isDirect: summary.isDirect,
+            canonicalAlias: "#\(summary.name.lowercased().replacingOccurrences(of: " ", with: "-")):matrix.org",
+            memberCount: 5,
+            members: [
+                RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
+                RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
+                RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis", role: .user),
+                RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans", role: .user),
+                RoomMemberDetails(userId: "@preview:matrix.org", displayName: "You", role: .user),
+            ]
+        )
+    }
+
     func searchDirectory(query: String) async throws -> [DirectoryRoom] {
         let all = [
             DirectoryRoom(roomId: "!design:matrix.org", name: "Design Team", topic: "UI/UX design discussion", alias: "#design:matrix.org", memberCount: 42),

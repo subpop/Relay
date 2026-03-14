@@ -380,6 +380,57 @@ public final class MatrixService: MatrixServiceProtocol {
         await refreshRoomList()
     }
 
+    // MARK: - Room Details
+
+    public func roomDetails(roomId: String) async -> RoomDetails? {
+        guard let room = room(id: roomId) else { return nil }
+
+        let info = try? await room.roomInfo()
+        let name = room.displayName() ?? room.id()
+        let topic = info?.topic
+        let avatarUrl = room.avatarUrl()
+        let isEncrypted = info?.encryptionState != .notEncrypted
+        let isPublic = info?.isPublic ?? false
+        let isDirect = info?.isDirect ?? false
+        let canonicalAlias = info?.canonicalAlias
+
+        let memberCount = info?.joinedMembersCount ?? room.joinedMembersCount()
+
+        var memberDetails: [RoomMemberDetails] = []
+        if let membersIterator = try? await room.members() {
+            let chunk = membersIterator.nextChunk(chunkSize: 200)
+            if let chunk {
+                memberDetails = chunk.compactMap { member in
+                    guard member.membership == .join else { return nil }
+                    let role: RoomMemberDetails.Role = switch member.suggestedRoleForPowerLevel {
+                    case .administrator: .administrator
+                    case .moderator: .moderator
+                    default: .user
+                    }
+                    return RoomMemberDetails(
+                        userId: member.userId,
+                        displayName: member.displayName,
+                        avatarURL: member.avatarUrl,
+                        role: role
+                    )
+                }
+            }
+        }
+
+        return RoomDetails(
+            id: room.id(),
+            name: name,
+            topic: topic,
+            avatarURL: avatarUrl,
+            isEncrypted: isEncrypted,
+            isPublic: isPublic,
+            isDirect: isDirect,
+            canonicalAlias: canonicalAlias,
+            memberCount: memberCount,
+            members: memberDetails
+        )
+    }
+
     // MARK: - Directory Search
 
     public func searchDirectory(query: String) async throws -> [DirectoryRoom] {
