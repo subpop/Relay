@@ -9,47 +9,16 @@ struct RoomDetailView: View {
     @State var viewModel: any RoomDetailViewModelProtocol
 
     @State private var draftMessage = ""
-    @State private var showingRoomInfo = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                messageList
+        VStack(spacing: 0) {
+            messageList
 
-                Divider()
+            Divider()
 
-                ComposeView(text: $draftMessage, onSend: sendMessage)
-            }
-            .frame(maxWidth: .infinity)
-
-            if showingRoomInfo {
-                Divider()
-
-                RoomInfoView(roomId: roomId)
-            }
+            ComposeView(text: $draftMessage, onSend: sendMessage)
         }
         .navigationTitle("")
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showingRoomInfo.toggle()
-                    }
-                } label: {
-                    AvatarView(name: roomName, mxcURL: roomAvatarURL, size: 36)
-                }
-                .buttonStyle(.plain)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button("Sign Out", role: .destructive) {
-                        Task { await matrixService.logout() }
-                    }
-                } label: {
-                    Image(systemName: "person.circle")
-                }
-            }
-        }
         .task {
             await viewModel.loadTimeline()
             await matrixService.markAsRead(roomId: roomId)
@@ -97,7 +66,6 @@ struct RoomDetailView: View {
                                 unreadMarker
                             }
 
-                            // Date header when the date changes between messages
                             if shouldShowDateHeader(at: index, in: messages) {
                                 Text(dateSectionLabel(for: message.timestamp))
                                     .font(.caption2)
@@ -107,7 +75,6 @@ struct RoomDetailView: View {
                                     .padding(.bottom, 4)
                             }
 
-                            // Add extra spacing when sender changes
                             if index > 0 && messages[index - 1].senderID != message.senderID
                                 && !shouldShowDateHeader(at: index, in: messages)
                             {

@@ -16,7 +16,7 @@ struct RoomInfoView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
+        .frame(maxWidth: .infinity)
         .task {
             details = await matrixService.roomDetails(roomId: roomId)
         }
