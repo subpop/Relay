@@ -140,6 +140,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             guard let event = item.asEvent() else { continue }
 
             let msgBody: String
+            let msgKind: TimelineMessage.Kind
             switch event.content {
             case .msgLike(let msgLikeContent):
                 switch msgLikeContent.kind {
@@ -147,33 +148,47 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                     switch messageContent.msgType {
                     case .text(let textContent):
                         msgBody = textContent.body
+                        msgKind = .text
                     case .emote(let emoteContent):
-                        msgBody = "* \(emoteContent.body)"
+                        msgBody = emoteContent.body
+                        msgKind = .emote
                     case .notice(let noticeContent):
                         msgBody = noticeContent.body
+                        msgKind = .notice
                     case .image:
-                        msgBody = "[Image]"
+                        msgBody = "Image"
+                        msgKind = .image
                     case .video:
-                        msgBody = "[Video]"
+                        msgBody = "Video"
+                        msgKind = .video
                     case .audio:
-                        msgBody = "[Audio]"
+                        msgBody = "Audio"
+                        msgKind = .audio
                     case .file:
-                        msgBody = "[File]"
+                        msgBody = "File"
+                        msgKind = .file
                     case .location:
-                        msgBody = "[Location]"
+                        msgBody = "Location"
+                        msgKind = .location
                     case .gallery:
-                        msgBody = "[Gallery]"
+                        msgBody = "Gallery"
+                        msgKind = .image
                     case .other:
-                        msgBody = "[Message]"
+                        msgBody = "Message"
+                        msgKind = .other
                     }
                 case .sticker:
-                    msgBody = "[Sticker]"
+                    msgBody = "Sticker"
+                    msgKind = .sticker
                 case .poll:
-                    msgBody = "[Poll]"
+                    msgBody = "Poll"
+                    msgKind = .poll
                 case .redacted:
-                    msgBody = "[Deleted]"
+                    msgBody = "This message was deleted"
+                    msgKind = .redacted
                 case .unableToDecrypt:
-                    msgBody = "[Encrypted]"
+                    msgBody = "Waiting for encryption key"
+                    msgKind = .encrypted
                 case .other:
                     continue
                 }
@@ -206,7 +221,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 senderAvatarURL: avatarURL,
                 body: msgBody,
                 timestamp: ts,
-                isOutgoing: event.isOwn
+                isOutgoing: event.isOwn,
+                kind: msgKind
             ))
         }
 
