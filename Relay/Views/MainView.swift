@@ -22,7 +22,7 @@ struct MainView: View {
             } else if let selectedRoomId,
                       let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
                       let viewModel = matrixService.makeRoomDetailViewModel(roomId: selectedRoomId) {
-                RoomDetailView(roomId: selectedRoomId, roomName: summary.name, viewModel: viewModel)
+                RoomDetailView(roomId: selectedRoomId, roomName: summary.name, roomAvatarURL: summary.avatarURL, viewModel: viewModel)
                     .id(selectedRoomId)
             } else {
                 ContentUnavailableView(
@@ -40,16 +40,8 @@ struct MainView: View {
                 } label: {
                     Image(systemName: "square.and.pencil")
                 }
+                .padding(1)
                 .help("New Conversation")
-            }
-            ToolbarItem(placement: .automatic) {
-                Menu {
-                    Button("Sign Out", role: .destructive) {
-                        Task { await matrixService.logout() }
-                    }
-                } label: {
-                    Image(systemName: "person.circle")
-                }
             }
         }
     }
