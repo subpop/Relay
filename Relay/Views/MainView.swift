@@ -65,9 +65,10 @@ struct MainView: View {
                     } label: {
                         if showingInspector {
                             Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.secondary)
+                                .font(.title2)
+                                .foregroundStyle(.primary)
                                 .frame(width: 36, height: 36)
+                                .contentShape(Circle())
                         } else {
                             AvatarView(name: summary.name, mxcURL: summary.avatarURL, size: 36)
                         }
