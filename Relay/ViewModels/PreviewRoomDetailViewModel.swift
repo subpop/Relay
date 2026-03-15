@@ -8,6 +8,7 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
     var isLoadingMore = false
     var hasReachedStart: Bool
     var firstUnreadMessageId: String?
+    var errorMessage: String?
 
     init(
         messages: [TimelineMessage]? = nil,

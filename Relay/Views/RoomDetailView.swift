@@ -1,5 +1,8 @@
+import OSLog
 import RelayCore
 import SwiftUI
+
+private let logger = Logger(subsystem: "Relay", category: "RoomDetail")
 
 struct RoomDetailView: View {
     @Environment(\.matrixService) private var matrixService
@@ -9,6 +12,13 @@ struct RoomDetailView: View {
     @State var viewModel: any RoomDetailViewModelProtocol
 
     @State private var draftMessage = ""
+
+    private var showErrorAlert: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.errorMessage = nil } }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +32,11 @@ struct RoomDetailView: View {
         .task {
             await viewModel.loadTimeline()
             await matrixService.markAsRead(roomId: roomId)
+        }
+        .alert("Error", isPresented: showErrorAlert) {
+            Button("OK") { viewModel.errorMessage = nil }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
         }
     }
 
@@ -174,11 +189,21 @@ struct RoomDetailView: View {
     private func sendAttachments(_ urls: [URL]) {
         let tempDir = FileManager.default.temporaryDirectory
         for url in urls {
-            guard url.startAccessingSecurityScopedResource() else { continue }
+            guard url.startAccessingSecurityScopedResource() else {
+                logger.error("Failed to access security-scoped resource: \(url.lastPathComponent)")
+                viewModel.errorMessage = "Could not access \(url.lastPathComponent). Check file permissions."
+                continue
+            }
             defer { url.stopAccessingSecurityScopedResource() }
 
             let dest = tempDir.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
-            guard (try? FileManager.default.copyItem(at: url, to: dest)) != nil else { continue }
+            do {
+                try FileManager.default.copyItem(at: url, to: dest)
+            } catch {
+                logger.error("Failed to copy file \(url.lastPathComponent): \(error)")
+                viewModel.errorMessage = "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
+                continue
+            }
             Task { await viewModel.sendAttachment(url: dest) }
         }
     }

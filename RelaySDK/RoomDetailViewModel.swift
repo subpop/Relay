@@ -2,8 +2,11 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import MatrixRustSDK
+import OSLog
 import RelayCore
 import UniformTypeIdentifiers
+
+private let logger = Logger(subsystem: "RelaySDK", category: "RoomDetail")
 
 @Observable
 public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
@@ -12,6 +15,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public private(set) var isLoadingMore = false
     public private(set) var hasReachedStart = false
     public private(set) var firstUnreadMessageId: String?
+    public var errorMessage: String?
 
     private let room: Room
     private let currentUserId: String?
@@ -47,6 +51,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             observeTimeline(tl)
             await paginateInitialHistory(tl)
         } catch {
+            logger.error("Failed to load timeline: \(error)")
+            errorMessage = "Could not load messages: \(error.localizedDescription)"
             isLoading = false
         }
     }
@@ -57,13 +63,21 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         do {
             let reachedStart = try await timeline.paginateBackwards(numEvents: 40)
             hasReachedStart = reachedStart
-        } catch {}
+        } catch {
+            logger.error("Failed to load earlier messages: \(error)")
+            errorMessage = "Could not load earlier messages: \(error.localizedDescription)"
+        }
         isLoadingMore = false
     }
 
     public func send(text: String) async {
         guard let timeline else { return }
-        _ = try? await timeline.send(msg: messageEventContentFromMarkdown(md: text))
+        do {
+            _ = try await timeline.send(msg: messageEventContentFromMarkdown(md: text))
+        } catch {
+            logger.error("Failed to send message: \(error)")
+            errorMessage = "Could not send message: \(error.localizedDescription)"
+        }
     }
 
     public func sendAttachment(url: URL) async {
@@ -122,7 +136,10 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             }
 
             try await handle.join()
-        } catch {}
+        } catch {
+            logger.error("Failed to send attachment \(url.lastPathComponent): \(error)")
+            errorMessage = "Could not send \(url.lastPathComponent): \(error.localizedDescription)"
+        }
 
         try? FileManager.default.removeItem(at: url)
     }
@@ -133,7 +150,9 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         do {
             let reachedStart = try await tl.paginateBackwards(numEvents: 40)
             hasReachedStart = reachedStart
-        } catch {}
+        } catch {
+            logger.error("Failed to paginate initial history: \(error)")
+        }
     }
 
     private func observeTimeline(_ tl: Timeline) {

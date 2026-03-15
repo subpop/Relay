@@ -7,6 +7,7 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     var isLoadingMore: Bool { get }
     var hasReachedStart: Bool { get }
     var firstUnreadMessageId: String? { get }
+    var errorMessage: String? { get set }
 
     func loadTimeline() async
     func loadMoreHistory() async
