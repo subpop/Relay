@@ -16,7 +16,7 @@ struct RoomDetailView: View {
 
             Divider()
 
-            ComposeView(text: $draftMessage, onSend: sendMessage)
+            ComposeView(text: $draftMessage, onSend: sendMessage, onAttach: sendAttachments)
         }
         .navigationTitle("")
         .task {
@@ -169,6 +169,18 @@ struct RoomDetailView: View {
         guard !text.isEmpty else { return }
         draftMessage = ""
         Task { await viewModel.send(text: text) }
+    }
+
+    private func sendAttachments(_ urls: [URL]) {
+        let tempDir = FileManager.default.temporaryDirectory
+        for url in urls {
+            guard url.startAccessingSecurityScopedResource() else { continue }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            let dest = tempDir.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+            guard (try? FileManager.default.copyItem(at: url, to: dest)) != nil else { continue }
+            Task { await viewModel.sendAttachment(url: dest) }
+        }
     }
 }
 

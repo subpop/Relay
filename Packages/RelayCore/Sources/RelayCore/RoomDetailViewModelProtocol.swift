@@ -11,4 +11,5 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     func loadTimeline() async
     func loadMoreHistory() async
     func send(text: String) async
+    func sendAttachment(url: URL) async
 }

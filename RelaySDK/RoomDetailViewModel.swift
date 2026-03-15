@@ -1,6 +1,9 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import MatrixRustSDK
 import RelayCore
+import UniformTypeIdentifiers
 
 @Observable
 public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
@@ -61,6 +64,67 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public func send(text: String) async {
         guard let timeline else { return }
         _ = try? await timeline.send(msg: messageEventContentFromMarkdown(md: text))
+    }
+
+    public func sendAttachment(url: URL) async {
+        guard let timeline else { return }
+
+        let path = url.path
+        let params = UploadParameters(
+            source: .file(filename: path),
+            caption: nil,
+            formattedCaption: nil,
+            mentions: nil,
+            inReplyTo: nil
+        )
+
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? UInt64) ?? 0
+        let utType = UTType(filenameExtension: url.pathExtension) ?? .data
+        let mime = utType.preferredMIMEType
+
+        do {
+            let handle: SendAttachmentJoinHandle
+
+            if utType.conforms(to: .image) {
+                var width: UInt64?
+                var height: UInt64?
+                if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                   let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+                {
+                    width = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.uint64Value
+                    height = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.uint64Value
+                }
+                handle = try timeline.sendImage(
+                    params: params,
+                    thumbnailSource: nil,
+                    imageInfo: ImageInfo(
+                        height: height, width: width, mimetype: mime, size: fileSize,
+                        thumbnailInfo: nil, thumbnailSource: nil, blurhash: nil, isAnimated: nil
+                    )
+                )
+            } else if utType.conforms(to: .movie) || utType.conforms(to: .video) {
+                handle = try timeline.sendVideo(
+                    params: params,
+                    thumbnailSource: nil,
+                    videoInfo: VideoInfo(
+                        duration: nil, height: nil, width: nil, mimetype: mime, size: fileSize,
+                        thumbnailInfo: nil, thumbnailSource: nil, blurhash: nil
+                    )
+                )
+            } else {
+                handle = try timeline.sendFile(
+                    params: params,
+                    fileInfo: FileInfo(
+                        mimetype: mime, size: fileSize,
+                        thumbnailInfo: nil, thumbnailSource: nil
+                    )
+                )
+            }
+
+            try await handle.join()
+        } catch {}
+
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: - Private

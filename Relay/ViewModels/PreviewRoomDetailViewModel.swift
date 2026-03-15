@@ -24,6 +24,7 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
     func loadTimeline() async {}
     func loadMoreHistory() async {}
     func send(text: String) async {}
+    func sendAttachment(url: URL) async {}
 
     nonisolated static let sampleMessages: [TimelineMessage] = [
         .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
