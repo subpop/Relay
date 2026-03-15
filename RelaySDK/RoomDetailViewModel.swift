@@ -108,21 +108,20 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         do {
             let handle: SendAttachmentJoinHandle
 
-            if utType.conforms(to: .image) {
-                var width: UInt64 = 0
-                var height: UInt64 = 0
-                if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                   let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-                {
-                    width = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.uint64Value ?? 0
-                    height = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.uint64Value ?? 0
-                }
+            if utType.conforms(to: .image),
+               let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
+            {
+                let width = UInt64(cgImage.width)
+                let height = UInt64(cgImage.height)
+                let hash = blurHash(from: cgImage) ?? "000000"
+
                 handle = try timeline.sendImage(
                     params: params,
                     thumbnailSource: nil,
                     imageInfo: ImageInfo(
                         height: height, width: width, mimetype: mime, size: fileSize,
-                        thumbnailInfo: nil, thumbnailSource: nil, blurhash: "000000", isAnimated: nil
+                        thumbnailInfo: nil, thumbnailSource: nil, blurhash: hash, isAnimated: nil
                     )
                 )
             } else if utType.conforms(to: .movie) || utType.conforms(to: .video) {
