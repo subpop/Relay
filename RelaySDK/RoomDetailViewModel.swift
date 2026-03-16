@@ -80,6 +80,21 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    public func toggleReaction(messageId: String, key: String) async {
+        guard let timeline else { return }
+        let itemId: EventOrTransactionId = if messageId.hasPrefix("$") {
+            .eventId(eventId: messageId)
+        } else {
+            .transactionId(transactionId: messageId)
+        }
+        do {
+            _ = try await timeline.toggleReaction(itemId: itemId, key: key)
+        } catch {
+            logger.error("Failed to toggle reaction: \(error)")
+            errorMessage = "Could not toggle reaction: \(error.localizedDescription)"
+        }
+    }
+
     public func sendAttachment(url: URL) async {
         guard let timeline else { return }
 
@@ -297,6 +312,18 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 continue
             }
 
+            var msgReactions: [TimelineMessage.ReactionGroup] = []
+            if case .msgLike(let ml) = event.content {
+                msgReactions = ml.reactions.map { reaction in
+                    TimelineMessage.ReactionGroup(
+                        key: reaction.key,
+                        count: reaction.senders.count,
+                        senderIDs: reaction.senders.map(\.senderId),
+                        highlightedByCurrentUser: reaction.senders.contains { $0.senderId == currentUserId }
+                    )
+                }
+            }
+
             let (displayName, avatarURL): (String?, String?) =
                 switch event.senderProfile {
                 case .ready(let name, _, let url):
@@ -324,7 +351,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 timestamp: ts,
                 isOutgoing: event.isOwn,
                 kind: msgKind,
-                mediaInfo: msgMediaInfo
+                mediaInfo: msgMediaInfo,
+                reactions: msgReactions
             ))
         }
 

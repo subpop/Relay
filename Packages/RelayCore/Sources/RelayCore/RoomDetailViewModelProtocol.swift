@@ -13,4 +13,5 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     func loadMoreHistory() async
     func send(text: String) async
     func sendAttachment(url: URL) async
+    func toggleReaction(messageId: String, key: String) async
 }

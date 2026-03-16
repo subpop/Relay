@@ -12,6 +12,7 @@ struct RoomDetailView: View {
     @State var viewModel: any RoomDetailViewModelProtocol
 
     @State private var draftMessage = ""
+    @State private var emojiPickerMessageId: String?
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -102,10 +103,31 @@ struct RoomDetailView: View {
                             MessageView(
                                 message: message,
                                 isLastInGroup: isLastInGroup,
-                                showSenderName: showSenderName
+                                showSenderName: showSenderName,
+                                onToggleReaction: { key in
+                                    Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
+                                },
+                                onAddReaction: {
+                                    emojiPickerMessageId = message.id
+                                }
                             )
                             .id(message.id)
                             .help(message.formattedTime)
+                            .contextMenu {
+                                messageContextMenu(for: message)
+                            }
+                            .popover(
+                                isPresented: Binding(
+                                    get: { emojiPickerMessageId == message.id },
+                                    set: { if !$0 { emojiPickerMessageId = nil } }
+                                ),
+                                arrowEdge: message.isOutgoing ? .trailing : .leading
+                            ) {
+                                EmojiPickerPopover { emoji in
+                                    Task { await viewModel.toggleReaction(messageId: message.id, key: emoji) }
+                                    emojiPickerMessageId = nil
+                                }
+                            }
                         }
                     }
                     .padding()
@@ -134,6 +156,18 @@ struct RoomDetailView: View {
             VStack { Divider() }
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private func messageContextMenu(for message: TimelineMessage) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.body, forType: .string)
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
     }
 
     // MARK: - Grouping Helpers

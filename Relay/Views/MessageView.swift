@@ -6,51 +6,83 @@ struct MessageView: View {
     let message: TimelineMessage
     var isLastInGroup: Bool = true
     var showSenderName: Bool = false
+    var onToggleReaction: ((String) -> Void)?
+    var onAddReaction: (() -> Void)?
+
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            if message.isOutgoing {
-                Spacer(minLength: 60)
-            }
-
-            if !message.isOutgoing {
-                if isLastInGroup {
-                    AvatarView(
-                        name: message.displayName,
-                        mxcURL: message.senderAvatarURL,
-                        size: 28
-                    )
-                } else {
-                    Spacer()
-                        .frame(width: 28)
-                }
-            }
-
-            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 1) {
-                if showSenderName && !message.isOutgoing {
-                    Text(message.displayName)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 12)
-                        .padding(.bottom, 2)
+        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
+            HStack(alignment: .bottom, spacing: 6) {
+                if message.isOutgoing {
+                    Spacer(minLength: 60)
+                    addReactionButton
                 }
 
-                if message.kind == .image, message.mediaInfo != nil {
-                    ImageMessageView(message: message)
-                } else if message.kind == .emote {
-                    emoteContent
-                } else if message.isSpecialType {
-                    specialContent
-                } else {
-                    textContent
+                if !message.isOutgoing {
+                    if isLastInGroup {
+                        AvatarView(
+                            name: message.displayName,
+                            mxcURL: message.senderAvatarURL,
+                            size: 28
+                        )
+                    } else {
+                        Spacer()
+                            .frame(width: 28)
+                    }
+                }
+
+                VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 1) {
+                    if showSenderName && !message.isOutgoing {
+                        Text(message.displayName)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 12)
+                            .padding(.bottom, 2)
+                    }
+
+                    if message.kind == .image, message.mediaInfo != nil {
+                        ImageMessageView(message: message)
+                    } else if message.kind == .emote {
+                        emoteContent
+                    } else if message.isSpecialType {
+                        specialContent
+                    } else {
+                        textContent
+                    }
+                }
+
+                if !message.isOutgoing {
+                    addReactionButton
+                    Spacer(minLength: 60)
                 }
             }
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
 
-            if !message.isOutgoing {
-                Spacer(minLength: 60)
+            if !message.reactions.isEmpty {
+                ReactionsView(
+                    reactions: message.reactions,
+                    onToggle: { key in onToggleReaction?(key) }
+                )
+                .padding(.leading, message.isOutgoing ? 0 : 34)
             }
         }
+    }
+
+    // MARK: - Add Reaction Button
+
+    private var addReactionButton: some View {
+        Button { onAddReaction?() } label: {
+            Image(systemName: "face.smiling")
+                .font(.system(size: 14))
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 22, height: 22)
+        .opacity(isHovering ? 1 : 0)
+        .animation(.easeInOut(duration: 0.15), value: isHovering)
     }
 
     // MARK: - Text Content (with markdown + links)
@@ -262,6 +294,103 @@ private struct ImageMessageView: View {
     }
 }
 
+// MARK: - Reactions View
+
+private struct ReactionsView: View {
+    let reactions: [TimelineMessage.ReactionGroup]
+    let onToggle: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 4) {
+            ForEach(reactions) { reaction in
+                Button {
+                    onToggle(reaction.key)
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(reaction.key)
+                            .font(.body)
+                        if reaction.count > 1 {
+                            Text("\(reaction.count)")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundStyle(reaction.highlightedByCurrentUser ? .white : .secondary)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        reaction.highlightedByCurrentUser
+                            ? Color.accentColor.opacity(0.25)
+                            : Color(.systemGray).opacity(0.12)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                reaction.highlightedByCurrentUser
+                                    ? Color.accentColor.opacity(0.5)
+                                    : Color.clear,
+                                lineWidth: 1
+                            )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 2)
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var height: CGFloat = 0
+        var maxRowWidth: CGFloat = 0
+        for (i, row) in rows.enumerated() {
+            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            let rowWidth = row.reduce(CGFloat(0)) { $0 + $1.sizeThatFits(.unspecified).width }
+                + CGFloat(max(0, row.count - 1)) * spacing
+            height += rowHeight + (i > 0 ? spacing : 0)
+            maxRowWidth = max(maxRowWidth, rowWidth)
+        }
+        return CGSize(width: maxRowWidth, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for (i, row) in rows.enumerated() {
+            if i > 0 { y += spacing }
+            var x = bounds.minX
+            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            for subview in row {
+                let size = subview.sizeThatFits(.unspecified)
+                subview.place(at: CGPoint(x: x, y: y), proposal: .init(size))
+                x += size.width + spacing
+            }
+            y += rowHeight
+        }
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutSubviews.Element]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[LayoutSubviews.Element]] = [[]]
+        var currentWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentWidth + size.width + spacing > maxWidth, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                currentWidth = 0
+            }
+            rows[rows.count - 1].append(subview)
+            currentWidth += size.width + spacing
+        }
+        return rows
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Conversation") {
@@ -284,7 +413,8 @@ private struct ImageMessageView: View {
                 senderDisplayName: "Alice",
                 body: "It supports *italic*, **bold**, and `code`!",
                 timestamp: .now.addingTimeInterval(-110),
-                isOutgoing: false
+                isOutgoing: false,
+                reactions: [.init(key: "❤️", count: 1, senderIDs: ["@me:matrix.org"], highlightedByCurrentUser: true)]
             )
         )
         MessageView(
@@ -293,7 +423,12 @@ private struct ImageMessageView: View {
                 senderID: "@me:matrix.org",
                 body: "Nice — I'll take a look.",
                 timestamp: .now.addingTimeInterval(-60),
-                isOutgoing: true
+                isOutgoing: true,
+                reactions: [
+                    .init(key: "👍", count: 2, senderIDs: ["@alice:matrix.org", "@bob:matrix.org"], highlightedByCurrentUser: false),
+                    .init(key: "❤️", count: 1, senderIDs: ["@alice:matrix.org"], highlightedByCurrentUser: false),
+                    .init(key: "🎉", count: 1, senderIDs: ["@me:matrix.org"], highlightedByCurrentUser: true),
+                ]
             )
         )
     }

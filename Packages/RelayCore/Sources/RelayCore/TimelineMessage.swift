@@ -17,6 +17,21 @@ public struct TimelineMessage: Identifiable, Sendable {
         case other
     }
 
+    public struct ReactionGroup: Sendable, Equatable, Identifiable {
+        public var id: String { key }
+        public let key: String
+        public let count: Int
+        public let senderIDs: [String]
+        public let highlightedByCurrentUser: Bool
+
+        public init(key: String, count: Int, senderIDs: [String], highlightedByCurrentUser: Bool) {
+            self.key = key
+            self.count = count
+            self.senderIDs = senderIDs
+            self.highlightedByCurrentUser = highlightedByCurrentUser
+        }
+    }
+
     public struct MediaInfo: Sendable, Equatable {
         public var mxcURL: String
         public var filename: String
@@ -54,6 +69,7 @@ public struct TimelineMessage: Identifiable, Sendable {
     public var isOutgoing: Bool
     public var kind: Kind
     public var mediaInfo: MediaInfo?
+    public var reactions: [ReactionGroup]
 
     public init(
         id: String,
@@ -64,7 +80,8 @@ public struct TimelineMessage: Identifiable, Sendable {
         timestamp: Date,
         isOutgoing: Bool,
         kind: Kind = .text,
-        mediaInfo: MediaInfo? = nil
+        mediaInfo: MediaInfo? = nil,
+        reactions: [ReactionGroup] = []
     ) {
         self.id = id
         self.senderID = senderID
@@ -75,6 +92,7 @@ public struct TimelineMessage: Identifiable, Sendable {
         self.isOutgoing = isOutgoing
         self.kind = kind
         self.mediaInfo = mediaInfo
+        self.reactions = reactions
     }
 
     public var displayName: String {
