@@ -230,7 +230,7 @@ public final class MatrixService: MatrixServiceProtocol {
     private func refreshRoomList() async {
         guard let client else { return }
 
-        let sdkRooms = client.rooms().filter { $0.membership() == .joined }
+        let sdkRooms = client.rooms().filter { $0.membership() == .joined && !$0.isSpace() }
         var summaries: [RoomSummary] = []
 
         for room in sdkRooms {
