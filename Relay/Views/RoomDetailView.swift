@@ -17,6 +17,7 @@ struct RoomDetailView: View {
 
     private enum ScrollRequest { case none, afterLoad, afterSend }
     @State private var scrollRequest: ScrollRequest = .none
+    @State private var isNearBottom = true
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -141,25 +142,38 @@ struct RoomDetailView: View {
                                 }
                             }
                         }
+
+                        Color.mint
+                            .frame(height: 1)
+                            .id("scrollview-bottom-sentinel")
+                            .onAppear { isNearBottom = true }
+                            .onDisappear { isNearBottom = false }
                     }
                     .padding()
                 }
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: viewModel.messages.last?.id) {
-                    guard scrollRequest != .none,
-                          let last = viewModel.messages.last
-                    else { return }
+                    guard let last = viewModel.messages.last else { return }
+                    logger.debug("messages.last changed: id=\(last.id), scrollRequest=\(String(describing: scrollRequest)), isNearBottom=\(isNearBottom)")
                     switch scrollRequest {
                     case .afterLoad:
                         scrollRequest = .none
-                        proxy.scrollTo(last.id, anchor: nil)
+                        proxy
+                            .scrollTo(
+                                "scrollview-bottom-sentinel",
+                                anchor: .bottom
+                            )
                     case .afterSend:
                         if last.isOutgoing { scrollRequest = .none }
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: nil)
+                            proxy.scrollTo("scrollview-bottom-sentinel", anchor: .bottom)
                         }
                     case .none:
-                        break
+                        if isNearBottom {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo("scrollview-bottom-sentinel", anchor: .bottom)
+                            }
+                        }
                     }
                 }
             }
