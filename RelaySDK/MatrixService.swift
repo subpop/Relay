@@ -29,6 +29,7 @@ public final class MatrixService: MatrixServiceProtocol {
     private var syncService: SyncService?
     private var roomPollTask: Task<Void, Never>?
     private var syncStateHandle: TaskHandle?
+    private var roomViewModels: [String: RoomDetailViewModel] = [:]
 
     // MARK: - Persistence Model
 
@@ -161,6 +162,7 @@ public final class MatrixService: MatrixServiceProtocol {
         client = nil
         syncService = nil
         rooms = []
+        roomViewModels = [:]
         syncState = .idle
         authState = .loggedOut
     }
@@ -348,9 +350,12 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)? {
+        if let cached = roomViewModels[roomId] { return cached }
         guard let room = room(id: roomId) else { return nil }
         let unreadCount = rooms.first(where: { $0.id == roomId })?.unreadMessages ?? 0
-        return RoomDetailViewModel(room: room, currentUserId: userId(), unreadCount: Int(unreadCount))
+        let vm = RoomDetailViewModel(room: room, currentUserId: userId(), unreadCount: Int(unreadCount))
+        roomViewModels[roomId] = vm
+        return vm
     }
 
     // MARK: - Room Management
@@ -380,6 +385,7 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let room = room(id: id) else { return }
         try await room.leave()
         rooms.removeAll { $0.id == id }
+        roomViewModels.removeValue(forKey: id)
     }
 
     // MARK: - Read Receipts

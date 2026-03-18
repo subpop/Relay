@@ -15,9 +15,10 @@ struct RoomDetailView: View {
     @State private var replyingTo: TimelineMessage?
     @State private var emojiPickerMessageId: String?
 
-    private enum ScrollRequest { case none, afterLoad, afterSend }
-    @State private var scrollRequest: ScrollRequest = .none
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
+    @State private var pendingScrollToBottom = false
+    @State private var hasTriggeredPagination = false
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -36,7 +37,6 @@ struct RoomDetailView: View {
             .navigationTitle("")
         .task {
             await viewModel.loadTimeline()
-            scrollRequest = .afterLoad
             await matrixService.markAsRead(roomId: roomId)
         }
         .alert("Error", isPresented: showErrorAlert) {
@@ -50,131 +50,138 @@ struct RoomDetailView: View {
 
     @ViewBuilder
     private var messageList: some View {
-        if viewModel.isLoading {
+        if viewModel.isLoading && viewModel.messages.isEmpty {
             ProgressView("Loading messages…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if viewModel.messages.isEmpty {
+        } else if !viewModel.isLoading && viewModel.messages.isEmpty {
             ContentUnavailableView(
                 "No Messages Yet",
                 systemImage: "text.bubble",
                 description: Text("Send a message to get the conversation started.")
             )
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        if !viewModel.hasReachedStart {
-                            Button {
-                                Task { await viewModel.loadMoreHistory() }
-                            } label: {
-                                if viewModel.isLoadingMore {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Text("Load earlier messages")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    if viewModel.isLoadingMore {
+                        ProgressView()
+                            .controlSize(.small)
                             .frame(maxWidth: .infinity)
                             .padding(.bottom, 4)
-                        }
+                    }
 
-                        let messages = viewModel.messages
-                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            if message.id == viewModel.firstUnreadMessageId {
-                                unreadMarker
-                            }
-
-                            if shouldShowDateHeader(at: index, in: messages) {
-                                Text(dateSectionLabel(for: message.timestamp))
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, index == 0 ? 4 : 12)
-                                    .padding(.bottom, 4)
-                            }
-
-                            if index > 0 && messages[index - 1].senderID != message.senderID
-                                && !shouldShowDateHeader(at: index, in: messages)
-                            {
-                                Spacer().frame(height: 8)
-                            }
-
-                            let isLastInGroup = isLastMessageInGroup(at: index, in: messages)
-                            let showSenderName = shouldShowSenderName(at: index, in: messages)
-
-                            MessageView(
-                                message: message,
-                                isLastInGroup: isLastInGroup,
-                                showSenderName: showSenderName,
-                                onToggleReaction: { key in
-                                    Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
-                                },
-                                onAddReaction: {
-                                    emojiPickerMessageId = message.id
-                                },
-                                onTapReply: { eventID in
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        proxy.scrollTo(eventID, anchor: .center)
-                                    }
-                                },
-                                onReply: {
-                                    replyingTo = message
-                                }
-                            )
-                            .id(message.id)
-                            .help(message.formattedTime)
-                            .contextMenu {
-                                messageContextMenu(for: message)
-                            }
-                            .popover(
-                                isPresented: Binding(
-                                    get: { emojiPickerMessageId == message.id },
-                                    set: { if !$0 { emojiPickerMessageId = nil } }
-                                ),
-                                arrowEdge: message.isOutgoing ? .trailing : .leading
-                            ) {
-                                EmojiPickerPopover { emoji in
-                                    Task { await viewModel.toggleReaction(messageId: message.id, key: emoji) }
-                                    emojiPickerMessageId = nil
-                                }
-                            }
-                        }
-
-                        Color.mint
+                    if !viewModel.hasReachedStart {
+                        Color.clear
                             .frame(height: 1)
-                            .id("scrollview-bottom-sentinel")
-                            .onAppear { isNearBottom = true }
-                            .onDisappear { isNearBottom = false }
+                            .onAppear {
+                                guard !hasTriggeredPagination, !viewModel.isLoadingMore else { return }
+                                hasTriggeredPagination = true
+                                Task { await viewModel.loadMoreHistory() }
+                            }
+                            .onDisappear {
+                                hasTriggeredPagination = false
+                            }
                     }
-                    .padding()
-                }
-                .defaultScrollAnchor(.bottom)
-                .onChange(of: viewModel.messages.last?.id) {
-                    guard let last = viewModel.messages.last else { return }
-                    logger.debug("messages.last changed: id=\(last.id), scrollRequest=\(String(describing: scrollRequest)), isNearBottom=\(isNearBottom)")
-                    switch scrollRequest {
-                    case .afterLoad:
-                        scrollRequest = .none
-                        proxy
-                            .scrollTo(
-                                "scrollview-bottom-sentinel",
-                                anchor: .bottom
-                            )
-                    case .afterSend:
-                        if last.isOutgoing { scrollRequest = .none }
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("scrollview-bottom-sentinel", anchor: .bottom)
+
+                    let messages = viewModel.messages
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        if message.id == viewModel.firstUnreadMessageId {
+                            unreadMarker
                         }
-                    case .none:
-                        if isNearBottom {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo("scrollview-bottom-sentinel", anchor: .bottom)
+
+                        if shouldShowDateHeader(at: index, in: messages) {
+                            Text(dateSectionLabel(for: message.timestamp))
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, index == 0 ? 4 : 12)
+                                .padding(.bottom, 4)
+                        }
+
+                        if index > 0 && messages[index - 1].senderID != message.senderID
+                            && !shouldShowDateHeader(at: index, in: messages)
+                        {
+                            Spacer().frame(height: 8)
+                        }
+
+                        let isLastInGroup = isLastMessageInGroup(at: index, in: messages)
+                        let showSenderName = shouldShowSenderName(at: index, in: messages)
+
+                        MessageView(
+                            message: message,
+                            isLastInGroup: isLastInGroup,
+                            showSenderName: showSenderName,
+                            onToggleReaction: { key in
+                                Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
+                            },
+                            onAddReaction: {
+                                emojiPickerMessageId = message.id
+                            },
+                            onTapReply: { eventID in
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    scrollPosition.scrollTo(id: eventID, anchor: .center)
+                                }
+                            },
+                            onReply: {
+                                replyingTo = message
+                            }
+                        )
+                        .id(message.id)
+                        .help(message.formattedTime)
+                        .contextMenu {
+                            messageContextMenu(for: message)
+                        }
+                        .popover(
+                            isPresented: Binding(
+                                get: { emojiPickerMessageId == message.id },
+                                set: { if !$0 { emojiPickerMessageId = nil } }
+                            ),
+                            arrowEdge: message.isOutgoing ? .trailing : .leading
+                        ) {
+                            EmojiPickerPopover { emoji in
+                                Task { await viewModel.toggleReaction(messageId: message.id, key: emoji) }
+                                emojiPickerMessageId = nil
                             }
                         }
                     }
+                }
+                .scrollTargetLayout()
+                .padding()
+            }
+            .defaultScrollAnchor(.bottom)
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let distanceFromBottom = geometry.contentSize.height
+                    - geometry.visibleRect.maxY
+                return distanceFromBottom < 50
+            } action: { _, newValue in
+                guard isNearBottom != newValue else { return }
+                isNearBottom = newValue
+            }
+            .onChange(of: viewModel.messages.last?.id) {
+                if isNearBottom || pendingScrollToBottom {
+                    pendingScrollToBottom = false
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        scrollPosition.scrollTo(edge: .bottom)
+                    }
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !isNearBottom {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            scrollPosition.scrollTo(edge: .bottom)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.title)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Circle())
+                            .glassEffect(in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 8)
+                    .padding(.trailing, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
@@ -261,12 +268,12 @@ struct RoomDetailView: View {
         let replyEventId = replyingTo?.id
         draftMessage = ""
         replyingTo = nil
-        scrollRequest = .afterSend
+        pendingScrollToBottom = true
         Task { await viewModel.send(text: text, inReplyTo: replyEventId) }
     }
 
     private func sendAttachments(_ urls: [URL]) {
-        scrollRequest = .afterSend
+        pendingScrollToBottom = true
         let tempDir = FileManager.default.temporaryDirectory
         for url in urls {
             guard url.startAccessingSecurityScopedResource() else {

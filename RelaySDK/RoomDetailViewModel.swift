@@ -18,15 +18,18 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public var errorMessage: String?
 
     private let room: Room
+    private let roomId: String
     private let currentUserId: String?
     private let unreadCount: Int
     private var timeline: Timeline?
     private var observationTask: Task<Void, Never>?
     private var timelineItems: [TimelineItem] = []
     private var hasComputedUnreadMarker = false
+    private var saveCacheTask: Task<Void, Never>?
 
     public init(room: Room, currentUserId: String?, unreadCount: Int = 0) {
         self.room = room
+        self.roomId = room.id()
         self.currentUserId = currentUserId
         self.unreadCount = unreadCount
     }
@@ -39,10 +42,14 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     // MARK: - Public
 
     public func loadTimeline() async {
-        observationTask?.cancel()
-        messages = []
-        timelineItems = []
-        isLoading = true
+        guard timeline == nil else { return }
+
+        let cached = MessageStore.shared.loadMessages(roomId: roomId)
+        if !cached.isEmpty && messages.isEmpty {
+            messages = cached
+        }
+
+        isLoading = messages.isEmpty
         hasReachedStart = false
 
         do {
@@ -173,6 +180,17 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     }
 
     // MARK: - Private
+
+    private func scheduleCacheSave() {
+        saveCacheTask?.cancel()
+        let snapshot = messages
+        let rid = roomId
+        saveCacheTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            MessageStore.shared.save(snapshot, roomId: rid)
+        }
+    }
 
     private func paginateInitialHistory(_ tl: Timeline) async {
         do {
@@ -396,6 +414,10 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 let markerIndex = incomingMessages.count - unreadCount
                 firstUnreadMessageId = incomingMessages[markerIndex].id
             }
+        }
+
+        if !result.isEmpty {
+            scheduleCacheSave()
         }
     }
 }
