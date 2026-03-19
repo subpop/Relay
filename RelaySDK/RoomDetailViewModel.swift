@@ -26,6 +26,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     private var timelineItems: [TimelineItem] = []
     private var hasComputedUnreadMarker = false
     private var saveCacheTask: Task<Void, Never>?
+    private var fetchedReplyEventIds: Set<String> = []
 
     public init(room: Room, currentUserId: String?, unreadCount: Int = 0) {
         self.room = room
@@ -262,6 +263,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
     private func rebuildMessages() {
         var result: [TimelineMessage] = []
+        var pendingReplyFetchIds: Set<String> = []
 
         for item in timelineItems {
             guard let event = item.asEvent() else { continue }
@@ -336,6 +338,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             var msgReactions: [TimelineMessage.ReactionGroup] = []
             var isHighlighted = false
             var msgReplyDetail: TimelineMessage.ReplyDetail?
+            var hasUnresolvedReply = false
             if case .msgLike(let ml) = event.content {
                 msgReactions = ml.reactions.map { reaction in
                     TimelineMessage.ReactionGroup(
@@ -356,8 +359,9 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 }
 
                 if let replyTo = ml.inReplyTo {
-                    let replyEvent = replyTo.event()
-                    if case .ready(let content, let sender, let senderProfile, _, _) = replyEvent {
+                    let replyEventId = replyTo.eventId()
+                    switch replyTo.event() {
+                    case .ready(let content, let sender, let senderProfile, _, _):
                         let replyDisplayName: String? = if case .ready(let name, _, _) = senderProfile { name } else { nil }
                         let replyBody: String
                         if case .msgLike(let replyMl) = content,
@@ -366,7 +370,15 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                         } else {
                             replyBody = "Message"
                         }
-                        msgReplyDetail = .init(eventID: replyTo.eventId(), senderID: sender, senderDisplayName: replyDisplayName, body: replyBody)
+                        msgReplyDetail = .init(eventID: replyEventId, senderID: sender, senderDisplayName: replyDisplayName, body: replyBody)
+                    case .pending:
+                        msgReplyDetail = .init(eventID: replyEventId, senderID: "", senderDisplayName: nil, body: "")
+                        hasUnresolvedReply = true
+                    case .unavailable:
+                        msgReplyDetail = .init(eventID: replyEventId, senderID: "", senderDisplayName: nil, body: "")
+                        hasUnresolvedReply = true
+                    case .error:
+                        msgReplyDetail = .init(eventID: replyEventId, senderID: "", senderDisplayName: nil, body: "")
                     }
                 }
             }
@@ -387,6 +399,10 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 eventId = id
             case .transactionId(let id):
                 eventId = id
+            }
+
+            if hasUnresolvedReply {
+                pendingReplyFetchIds.insert(eventId)
             }
 
             result.append(TimelineMessage(
@@ -413,6 +429,16 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             if unreadCount <= incomingMessages.count {
                 let markerIndex = incomingMessages.count - unreadCount
                 firstUnreadMessageId = incomingMessages[markerIndex].id
+            }
+        }
+
+        let newFetchIds = pendingReplyFetchIds.subtracting(fetchedReplyEventIds)
+        if !newFetchIds.isEmpty, let tl = timeline {
+            fetchedReplyEventIds.formUnion(newFetchIds)
+            Task {
+                for eventId in newFetchIds {
+                    try? await tl.fetchDetailsForEvent(eventId: eventId)
+                }
             }
         }
 
