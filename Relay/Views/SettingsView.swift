@@ -16,6 +16,8 @@ struct SettingsView: View {
                         .tabItem { Label("Notifications", systemImage: "bell") }
                     SafetySettingsTab()
                         .tabItem { Label("Safety", systemImage: "hand.raised.fill") }
+                    SessionsSettingsTab()
+                        .tabItem { Label("Sessions", systemImage: "desktopcomputer") }
                     EncryptionSettingsTab()
                         .tabItem { Label("Encryption", systemImage: "lock.fill") }
                 }
@@ -342,6 +344,146 @@ private struct SafetySettingsTab: View {
     }
 }
 
+// MARK: - Sessions Settings
+
+@Observable
+private final class SessionsSettingsViewModel {
+    var devices: [DeviceInfo] = []
+    var isLoading = true
+    var errorMessage: String?
+
+    @MainActor
+    func load(service: any MatrixServiceProtocol) async {
+        do {
+            devices = try await service.getDevices().sorted { lhs, rhs in
+                if lhs.isCurrentDevice { return true }
+                if rhs.isCurrentDevice { return false }
+                switch (lhs.lastSeenTimestamp, rhs.lastSeenTimestamp) {
+                case (.some(let l), .some(let r)): return l > r
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none): return lhs.id < rhs.id
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+
+private struct SessionsSettingsTab: View {
+    @Environment(\.matrixService) private var matrixService
+    @State private var viewModel = SessionsSettingsViewModel()
+
+    var body: some View {
+        Form {
+            if viewModel.isLoading {
+                Section {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+            } else if viewModel.devices.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        "No Sessions",
+                        systemImage: "desktopcomputer",
+                        description: Text("No device information is available.")
+                    )
+                }
+            } else {
+                let current = viewModel.devices.filter(\.isCurrentDevice)
+                let others = viewModel.devices.filter { !$0.isCurrentDevice }
+
+                if let device = current.first {
+                    Section("Current Session") {
+                        DeviceRow(device: device)
+                    }
+                }
+
+                if !others.isEmpty {
+                    Section("Other Sessions") {
+                        ForEach(others) { device in
+                            DeviceRow(device: device)
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .task { await viewModel.load(service: matrixService) }
+        .alert("Sessions Error", isPresented: showErrorBinding) {
+            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
+    }
+
+    private var showErrorBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.errorMessage = nil } }
+        )
+    }
+}
+
+private struct DeviceRow: View {
+    let device: DeviceInfo
+
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f
+    }()
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: device.isCurrentDevice ? "checkmark.circle.fill" : "desktopcomputer")
+                .font(.title2)
+                .foregroundStyle(device.isCurrentDevice ? .green : .secondary)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(device.displayName ?? "Unknown device")
+                        .fontWeight(.medium)
+                    if device.isCurrentDevice {
+                        Text("This device")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.green.opacity(0.12), in: Capsule())
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    Text(device.id)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .textSelection(.enabled)
+
+                    if let ts = device.lastSeenTimestamp {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text(Self.relativeDateFormatter.localizedString(for: ts, relativeTo: .now))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let ip = device.lastSeenIP {
+                    Text(ip)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 // MARK: - Encryption Settings
 
 private struct EncryptionSettingsTab: View {
@@ -415,6 +557,15 @@ private struct EncryptionSettingsTab: View {
         SafetySettingsTab()
             .tabItem { Label("Safety", systemImage: "hand.raised.fill") }
     }
+    .frame(width: 480)
+}
+
+#Preview("Sessions") {
+    TabView {
+        SessionsSettingsTab()
+            .tabItem { Label("Sessions", systemImage: "desktopcomputer") }
+    }
+    .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 480)
 }
 

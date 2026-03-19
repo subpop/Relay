@@ -605,6 +605,44 @@ public final class MatrixService: MatrixServiceProtocol {
     public func setUserMentionEnabled(_ enabled: Bool) async throws {
         try await notificationSettings().setUserMentionEnabled(enabled: enabled)
     }
+
+    // MARK: - Devices
+
+    private struct DevicesResponse: Decodable {
+        struct Device: Decodable {
+            let device_id: String
+            let display_name: String?
+            let last_seen_ip: String?
+            let last_seen_ts: UInt64?
+        }
+        let devices: [Device]
+    }
+
+    public func getDevices() async throws -> [DeviceInfo] {
+        guard let client else { throw MatrixServiceError.notLoggedIn }
+
+        let currentDeviceId = try? client.deviceId()
+        let session = try client.session()
+
+        var request = URLRequest(url: URL(string: "\(client.homeserver())_matrix/client/v3/devices")!)
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(DevicesResponse.self, from: data)
+
+        return response.devices.map { device in
+            let lastSeen: Date? = device.last_seen_ts.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000)
+            }
+            return DeviceInfo(
+                id: device.device_id,
+                displayName: device.display_name,
+                lastSeenIP: device.last_seen_ip,
+                lastSeenTimestamp: lastSeen,
+                isCurrentDevice: device.device_id == currentDeviceId
+            )
+        }
+    }
 }
 
 // MARK: - Sync State Observer Bridge

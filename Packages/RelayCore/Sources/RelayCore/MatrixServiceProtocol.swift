@@ -60,6 +60,9 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     func setDisplayName(_ name: String) async throws
     func userAvatarURL() async -> String?
 
+    // MARK: Devices
+    func getDevices() async throws -> [DeviceInfo]
+
     // MARK: Notification Settings (synced via push rules)
     func getDefaultNotificationMode(isOneToOne: Bool) async throws -> DefaultNotificationMode
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws
@@ -110,6 +113,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func userDisplayName() async -> String? { nil }
     func setDisplayName(_ name: String) async throws {}
     func userAvatarURL() async -> String? { nil }
+    func getDevices() async throws -> [DeviceInfo] { [] }
     func getDefaultNotificationMode(isOneToOne: Bool) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws {}
     func isCallNotificationEnabled() async throws -> Bool { true }

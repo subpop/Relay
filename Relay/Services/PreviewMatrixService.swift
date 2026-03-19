@@ -78,6 +78,15 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func isUserMentionEnabled() async throws -> Bool { true }
     func setUserMentionEnabled(_ enabled: Bool) async throws {}
 
+    func getDevices() async throws -> [DeviceInfo] {
+        [
+            DeviceInfo(id: "ABCDEF1234", displayName: "Relay (macOS)", lastSeenIP: "203.0.113.42", lastSeenTimestamp: .now.addingTimeInterval(-60), isCurrentDevice: true),
+            DeviceInfo(id: "GHIJKL5678", displayName: "Element (iOS)", lastSeenIP: "198.51.100.7", lastSeenTimestamp: .now.addingTimeInterval(-3600)),
+            DeviceInfo(id: "MNOPQR9012", displayName: "Element Web", lastSeenIP: "192.0.2.1", lastSeenTimestamp: .now.addingTimeInterval(-86400 * 3)),
+            DeviceInfo(id: "STUVWX3456", displayName: nil, lastSeenIP: nil, lastSeenTimestamp: .now.addingTimeInterval(-86400 * 30)),
+        ]
+    }
+
     func searchDirectory(query: String) async throws -> [DirectoryRoom] {
         let all = [
             DirectoryRoom(roomId: "!design:matrix.org", name: "Design Team", topic: "UI/UX design discussion", alias: "#design:matrix.org", memberCount: 42),
