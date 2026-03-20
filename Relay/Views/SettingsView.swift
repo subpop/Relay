@@ -731,35 +731,63 @@ private struct DeviceRow: View {
 // MARK: - Encryption Settings
 
 private struct EncryptionSettingsTab: View {
+    @Environment(\.matrixService) private var matrixService
+    @State private var isSessionVerified = false
+    @State private var isRecoveryEnabled = false
+    @State private var isBackupEnabled = false
+
     var body: some View {
         Form {
             Section {
                 statusRow(
-                    icon: "checkmark.shield.fill",
-                    color: .green,
-                    title: "Crypto Identity Enabled",
-                    detail: "This device is verified."
+                    icon: isSessionVerified ? "checkmark.shield.fill" : "xmark.shield.fill",
+                    color: isSessionVerified ? .green : .red,
+                    title: isSessionVerified ? "Session Verified" : "Session Not Verified",
+                    detail: isSessionVerified
+                        ? "This device has been verified by another session."
+                        : "Verify this session from another device to enable cross-signing."
                 )
             } header: {
-                Text("Crypto Identity")
-            } footer: {
+                Text("Identity Verification")
                 Text("Allows you to verify other Matrix accounts and automatically trust their verified sessions.")
             }
 
             Section {
                 statusRow(
-                    icon: "arrow.triangle.2.circlepath",
-                    color: .green,
-                    title: "Account Recovery Enabled",
-                    detail: "Signing keys and encryption keys are synchronized."
+                    icon: isBackupEnabled ? "arrow.triangle.2.circlepath" : "exclamationmark.arrow.triangle.2.circlepath",
+                    color: isBackupEnabled ? .green : .orange,
+                    title: isBackupEnabled ? "Key Backup Enabled" : "Key Backup Not Active",
+                    detail: isBackupEnabled
+                        ? "Message keys are being backed up to the server."
+                        : "Message keys are not being backed up. You may lose access to encrypted history."
+                )
+            } header: {
+                Text("Key Backup")
+            }
+
+            Section {
+                statusRow(
+                    icon: isRecoveryEnabled ? "key.fill" : "key",
+                    color: isRecoveryEnabled ? .green : .orange,
+                    title: isRecoveryEnabled ? "Recovery Enabled" : "Recovery Not Set Up",
+                    detail: isRecoveryEnabled
+                        ? "You can recover your encrypted messages if you lose all sessions."
+                        : "Set up a recovery key to protect against losing access to your messages."
                 )
             } header: {
                 Text("Account Recovery")
-            } footer: {
                 Text("Recover your account with a recovery key or passphrase if you lose access to all sessions.")
             }
         }
         .formStyle(.grouped)
+        .task { await loadState() }
+    }
+
+    private func loadState() async {
+        isSessionVerified = await matrixService.isCurrentSessionVerified()
+        let encryption = await matrixService.encryptionState()
+        isBackupEnabled = encryption.backupEnabled
+        isRecoveryEnabled = encryption.recoveryEnabled
     }
 
     private func statusRow(icon: String, color: Color, title: String, detail: String) -> some View {
@@ -831,6 +859,7 @@ private struct EncryptionSettingsTab: View {
         EncryptionSettingsTab()
             .tabItem { Label("Encryption", systemImage: "lock.fill") }
     }
+    .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 480)
 }
 

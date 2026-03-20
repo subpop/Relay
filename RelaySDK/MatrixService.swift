@@ -621,6 +621,15 @@ public final class MatrixService: MatrixServiceProtocol {
         return client.encryption().verificationState() == .verified
     }
 
+    public func encryptionState() async -> EncryptionStatus {
+        guard let client else { return EncryptionStatus() }
+        let encryption = client.encryption()
+        return EncryptionStatus(
+            backupEnabled: encryption.backupState() == .enabled,
+            recoveryEnabled: encryption.recoveryState() == .enabled
+        )
+    }
+
     // MARK: - Devices
 
     private struct DevicesResponse: Decodable {

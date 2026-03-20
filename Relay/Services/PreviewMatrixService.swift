@@ -83,6 +83,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     }
 
     func isCurrentSessionVerified() async -> Bool { true }
+    func encryptionState() async -> EncryptionStatus { EncryptionStatus(backupEnabled: true, recoveryEnabled: true) }
 
     func getDevices() async throws -> [DeviceInfo] {
         [
