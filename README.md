@@ -30,7 +30,9 @@ A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](http
 
 ## Known Issues
 
-- [ ] Message listing
+- [ ] Sometimes a room doesn't mark messages as read, even when the room is focused.
+- [ ] Sometimes a room clears its message list and doesn't render it until the view is resized.
+- [ ] Sometimes a room refreshes its message list upon receiving a new one, removing the message history until the room view is refreshed.
 
 # License
 
