@@ -7,6 +7,14 @@ struct MainView: View {
     @State private var searchText = ""
     @State private var isComposing = false
     @State private var showingInspector = false
+    @State private var inspectorProfile: UserProfile?
+
+    private func showUserProfile(_ profile: UserProfile) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            inspectorProfile = profile
+            showingInspector = true
+        }
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -15,6 +23,7 @@ struct MainView: View {
                 .onChange(of: selectedRoomId) {
                     if selectedRoomId != nil {
                         isComposing = false
+                        inspectorProfile = nil
                     }
                 }
         } detail: {
@@ -24,16 +33,23 @@ struct MainView: View {
                       let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
                       let viewModel = matrixService.makeRoomDetailViewModel(roomId: selectedRoomId) {
                 HStack(spacing: 0) {
-                    RoomDetailView(roomId: selectedRoomId, roomName: summary.name, roomAvatarURL: summary.avatarURL, viewModel: viewModel)
-                        .id(selectedRoomId)
-                        .frame(maxWidth: .infinity)
+                    RoomDetailView(
+                        roomId: selectedRoomId,
+                        roomName: summary.name,
+                        roomAvatarURL: summary.avatarURL,
+                        viewModel: viewModel,
+                        onUserTap: { profile in showUserProfile(profile) }
+                    )
+                    .id(selectedRoomId)
+                    .frame(maxWidth: .infinity)
 
                     if showingInspector {
                         Divider()
 
-                        RoomInfoView(roomId: selectedRoomId)
+                        inspectorPanel(roomId: selectedRoomId)
                             .id(selectedRoomId)
                             .frame(width: 260)
+                            .transition(.move(edge: .trailing))
                     }
                 }
             } else {
@@ -60,7 +76,12 @@ struct MainView: View {
                    let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.25)) {
-                            showingInspector.toggle()
+                            if showingInspector {
+                                showingInspector = false
+                                inspectorProfile = nil
+                            } else {
+                                showingInspector = true
+                            }
                         }
                     } label: {
                         if showingInspector {
@@ -77,6 +98,40 @@ struct MainView: View {
                     .help(showingInspector ? "Hide Room Info" : "Show Room Info")
                 }
             }
+        }
+    }
+
+    // MARK: - Inspector Panel
+
+    @ViewBuilder
+    private func inspectorPanel(roomId: String) -> some View {
+        if let profile = inspectorProfile {
+            VStack(spacing: 0) {
+                HStack {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            inspectorProfile = nil
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Room Info")
+                        }
+                        .font(.callout)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                Divider()
+
+                UserDetailView(profile: profile)
+            }
+        } else {
+            RoomInfoView(roomId: roomId, onMemberTap: { profile in showUserProfile(profile) })
         }
     }
 }

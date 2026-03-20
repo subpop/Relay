@@ -10,6 +10,7 @@ struct RoomDetailView: View {
     let roomName: String
     var roomAvatarURL: String?
     @State var viewModel: any RoomDetailViewModelProtocol
+    var onUserTap: ((UserProfile) -> Void)?
 
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
@@ -149,6 +150,9 @@ struct RoomDetailView: View {
                             },
                             onReply: {
                                 replyingTo = message
+                            },
+                            onAvatarDoubleTap: {
+                                onUserTap?(UserProfile(message: message))
                             }
                         )
                         .id(message.id)

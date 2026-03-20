@@ -24,6 +24,7 @@ struct MessageView: View {
     var onAddReaction: (() -> Void)?
     var onTapReply: ((String) -> Void)?
     var onReply: (() -> Void)?
+    var onAvatarDoubleTap: (() -> Void)?
 
     @State private var isHovering = false
 
@@ -43,6 +44,7 @@ struct MessageView: View {
                             mxcURL: message.senderAvatarURL,
                             size: 28
                         )
+                        .onTapGesture(count: 2) { onAvatarDoubleTap?() }
                     } else {
                         Spacer()
                             .frame(width: 28)

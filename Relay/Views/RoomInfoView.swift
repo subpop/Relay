@@ -4,6 +4,7 @@ import SwiftUI
 struct RoomInfoView: View {
     @Environment(\.matrixService) private var matrixService
     let roomId: String
+    var onMemberTap: ((UserProfile) -> Void)?
 
     @State private var details: RoomDetails?
 
@@ -155,8 +156,9 @@ struct RoomInfoView: View {
         .padding(.horizontal, 16)
     }
 
+    @ViewBuilder
     private func memberRow(_ member: RoomMemberDetails) -> some View {
-        HStack(spacing: 8) {
+        let content = HStack(spacing: 8) {
             AvatarView(
                 name: member.displayName ?? member.userId,
                 mxcURL: member.avatarURL,
@@ -190,6 +192,17 @@ struct RoomInfoView: View {
                         in: Capsule()
                     )
             }
+        }
+
+        if let onMemberTap {
+            Button {
+                onMemberTap(UserProfile(member: member))
+            } label: {
+                content
+            }
+            .buttonStyle(.plain)
+        } else {
+            content
         }
     }
 
