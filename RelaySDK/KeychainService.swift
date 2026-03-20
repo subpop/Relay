@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-enum KeychainService: Sendable {
+nonisolated enum KeychainService: Sendable {
     private static let service = "app.subpop.Relay"
     private static let account = "matrix-session"
 

@@ -11,7 +11,9 @@ final class PreviewMatrixService: MatrixServiceProtocol {
 
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
+    func startOAuthLogin(homeserver: String) async throws {}
     func logout() async {}
+    func startSyncIfNeeded() {}
     func userId() -> String? { "@preview:matrix.org" }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
     func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)? {

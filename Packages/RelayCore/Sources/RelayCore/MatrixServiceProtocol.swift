@@ -43,7 +43,9 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     func restoreSession() async
     func login(username: String, password: String, homeserver: String) async
+    func startOAuthLogin(homeserver: String) async throws
     func logout() async
+    func startSyncIfNeeded()
     func userId() -> String?
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage?
     func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)?
@@ -100,7 +102,9 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var isSyncing: Bool { false }
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
+    func startOAuthLogin(homeserver: String) async throws {}
     func logout() async {}
+    func startSyncIfNeeded() {}
     func userId() -> String? { nil }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
     func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)? { nil }

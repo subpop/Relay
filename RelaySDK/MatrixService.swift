@@ -1,8 +1,12 @@
 import AppKit
+import AuthenticationServices
 import Foundation
 import MatrixRustSDK
+import os
 import RelayCore
 import Synchronization
+
+private let logger = Logger(subsystem: "RelaySDK", category: "MatrixService")
 
 public enum MatrixServiceError: LocalizedError {
     case notLoggedIn
@@ -27,10 +31,12 @@ public final class MatrixService: MatrixServiceProtocol {
 
     private var client: Client?
     private var syncService: SyncService?
+    private var syncTask: Task<Void, Never>?
     private var roomPollTask: Task<Void, Never>?
     private var syncStateHandle: TaskHandle?
     private var roomViewModels: [String: RoomDetailViewModel] = [:]
     private var verificationController: SessionVerificationController?
+    private let sessionDelegate = KeychainSessionDelegate()
 
     // MARK: - Persistence Model
 
@@ -63,6 +69,12 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public init() {}
 
+    private static func resetLocalSessionData() {
+        let fm = FileManager.default
+        try? fm.removeItem(at: dataDirectory)
+        try? fm.removeItem(at: cacheDirectory)
+    }
+
     // MARK: - Session Restore
 
     public func restoreSession() async {
@@ -80,6 +92,7 @@ public final class MatrixService: MatrixServiceProtocol {
                     dataPath: Self.dataDirectory.path,
                     cachePath: Self.cacheDirectory.path
                 )
+                .slidingSyncVersionBuilder(versionBuilder: .discoverNative)
 
             let newClient = try await builder.build()
 
@@ -96,7 +109,6 @@ public final class MatrixService: MatrixServiceProtocol {
 
             client = newClient
             authState = .loggedIn(userId: stored.userId)
-            await startSync()
         } catch {
             authState = .loggedOut
         }
@@ -106,6 +118,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func login(username: String, password: String, homeserver: String) async {
         authState = .loggingIn
+        Self.resetLocalSessionData()
 
         do {
             let builder = ClientBuilder()
@@ -114,6 +127,7 @@ public final class MatrixService: MatrixServiceProtocol {
                     dataPath: Self.dataDirectory.path,
                     cachePath: Self.cacheDirectory.path
                 )
+                .slidingSyncVersionBuilder(versionBuilder: .discoverNative)
 
             let newClient = try await builder.build()
 
@@ -140,7 +154,100 @@ public final class MatrixService: MatrixServiceProtocol {
             }
 
             authState = .loggedIn(userId: session.userId)
-            await startSync()
+        } catch {
+            authState = .error(error.localizedDescription)
+        }
+    }
+
+    // MARK: - OAuth Login
+
+    private static let oauthRedirectScheme = "com.github.subpop.relay"
+    private static let oauthRedirectURI = "\(oauthRedirectScheme):/"
+
+    public func startOAuthLogin(homeserver: String) async throws {
+        authState = .loggingIn
+        Self.resetLocalSessionData()
+
+        do {
+            let builder = ClientBuilder()
+                .serverNameOrHomeserverUrl(serverNameOrUrl: homeserver)
+                .sessionPaths(
+                    dataPath: Self.dataDirectory.path,
+                    cachePath: Self.cacheDirectory.path
+                )
+                .slidingSyncVersionBuilder(versionBuilder: .discoverNative)
+                .setSessionDelegate(sessionDelegate: sessionDelegate)
+                .enableOidcRefreshLock()
+
+            let newClient = try await builder.build()
+
+            let loginDetails = await newClient.homeserverLoginDetails()
+            guard loginDetails.supportsOidcLogin() else {
+                authState = .error("This homeserver does not support OAuth login.")
+                return
+            }
+
+            let oidcConfig = OidcConfiguration(
+                clientName: "Relay",
+                redirectUri: Self.oauthRedirectURI,
+                clientUri: "https://github.com/subpop/Relay",
+                logoUri: nil,
+                tosUri: nil,
+                policyUri: nil,
+                staticRegistrations: [:]
+            )
+
+            let authData = try await newClient.urlForOidc(
+                oidcConfiguration: oidcConfig,
+                prompt: nil,
+                loginHint: nil,
+                deviceId: nil,
+                additionalScopes: nil
+            )
+
+            let loginURL = authData.loginUrl()
+            guard let url = URL(string: loginURL) else {
+                authState = .error("Invalid OAuth login URL.")
+                return
+            }
+
+            let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, any Error>) in
+                let session = ASWebAuthenticationSession(
+                    url: url,
+                    callbackURLScheme: Self.oauthRedirectScheme
+                ) { @Sendable callbackURL, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let callbackURL {
+                        continuation.resume(returning: callbackURL)
+                    } else {
+                        continuation.resume(throwing: OAuthError.missingCallback)
+                    }
+                }
+                session.presentationContextProvider = OAuthPresentationContext.shared
+                session.prefersEphemeralWebBrowserSession = true
+                session.start()
+            }
+
+            client = newClient
+            try await newClient.loginWithOidcCallback(callbackUrl: callbackURL.absoluteString)
+
+            let session = try newClient.session()
+            let stored = StoredSession(
+                accessToken: session.accessToken,
+                refreshToken: session.refreshToken,
+                userId: session.userId,
+                deviceId: session.deviceId,
+                homeserverUrl: session.homeserverUrl,
+                oidcData: session.oidcData
+            )
+            if let encoded = try? JSONEncoder().encode(stored) {
+                KeychainService.save(encoded)
+            }
+
+            authState = .loggedIn(userId: session.userId)
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            authState = .loggedOut
         } catch {
             authState = .error(error.localizedDescription)
         }
@@ -149,6 +256,8 @@ public final class MatrixService: MatrixServiceProtocol {
     // MARK: - Logout
 
     public func logout() async {
+        syncTask?.cancel()
+        syncTask = nil
         roomPollTask?.cancel()
         roomPollTask = nil
         syncStateHandle = nil
@@ -159,6 +268,7 @@ public final class MatrixService: MatrixServiceProtocol {
         try? await client?.logout()
 
         KeychainService.delete()
+        Self.resetLocalSessionData()
 
         client = nil
         syncService = nil
@@ -171,25 +281,34 @@ public final class MatrixService: MatrixServiceProtocol {
 
     // MARK: - Sync
 
-    private func startSync() async {
-        guard let client else { return }
-
+    public func startSyncIfNeeded() {
+        guard syncState == .idle else { return }
         syncState = .syncing
+        syncTask = Task { await performSync() }
+    }
+
+    private func performSync() async {
+        guard let client else { return }
 
         do {
             let builder = client.syncService()
             let service = try await builder.finish()
+            try Task.checkCancellation()
 
             observeSyncState(service)
 
             await service.start()
             syncService = service
+            try Task.checkCancellation()
 
             await waitForFirstSync()
             verificationController = try? await client.getSessionVerificationController()
             await refreshRoomList()
             startPollingRooms()
+        } catch is CancellationError {
+            // Logout cancelled the sync — don't overwrite state
         } catch {
+            logger.error("Sync failed: \(error)")
             syncState = .error
         }
     }
@@ -201,12 +320,10 @@ public final class MatrixService: MatrixServiceProtocol {
                 switch state {
                 case .running:
                     self.syncState = .running
-                case .idle:
-                    self.syncState = .idle
+                case .idle, .offline:
+                    break
                 case .terminated, .error:
                     self.syncState = .error
-                case .offline:
-                    self.syncState = .idle
                 }
             }
         }
@@ -752,3 +869,70 @@ extension DirectoryRoom {
         )
     }
 }
+
+// MARK: - OIDC Session Delegate
+
+private final class KeychainSessionDelegate: ClientSessionDelegate, Sendable {
+    private struct StoredSession: Codable {
+        var accessToken: String
+        var refreshToken: String?
+        var userId: String
+        var deviceId: String
+        var homeserverUrl: String
+        var oidcData: String?
+    }
+
+    func retrieveSessionFromKeychain(userId: String) throws -> Session {
+        guard let data = KeychainService.load(),
+              let stored = try? JSONDecoder().decode(StoredSession.self, from: data),
+              stored.userId == userId
+        else {
+            throw KeychainSessionError.sessionNotFound
+        }
+        return Session(
+            accessToken: stored.accessToken,
+            refreshToken: stored.refreshToken,
+            userId: stored.userId,
+            deviceId: stored.deviceId,
+            homeserverUrl: stored.homeserverUrl,
+            oidcData: stored.oidcData,
+            slidingSyncVersion: .native
+        )
+    }
+
+    func saveSessionInKeychain(session: Session) {
+        let stored = StoredSession(
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken,
+            userId: session.userId,
+            deviceId: session.deviceId,
+            homeserverUrl: session.homeserverUrl,
+            oidcData: session.oidcData
+        )
+        if let data = try? JSONEncoder().encode(stored) {
+            KeychainService.save(data)
+        }
+    }
+}
+
+private enum KeychainSessionError: Error {
+    case sessionNotFound
+}
+private enum OAuthError: LocalizedError {
+    case missingCallback
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCallback: "No callback URL received from authentication."
+        }
+    }
+}
+
+private class OAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = OAuthPresentationContext()
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        NSApp.keyWindow ?? NSApp.mainWindow ?? ASPresentationAnchor()
+    }
+}
+
