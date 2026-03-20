@@ -1,4 +1,4 @@
-Relay (working title) is a Matrix client that doesn't *act* like a Matrix client.
+Relay (working title) is a Matrix client that doesn't look like a Matrix client.
 
 A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) via UniFFI-generated Swift bindings. Relay aims to feel like a first-class Mac app — fast, lightweight, and keyboard-friendly — while speaking the Matrix protocol under the hood.
 
