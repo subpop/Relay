@@ -30,6 +30,7 @@ struct RoomDetailView: View {
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
     @State private var emojiPickerMessageId: String?
+    @State private var revealedMessageId: String?
 
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
@@ -148,28 +149,31 @@ struct RoomDetailView: View {
                         let isLastInGroup = isLastMessageInGroup(at: index, in: messages)
                         let showSenderName = shouldShowSenderName(at: index, in: messages)
 
-                        MessageView(
-                            message: message,
-                            isLastInGroup: isLastInGroup,
-                            showSenderName: showSenderName,
-                            onToggleReaction: { key in
-                                Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
-                            },
-                            onAddReaction: {
-                                emojiPickerMessageId = message.id
-                            },
-                            onTapReply: { eventID in
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    scrollPosition.scrollTo(id: eventID, anchor: .center)
+                        MessageSwipeActions(
+                            messageId: message.id,
+                            revealedMessageId: $revealedMessageId
+                        ) {
+                            MessageView(
+                                message: message,
+                                isLastInGroup: isLastInGroup,
+                                showSenderName: showSenderName,
+                                onToggleReaction: { key in
+                                    Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
+                                },
+                                onTapReply: { eventID in
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        scrollPosition.scrollTo(id: eventID, anchor: .center)
+                                    }
+                                },
+                                onAvatarDoubleTap: {
+                                    onUserTap?(UserProfile(message: message))
                                 }
-                            },
-                            onReply: {
-                                replyingTo = message
-                            },
-                            onAvatarDoubleTap: {
-                                onUserTap?(UserProfile(message: message))
-                            }
-                        )
+                            )
+                        } onReply: {
+                            replyingTo = message
+                        } onAddReaction: {
+                            emojiPickerMessageId = message.id
+                        }
                         .id(message.id)
                         .help(message.formattedTime)
                         .contextMenu {
@@ -196,6 +200,14 @@ struct RoomDetailView: View {
                 }
                 .scrollTargetLayout()
                 .padding()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if revealedMessageId != nil {
+                        withAnimation(.snappy(duration: 0.25)) {
+                            revealedMessageId = nil
+                        }
+                    }
+                }
             }
             .defaultScrollAnchor(.bottom)
             .scrollPosition($scrollPosition)
