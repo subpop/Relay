@@ -58,9 +58,17 @@ struct RoomDetailView: View {
         messageList
             .environment(\.mediaAutoReveal, shouldAutoRevealMedia)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                ComposeView(text: $draftMessage, replyingTo: $replyingTo, onSend: sendMessage, onAttach: sendAttachments)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
+                VStack(spacing: 0) {
+                    if !viewModel.typingUserDisplayNames.isEmpty {
+                        typingIndicator
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, onSend: sendMessage, onAttach: sendAttachments)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                }
             }
             .navigationTitle("")
         .task {
@@ -191,11 +199,6 @@ struct RoomDetailView: View {
                                 emojiPickerMessageId = nil
                             }
                         }
-                    }
-
-                    if !viewModel.typingUserDisplayNames.isEmpty {
-                        typingIndicator
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
                 .scrollTargetLayout()
