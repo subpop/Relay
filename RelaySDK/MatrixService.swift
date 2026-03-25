@@ -37,6 +37,7 @@ public final class MatrixService: MatrixServiceProtocol {
     public private(set) var rooms: [RoomSummary] = []
 
     public var isSyncing: Bool { syncState == .syncing || syncState == .running }
+    public private(set) var hasLoadedRooms: Bool = false
 
     // MARK: - Private State
 
@@ -288,6 +289,7 @@ public final class MatrixService: MatrixServiceProtocol {
         verificationController = nil
         rooms = []
         roomViewModels = [:]
+        hasLoadedRooms = false
         syncState = .idle
         authState = .loggedOut
     }
@@ -317,6 +319,7 @@ public final class MatrixService: MatrixServiceProtocol {
             await waitForFirstSync()
             verificationController = try? await client.getSessionVerificationController()
             await refreshRoomList()
+            hasLoadedRooms = true
             startPollingRooms()
         } catch is CancellationError {
             // Logout cancelled the sync — don't overwrite state

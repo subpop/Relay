@@ -12,6 +12,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     var syncState: SyncState = .running
     var rooms: [RoomSummary] = PreviewMatrixService.sampleRooms
     var isSyncing: Bool { false }
+    var hasLoadedRooms: Bool = true
 
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}

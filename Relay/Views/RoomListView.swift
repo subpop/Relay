@@ -71,14 +71,14 @@ struct RoomListView: View {
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
         .overlay {
             if matrixService.rooms.isEmpty {
-                if matrixService.isSyncing {
-                    ProgressView("Syncing…")
-                } else {
+                if matrixService.hasLoadedRooms {
                     ContentUnavailableView(
                         "No Rooms",
                         systemImage: "bubble.left.and.bubble.right",
                         description: Text("Join a room to start chatting.")
                     )
+                } else {
+                    ProgressView("Syncing…")
                 }
             }
         }

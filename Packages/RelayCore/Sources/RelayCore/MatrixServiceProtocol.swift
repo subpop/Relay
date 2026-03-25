@@ -73,6 +73,13 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// Whether the client is actively syncing (`syncing` or `running`).
     var isSyncing: Bool { get }
 
+    /// Whether the initial room list has been loaded after sync started.
+    ///
+    /// This becomes `true` after the first successful room list fetch, allowing
+    /// views to distinguish between "still loading for the first time" and
+    /// "rooms loaded but the list is empty."
+    var hasLoadedRooms: Bool { get }
+
     /// Attempts to restore a previously saved session from the keychain.
     func restoreSession() async
 
@@ -263,6 +270,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var syncState: SyncState = .idle
     var rooms: [RoomSummary] = []
     var isSyncing: Bool { false }
+    var hasLoadedRooms: Bool = false
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
     func startOAuthLogin(homeserver: String) async throws {}
