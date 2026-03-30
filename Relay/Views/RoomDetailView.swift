@@ -226,6 +226,9 @@ struct RoomDetailView: View {
         } action: { _, newValue in
             guard isNearBottom != newValue else { return }
             isNearBottom = newValue
+            if newValue {
+                Task { await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts) }
+            }
         }
         .onChange(of: viewModel.messages.last?.id) {
             if isNearBottom || pendingScrollToBottom {
