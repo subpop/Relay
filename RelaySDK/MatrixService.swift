@@ -4,7 +4,6 @@ import Foundation
 import MatrixRustSDK
 import os
 import RelayCore
-import Synchronization
 
 private let logger = Logger(subsystem: "RelaySDK", category: "MatrixService")
 
@@ -22,10 +21,12 @@ public enum MatrixServiceError: LocalizedError {
 
 /// The concrete implementation of ``MatrixServiceProtocol`` backed by the Matrix Rust SDK.
 ///
-/// ``MatrixService`` manages the full lifecycle of a Matrix client session: authentication
-/// (password and OAuth/OIDC), session persistence via ``KeychainService``, background sync
-/// via the SDK's `SyncService`, room list polling, media caching, notification settings,
-/// and device/session verification.
+/// ``MatrixService`` acts as a thin facade that coordinates several focused sub-services:
+/// - ``AuthenticationService`` — login, session restore, OAuth/OIDC
+/// - ``SyncManager`` — sync lifecycle and state observation
+/// - ``RoomListManager`` — room list polling and sorting
+/// - ``MediaService`` — avatar and media caching/fetching
+/// - ``DirectorySearchService`` — public room directory search
 ///
 /// This class is `@Observable` and `@MainActor`-isolated so that SwiftUI views can bind
 /// directly to its published state.
@@ -33,97 +34,38 @@ public enum MatrixServiceError: LocalizedError {
 public final class MatrixService: MatrixServiceProtocol {
 
     public private(set) var authState: AuthState = .unknown
-    public private(set) var syncState: SyncState = .idle
-    public private(set) var rooms: [RoomSummary] = []
+    public var syncState: SyncState { syncManager.syncState }
+    public var rooms: [RoomSummary] { roomListManager.rooms }
 
     public var isSyncing: Bool { syncState == .syncing || syncState == .running }
-    public private(set) var hasLoadedRooms: Bool = false
+    public var hasLoadedRooms: Bool { roomListManager.hasLoadedRooms }
 
     // MARK: - Private State
 
     private var client: Client?
-    private var syncService: SyncService?
     private var syncTask: Task<Void, Never>?
-    private var roomPollTask: Task<Void, Never>?
-    private var syncStateHandle: TaskHandle?
     private var roomViewModels: [String: RoomDetailViewModel] = [:]
     private var verificationController: SessionVerificationController?
-    private let sessionDelegate = KeychainSessionDelegate()
 
-    // MARK: - Persistence Model
+    // MARK: - Sub-Services
 
-    struct StoredSession: Codable, Sendable {
-        var accessToken: String
-        var refreshToken: String?
-        var userId: String
-        var deviceId: String
-        var homeserverUrl: String
-        var oidcData: String?
-    }
-
-    // MARK: - Data Paths
-
-    private static var dataDirectory: URL {
-        let url = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Relay/matrix-data", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private static var cacheDirectory: URL {
-        let url = FileManager.default
-            .urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Relay/matrix-cache", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private let auth = AuthenticationService()
+    private let syncManager = SyncManager()
+    private let roomListManager = RoomListManager()
+    private let media = MediaService()
+    private let directorySearch = DirectorySearchService()
 
     /// Creates a new ``MatrixService``. Call ``restoreSession()`` after initialization to
     /// attempt automatic sign-in from a previously saved keychain session.
     public init() {}
 
-    private static func resetLocalSessionData() {
-        let fm = FileManager.default
-        try? fm.removeItem(at: dataDirectory)
-        try? fm.removeItem(at: cacheDirectory)
-    }
-
     // MARK: - Session Restore
 
     public func restoreSession() async {
-        guard let data = KeychainService.load(),
-              let stored = try? JSONDecoder().decode(StoredSession.self, from: data)
-        else {
-            authState = .loggedOut
-            return
-        }
-
-        do {
-            let builder = ClientBuilder()
-                .homeserverUrl(url: stored.homeserverUrl)
-                .sessionPaths(
-                    dataPath: Self.dataDirectory.path,
-                    cachePath: Self.cacheDirectory.path
-                )
-                .slidingSyncVersionBuilder(versionBuilder: .discoverNative)
-
-            let newClient = try await builder.build()
-
-            let session = Session(
-                accessToken: stored.accessToken,
-                refreshToken: stored.refreshToken,
-                userId: stored.userId,
-                deviceId: stored.deviceId,
-                homeserverUrl: stored.homeserverUrl,
-                oidcData: stored.oidcData,
-                slidingSyncVersion: .native
-            )
-            try await newClient.restoreSession(session: session)
-
-            client = newClient
-            authState = .loggedIn(userId: stored.userId)
-        } catch {
+        if let (restoredClient, userId) = await auth.restoreSession() {
+            client = restoredClient
+            authState = .loggedIn(userId: userId)
+        } else {
             authState = .loggedOut
         }
     }
@@ -132,42 +74,10 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func login(username: String, password: String, homeserver: String) async {
         authState = .loggingIn
-        Self.resetLocalSessionData()
-
         do {
-            let builder = ClientBuilder()
-                .serverNameOrHomeserverUrl(serverNameOrUrl: homeserver)
-                .sessionPaths(
-                    dataPath: Self.dataDirectory.path,
-                    cachePath: Self.cacheDirectory.path
-                )
-                .slidingSyncVersionBuilder(versionBuilder: .discoverNative)
-
-            let newClient = try await builder.build()
-
-            try await newClient.login(
-                username: username,
-                password: password,
-                initialDeviceName: "Relay",
-                deviceId: nil
-            )
-
+            let (newClient, userId) = try await auth.login(username: username, password: password, homeserver: homeserver)
             client = newClient
-
-            let session = try newClient.session()
-            let stored = StoredSession(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                userId: session.userId,
-                deviceId: session.deviceId,
-                homeserverUrl: session.homeserverUrl,
-                oidcData: session.oidcData
-            )
-            if let encoded = try? JSONEncoder().encode(stored) {
-                KeychainService.save(encoded)
-            }
-
-            authState = .loggedIn(userId: session.userId)
+            authState = .loggedIn(userId: userId)
         } catch {
             authState = .error(error.localizedDescription)
         }
@@ -175,91 +85,12 @@ public final class MatrixService: MatrixServiceProtocol {
 
     // MARK: - OAuth Login
 
-    private static let oauthRedirectScheme = "com.github.subpop.relay"
-    private static let oauthRedirectURI = "\(oauthRedirectScheme):/"
-
     public func startOAuthLogin(homeserver: String) async throws {
         authState = .loggingIn
-        Self.resetLocalSessionData()
-
         do {
-            let builder = ClientBuilder()
-                .serverNameOrHomeserverUrl(serverNameOrUrl: homeserver)
-                .sessionPaths(
-                    dataPath: Self.dataDirectory.path,
-                    cachePath: Self.cacheDirectory.path
-                )
-                .slidingSyncVersionBuilder(versionBuilder: .discoverNative)
-                .setSessionDelegate(sessionDelegate: sessionDelegate)
-                .enableOidcRefreshLock()
-
-            let newClient = try await builder.build()
-
-            let loginDetails = await newClient.homeserverLoginDetails()
-            guard loginDetails.supportsOidcLogin() else {
-                authState = .error("This homeserver does not support OAuth login.")
-                return
-            }
-
-            let oidcConfig = OidcConfiguration(
-                clientName: "Relay",
-                redirectUri: Self.oauthRedirectURI,
-                clientUri: "https://github.com/subpop/Relay",
-                logoUri: nil,
-                tosUri: nil,
-                policyUri: nil,
-                staticRegistrations: [:]
-            )
-
-            let authData = try await newClient.urlForOidc(
-                oidcConfiguration: oidcConfig,
-                prompt: nil,
-                loginHint: nil,
-                deviceId: nil,
-                additionalScopes: nil
-            )
-
-            let loginURL = authData.loginUrl()
-            guard let url = URL(string: loginURL) else {
-                authState = .error("Invalid OAuth login URL.")
-                return
-            }
-
-            let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, any Error>) in
-                let session = ASWebAuthenticationSession(
-                    url: url,
-                    callbackURLScheme: Self.oauthRedirectScheme
-                ) { @Sendable callbackURL, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else if let callbackURL {
-                        continuation.resume(returning: callbackURL)
-                    } else {
-                        continuation.resume(throwing: OAuthError.missingCallback)
-                    }
-                }
-                session.presentationContextProvider = OAuthPresentationContext.shared
-                session.prefersEphemeralWebBrowserSession = true
-                session.start()
-            }
-
+            let (newClient, userId) = try await auth.startOAuthLogin(homeserver: homeserver)
             client = newClient
-            try await newClient.loginWithOidcCallback(callbackUrl: callbackURL.absoluteString)
-
-            let session = try newClient.session()
-            let stored = StoredSession(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                userId: session.userId,
-                deviceId: session.deviceId,
-                homeserverUrl: session.homeserverUrl,
-                oidcData: session.oidcData
-            )
-            if let encoded = try? JSONEncoder().encode(stored) {
-                KeychainService.save(encoded)
-            }
-
-            authState = .loggedIn(userId: session.userId)
+            authState = .loggedIn(userId: userId)
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             authState = .loggedOut
         } catch {
@@ -272,33 +103,23 @@ public final class MatrixService: MatrixServiceProtocol {
     public func logout() async {
         syncTask?.cancel()
         syncTask = nil
-        roomPollTask?.cancel()
-        roomPollTask = nil
-        syncStateHandle = nil
 
-        if let syncService {
-            await syncService.stop()
-        }
+        await syncManager.stop()
         try? await client?.logout()
 
-        KeychainService.delete()
-        Self.resetLocalSessionData()
+        auth.clearSession()
 
         client = nil
-        syncService = nil
         verificationController = nil
-        rooms = []
+        roomListManager.reset()
         roomViewModels = [:]
-        hasLoadedRooms = false
-        syncState = .idle
         authState = .loggedOut
     }
 
     // MARK: - Sync
 
     public func startSyncIfNeeded() {
-        guard syncState == .idle else { return }
-        syncState = .syncing
+        guard syncManager.syncState == .idle else { return }
         syncTask = Task { await performSync() }
     }
 
@@ -306,162 +127,13 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let client else { return }
 
         do {
-            let builder = client.syncService()
-            let service = try await builder.finish()
-            try Task.checkCancellation()
-
-            observeSyncState(service)
-
-            await service.start()
-            syncService = service
-            try Task.checkCancellation()
-
-            await waitForFirstSync()
+            try await syncManager.startSync(client: client)
             verificationController = try? await client.getSessionVerificationController()
-            await refreshRoomList()
-            hasLoadedRooms = true
-            startPollingRooms()
+            await roomListManager.startPolling(client: client)
         } catch is CancellationError {
             // Logout cancelled the sync — don't overwrite state
         } catch {
             logger.error("Sync failed: \(error)")
-            syncState = .error
-        }
-    }
-
-    private func observeSyncState(_ service: SyncService) {
-        let observer = SyncStateObserverProxy { [weak self] state in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                switch state {
-                case .running:
-                    self.syncState = .running
-                case .idle, .offline:
-                    break
-                case .terminated, .error:
-                    self.syncState = .error
-                }
-            }
-        }
-        syncStateHandle = service.state(listener: observer)
-    }
-
-    private func waitForFirstSync() async {
-        for _ in 0..<30 {
-            if syncState == .running { return }
-            try? await Task.sleep(for: .milliseconds(500))
-        }
-    }
-
-    // MARK: - Room List
-
-    private func startPollingRooms() {
-        roomPollTask?.cancel()
-        roomPollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await self?.refreshRoomList()
-            }
-        }
-    }
-
-    private func refreshRoomList() async {
-        guard let client else { return }
-
-        let sdkRooms = client.rooms().filter { $0.membership() == .joined && !$0.isSpace() }
-        var summaries: [RoomSummary] = []
-
-        for room in sdkRooms {
-            let name = room.displayName() ?? room.id()
-            let avatarUrl = room.avatarUrl()
-
-            var unreadMessages: UInt64 = 0
-            var unreadMentions: UInt64 = 0
-            var isDirect = false
-            if let info = try? await room.roomInfo() {
-                unreadMessages = info.numUnreadMessages
-                unreadMentions = info.numUnreadMentions
-                isDirect = info.isDirect
-            }
-
-            let (lastMessage, lastTimestamp) = await latestMessagePreview(for: room)
-
-            summaries.append(RoomSummary(
-                id: room.id(),
-                name: name,
-                avatarURL: avatarUrl,
-                lastMessage: lastMessage,
-                lastMessageTimestamp: lastTimestamp,
-                unreadCount: UInt(unreadMessages),
-                unreadMentions: UInt(unreadMentions),
-                isDirect: isDirect
-            ))
-        }
-
-        rooms = summaries.sorted { lhs, rhs in
-            switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
-            case (.some(let l), .some(let r)):
-                return l > r
-            case (.some, .none):
-                return true
-            case (.none, .some):
-                return false
-            case (.none, .none):
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
-        }
-    }
-
-    // MARK: - Latest Message Preview
-
-    private func latestMessagePreview(for room: Room) async -> (String?, Date?) {
-        let latest = await room.latestEvent()
-
-        let content: TimelineItemContent
-        let timestamp: Timestamp
-
-        switch latest {
-        case .remote(let ts, _, _, _, let c):
-            content = c
-            timestamp = ts
-        case .local(let ts, _, _, let c, _):
-            content = c
-            timestamp = ts
-        case .none:
-            return (nil, nil)
-        }
-
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
-        let preview = contentPreview(content)
-        return (preview, date)
-    }
-
-    private func contentPreview(_ content: TimelineItemContent) -> String? {
-        switch content {
-        case .msgLike(let msgLike):
-            switch msgLike.kind {
-            case .message(let mc):
-                switch mc.msgType {
-                case .text(let t): return t.body
-                case .image: return "Sent an image"
-                case .video: return "Sent a video"
-                case .audio: return "Sent audio"
-                case .file: return "Sent a file"
-                case .emote(let e): return "* \(e.body)"
-                case .notice(let n): return n.body
-                case .location: return "Shared a location"
-                case .gallery: return "Sent a gallery"
-                case .other: return nil
-                }
-            case .sticker: return "Sent a sticker"
-            case .poll: return "Started a poll"
-            case .redacted: return "Message deleted"
-            case .unableToDecrypt: return "Encrypted message"
-            case .other: return nil
-            }
-        case .roomMembership: return "Membership changed"
-        case .profileChange: return "Profile updated"
-        default: return nil
         }
     }
 
@@ -508,7 +180,7 @@ public final class MatrixService: MatrixServiceProtocol {
     public func joinRoom(idOrAlias: String) async throws {
         guard let client else { return }
         _ = try await client.joinRoomByIdOrAlias(roomIdOrAlias: idOrAlias, serverNames: [])
-        await refreshRoomList()
+        await roomListManager.refresh(client: client)
     }
 
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
@@ -522,15 +194,17 @@ public final class MatrixService: MatrixServiceProtocol {
             preset: isPublic ? .publicChat : .privateChat
         )
         let roomId = try await client.createRoom(request: params)
-        await refreshRoomList()
+        await roomListManager.refresh(client: client)
         return roomId
     }
 
     public func leaveRoom(id: String) async throws {
         guard let room = room(id: id) else { return }
         try await room.leave()
-        rooms.removeAll { $0.id == id }
         roomViewModels.removeValue(forKey: id)
+        if let client {
+            await roomListManager.refresh(client: client)
+        }
     }
 
     // MARK: - Read Receipts & Typing
@@ -539,7 +213,9 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let room = room(id: roomId) else { return }
         let receiptType: ReceiptType = sendPublicReceipt ? .read : .readPrivate
         try? await room.markAsRead(receiptType: receiptType)
-        await refreshRoomList()
+        if let client {
+            await roomListManager.refresh(client: client)
+        }
     }
 
     public func sendTypingNotice(roomId: String, isTyping: Bool) async {
@@ -602,80 +278,24 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func searchDirectory(query: String) async throws -> [DirectoryRoom] {
         guard let client else { return [] }
-        let search = client.roomDirectorySearch()
-        let collector = DirectorySearchCollector()
-
-        let listener = DirectorySearchListenerProxy { updates in
-            collector.apply(updates)
-        }
-
-        let handle = await search.results(listener: listener)
-        try await search.search(filter: query, batchSize: 20, viaServerName: nil)
-        try await Task.sleep(for: .milliseconds(500))
-
-        let results = collector.snapshot()
-        withExtendedLifetime(handle) {}
-        return results
+        return try await directorySearch.search(query: query, client: client)
     }
 
     // MARK: - Media
 
-    private static let avatarCache = NSCache<NSString, NSImage>()
-
     public func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? {
-        let scale = 2.0
-        let px = UInt64(size * scale)
-        let cacheKey = "\(mxcURL)_\(px)" as NSString
-
-        if let cached = Self.avatarCache.object(forKey: cacheKey) {
-            return cached
-        }
-
         guard let client else { return nil }
-
-        do {
-            let source = try MediaSource.fromUrl(url: mxcURL)
-            let data = try await client.getMediaThumbnail(mediaSource: source, width: px, height: px)
-            guard let image = NSImage(data: data) else { return nil }
-            Self.avatarCache.setObject(image, forKey: cacheKey)
-            return image
-        } catch {
-            return nil
-        }
+        return await media.avatarThumbnail(mxcURL: mxcURL, size: size, client: client)
     }
 
-    private static let mediaCache = NSCache<NSString, NSData>()
-
     public func mediaContent(mxcURL: String) async -> Data? {
-        let cacheKey = mxcURL as NSString
-        if let cached = Self.mediaCache.object(forKey: cacheKey) {
-            return cached as Data
-        }
         guard let client else { return nil }
-        do {
-            let source = try MediaSource.fromUrl(url: mxcURL)
-            let data = try await client.getMediaContent(mediaSource: source)
-            Self.mediaCache.setObject(data as NSData, forKey: cacheKey)
-            return data
-        } catch {
-            return nil
-        }
+        return await media.mediaContent(mxcURL: mxcURL, client: client)
     }
 
     public func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data? {
-        let cacheKey = "\(mxcURL)_thumb_\(width)x\(height)" as NSString
-        if let cached = Self.mediaCache.object(forKey: cacheKey) {
-            return cached as Data
-        }
         guard let client else { return nil }
-        do {
-            let source = try MediaSource.fromUrl(url: mxcURL)
-            let data = try await client.getMediaThumbnail(mediaSource: source, width: width, height: height)
-            Self.mediaCache.setObject(data as NSData, forKey: cacheKey)
-            return data
-        } catch {
-            return nil
-        }
+        return await media.mediaThumbnail(mxcURL: mxcURL, width: width, height: height, client: client)
     }
 
     // MARK: - Notification Settings
@@ -805,157 +425,3 @@ public final class MatrixService: MatrixServiceProtocol {
         }
     }
 }
-
-// MARK: - Sync State Observer Bridge
-
-/// Bridges `SyncServiceStateObserver` callbacks from the Matrix Rust SDK to a Swift closure.
-nonisolated final class SyncStateObserverProxy: SyncServiceStateObserver, @unchecked Sendable {
-    private let handler: @Sendable (SyncServiceState) -> Void
-
-    init(handler: @escaping @Sendable (SyncServiceState) -> Void) {
-        self.handler = handler
-    }
-
-    func onUpdate(state: SyncServiceState) {
-        handler(state)
-    }
-}
-
-// MARK: - Directory Search Collector
-
-nonisolated private final class DirectorySearchCollector: Sendable {
-    private let storage = Mutex<[DirectoryRoom]>([])
-
-    nonisolated func apply(_ updates: [RoomDirectorySearchEntryUpdate]) {
-        storage.withLock { results in
-            for update in updates {
-                switch update {
-                case .append(let values):
-                    results.append(contentsOf: values.map(DirectoryRoom.from))
-                case .clear:
-                    results.removeAll()
-                case .pushBack(let value):
-                    results.append(.from(value))
-                case .pushFront(let value):
-                    results.insert(.from(value), at: 0)
-                case .insert(let index, let value):
-                    results.insert(.from(value), at: Int(index))
-                case .set(let index, let value):
-                    results[Int(index)] = .from(value)
-                case .remove(let index):
-                    results.remove(at: Int(index))
-                case .popFront:
-                    if !results.isEmpty { results.removeFirst() }
-                case .popBack:
-                    if !results.isEmpty { results.removeLast() }
-                case .reset(let values):
-                    results = values.map(DirectoryRoom.from)
-                case .truncate(let length):
-                    results = Array(results.prefix(Int(length)))
-                }
-            }
-        }
-    }
-
-    nonisolated func snapshot() -> [DirectoryRoom] {
-        storage.withLock { $0 }
-    }
-}
-
-// MARK: - Directory Search Listener Bridge
-
-/// Bridges `RoomDirectorySearchEntriesListener` callbacks from the Matrix Rust SDK to a Swift closure.
-nonisolated final class DirectorySearchListenerProxy: RoomDirectorySearchEntriesListener, @unchecked Sendable {
-    private let handler: @Sendable ([RoomDirectorySearchEntryUpdate]) -> Void
-
-    init(handler: @escaping @Sendable ([RoomDirectorySearchEntryUpdate]) -> Void) {
-        self.handler = handler
-    }
-
-    func onUpdate(roomEntriesUpdate: [RoomDirectorySearchEntryUpdate]) {
-        handler(roomEntriesUpdate)
-    }
-}
-
-// MARK: - RoomDescription → DirectoryRoom
-
-extension DirectoryRoom {
-    /// Converts a Matrix Rust SDK `RoomDescription` into a ``DirectoryRoom`` model.
-    nonisolated static func from(_ desc: RoomDescription) -> DirectoryRoom {
-        DirectoryRoom(
-            roomId: desc.roomId,
-            name: desc.name,
-            topic: desc.topic,
-            alias: desc.alias,
-            avatarURL: desc.avatarUrl,
-            memberCount: desc.joinedMembers
-        )
-    }
-}
-
-// MARK: - OIDC Session Delegate
-
-private final class KeychainSessionDelegate: ClientSessionDelegate, Sendable {
-    private struct StoredSession: Codable {
-        var accessToken: String
-        var refreshToken: String?
-        var userId: String
-        var deviceId: String
-        var homeserverUrl: String
-        var oidcData: String?
-    }
-
-    func retrieveSessionFromKeychain(userId: String) throws -> Session {
-        guard let data = KeychainService.load(),
-              let stored = try? JSONDecoder().decode(StoredSession.self, from: data),
-              stored.userId == userId
-        else {
-            throw KeychainSessionError.sessionNotFound
-        }
-        return Session(
-            accessToken: stored.accessToken,
-            refreshToken: stored.refreshToken,
-            userId: stored.userId,
-            deviceId: stored.deviceId,
-            homeserverUrl: stored.homeserverUrl,
-            oidcData: stored.oidcData,
-            slidingSyncVersion: .native
-        )
-    }
-
-    func saveSessionInKeychain(session: Session) {
-        let stored = StoredSession(
-            accessToken: session.accessToken,
-            refreshToken: session.refreshToken,
-            userId: session.userId,
-            deviceId: session.deviceId,
-            homeserverUrl: session.homeserverUrl,
-            oidcData: session.oidcData
-        )
-        if let data = try? JSONEncoder().encode(stored) {
-            KeychainService.save(data)
-        }
-    }
-}
-
-private enum KeychainSessionError: Error {
-    case sessionNotFound
-}
-private enum OAuthError: LocalizedError {
-    case missingCallback
-
-    var errorDescription: String? {
-        switch self {
-        case .missingCallback: "No callback URL received from authentication."
-        }
-    }
-}
-
-private class OAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
-    static let shared = OAuthPresentationContext()
-
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        NSApp.keyWindow ?? NSApp.mainWindow ?? ASPresentationAnchor()
-    }
-}
-
