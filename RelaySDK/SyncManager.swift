@@ -11,6 +11,7 @@ private let logger = Logger(subsystem: "RelaySDK", category: "Sync")
 /// It reports the current sync state and handles the initial sync wait. The caller
 /// (``MatrixService``) uses this state to drive UI loading indicators and trigger
 /// post-sync actions like room list loading.
+@Observable
 @MainActor
 final class SyncManager {
     /// The current synchronization state.

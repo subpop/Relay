@@ -11,6 +11,7 @@ private let logger = Logger(subsystem: "RelaySDK", category: "RoomList")
 /// extracts summary information (name, avatar, unread counts, latest message preview),
 /// and produces a sorted ``RoomSummary`` array. The polling runs on a background task
 /// and can be started/stopped by the caller.
+@Observable
 @MainActor
 final class RoomListManager {
     /// The current sorted list of room summaries.
