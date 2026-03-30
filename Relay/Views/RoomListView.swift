@@ -52,6 +52,7 @@ struct RoomListView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
                     .padding(4)

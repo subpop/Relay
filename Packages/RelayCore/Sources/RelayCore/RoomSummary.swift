@@ -20,8 +20,11 @@ public final class RoomSummary: Identifiable {
     /// The `mxc://` URL of the room's avatar image, if set.
     public var avatarURL: String?
 
-    /// A short text preview of the most recent message in the room.
-    public var lastMessage: String?
+    /// A rich text preview of the most recent message in the room.
+    ///
+    /// The attributed string preserves inline Markdown formatting (bold, italic, code,
+    /// strikethrough, links) so the sidebar can render a styled single-line preview.
+    public var lastMessage: AttributedString?
 
     /// The timestamp of the most recent message, used for sorting the room list.
     public var lastMessageTimestamp: Date?
@@ -41,7 +44,7 @@ public final class RoomSummary: Identifiable {
     ///   - id: The Matrix room identifier.
     ///   - name: The room display name.
     ///   - avatarURL: The `mxc://` URL for the room avatar.
-    ///   - lastMessage: A text preview of the most recent message.
+    ///   - lastMessage: A rich text preview of the most recent message.
     ///   - lastMessageTimestamp: The timestamp of the most recent message.
     ///   - unreadCount: The number of unread messages.
     ///   - unreadMentions: The number of unread mentions.
@@ -50,7 +53,7 @@ public final class RoomSummary: Identifiable {
         id: String,
         name: String,
         avatarURL: String? = nil,
-        lastMessage: String? = nil,
+        lastMessage: AttributedString? = nil,
         lastMessageTimestamp: Date? = nil,
         unreadCount: UInt = 0,
         unreadMentions: UInt = 0,

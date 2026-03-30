@@ -271,7 +271,7 @@ private final class RoomEntry: Identifiable {
         }
     }
 
-    private func latestMessagePreview() async -> (String?, Date?) {
+    private func latestMessagePreview() async -> (AttributedString?, Date?) {
         let latest = await room.latestEvent()
 
         let content: TimelineItemContent
@@ -293,32 +293,43 @@ private final class RoomEntry: Identifiable {
         return (preview, date)
     }
 
-    private func contentPreview(_ content: TimelineItemContent) -> String? {
+    private func contentPreview(_ content: TimelineItemContent) -> AttributedString? {
         switch content {
         case .msgLike(let msgLike):
             switch msgLike.kind {
             case .message(let mc):
                 switch mc.msgType {
-                case .text(let t): return t.body
-                case .image: return "Sent an image"
-                case .video: return "Sent a video"
-                case .audio: return "Sent audio"
-                case .file: return "Sent a file"
-                case .emote(let e): return "* \(e.body)"
-                case .notice(let n): return n.body
-                case .location: return "Shared a location"
-                case .gallery: return "Sent a gallery"
+                case .text(let t): return Self.parseMarkdown(t.body)
+                case .image: return AttributedString("Sent an image")
+                case .video: return AttributedString("Sent a video")
+                case .audio: return AttributedString("Sent audio")
+                case .file: return AttributedString("Sent a file")
+                case .emote(let e): return Self.parseMarkdown("* \(e.body)")
+                case .notice(let n): return Self.parseMarkdown(n.body)
+                case .location: return AttributedString("Shared a location")
+                case .gallery: return AttributedString("Sent a gallery")
                 case .other: return nil
                 }
-            case .sticker: return "Sent a sticker"
-            case .poll: return "Started a poll"
-            case .redacted: return "Message deleted"
-            case .unableToDecrypt: return "Encrypted message"
+            case .sticker: return AttributedString("Sent a sticker")
+            case .poll: return AttributedString("Started a poll")
+            case .redacted: return AttributedString("Message deleted")
+            case .unableToDecrypt: return AttributedString("Encrypted message")
             case .other: return nil
             }
-        case .roomMembership: return "Membership changed"
-        case .profileChange: return "Profile updated"
+        case .roomMembership: return AttributedString("Membership changed")
+        case .profileChange: return AttributedString("Profile updated")
         default: return nil
         }
+    }
+
+    /// Parses a raw message body as inline Markdown, falling back to plain text on failure.
+    private static func parseMarkdown(_ body: String) -> AttributedString {
+        if let md = try? AttributedString(
+            markdown: body,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            return md
+        }
+        return AttributedString(body)
     }
 }

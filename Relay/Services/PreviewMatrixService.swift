@@ -110,7 +110,10 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             id: "!design:matrix.org",
             name: "Design Team",
             avatarURL: nil,
-            lastMessage: "Let's finalize the mockups tomorrow",
+            lastMessage: try? AttributedString(
+                markdown: "Let's **finalize** the mockups tomorrow",
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            ),
             lastMessageTimestamp: .now.addingTimeInterval(-300),
             unreadCount: 3,
             unreadMentions: 1,
@@ -120,7 +123,10 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             id: "!alice:matrix.org",
             name: "Alice",
             avatarURL: nil,
-            lastMessage: "Sounds good, talk soon!",
+            lastMessage: try? AttributedString(
+                markdown: "Sounds good, talk *soon*!",
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            ),
             lastMessageTimestamp: .now.addingTimeInterval(-7200),
             unreadCount: 0,
             isDirect: true
@@ -138,7 +144,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             id: "!bob:matrix.org",
             name: "Bob Chen",
             avatarURL: nil,
-            lastMessage: "Sent an image",
+            lastMessage: AttributedString("Sent an image"),
             lastMessageTimestamp: .now.addingTimeInterval(-86400 * 2),
             unreadCount: 12,
             isDirect: true
