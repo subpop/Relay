@@ -30,7 +30,6 @@ struct RoomDetailView: View {
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
     @State private var emojiPickerMessageId: String?
-    @State private var revealedMessageId: String?
 
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
@@ -162,10 +161,7 @@ struct RoomDetailView: View {
                     let isLastInGroup = isLastMessageInGroup(at: index, in: messages)
                     let showSenderName = shouldShowSenderName(at: index, in: messages)
 
-                    MessageSwipeActions(
-                        messageId: message.id,
-                        revealedMessageId: $revealedMessageId
-                    ) {
+                    MessageSwipeActions {
                         MessageView(
                             message: message,
                             isLastInGroup: isLastInGroup,
@@ -184,11 +180,12 @@ struct RoomDetailView: View {
                         )
                     } onReply: {
                         replyingTo = message
-                    } onAddReaction: {
-                        emojiPickerMessageId = message.id
                     }
                     .id(message.id)
                     .help(message.formattedTime)
+                    .onLongPressGesture {
+                        emojiPickerMessageId = message.id
+                    }
                     .contextMenu {
                         messageContextMenu(for: message)
                     }
@@ -224,13 +221,6 @@ struct RoomDetailView: View {
             .scrollTargetLayout()
             .padding()
             .contentShape(Rectangle())
-            .onTapGesture {
-                if revealedMessageId != nil {
-                    withAnimation(.snappy(duration: 0.25)) {
-                        revealedMessageId = nil
-                    }
-                }
-            }
         }
         .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition)
@@ -328,6 +318,12 @@ struct RoomDetailView: View {
             replyingTo = message
         } label: {
             Label("Reply", systemImage: "arrowshape.turn.up.left")
+        }
+
+        Button {
+            emojiPickerMessageId = message.id
+        } label: {
+            Label("Add Reaction", systemImage: "face.smiling")
         }
 
         Button {

@@ -37,6 +37,8 @@ struct MessageView: View {
     /// Called when the user double-taps the sender's avatar to open their profile.
     var onAvatarDoubleTap: (() -> Void)?
 
+    @Environment(\.swipeOffset) private var swipeOffset
+
     var body: some View {
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
             HStack(alignment: .bottom, spacing: 6) {
@@ -80,6 +82,12 @@ struct MessageView: View {
                         specialContent
                     } else {
                         textContent
+                    }
+                }
+                .background(alignment: .leading) {
+                    if swipeOffset > 0 {
+                        replyArrow
+                            .offset(x: -swipeOffset)
                     }
                 }
 
@@ -292,6 +300,19 @@ struct MessageView: View {
             return md
         }
         return AttributedString(raw)
+    }
+
+    // MARK: - Reply Arrow
+
+    private var replyArrow: some View {
+        let triggerThreshold: CGFloat = 80
+        let progress = min(swipeOffset / triggerThreshold, 1.0)
+
+        return Image(systemName: "arrowshape.turn.up.left.fill")
+            .font(.title)
+            .foregroundStyle(.secondary)
+            .scaleEffect(0.4 + 0.6 * progress)
+            .opacity(Double(progress))
     }
 
     // MARK: - Bubble Color
