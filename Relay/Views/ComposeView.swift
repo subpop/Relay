@@ -117,6 +117,11 @@ struct ComposeView: View {
         .frame(width: 400)
 }
 
+#Preview("With Long Text") {
+    ComposeView(text: .constant("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum. Donec vitae elit a tortor ultrices condimentum. Donec vitae elit a tortor ultrices condimentum. Donec vitae elit a tortor ultrices condimentum."), replyingTo: .constant(nil), onSend: {}, onAttach: { _ in })
+        .frame(width: 400)
+}
+
 #Preview("Replying") {
     ComposeView(
         text: .constant(""),
