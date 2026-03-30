@@ -1,45 +1,43 @@
 import AppKit
 import SwiftUI
 
-/// A compact popover for quickly selecting emoji reactions.
+/// A compact, single-row emoji reaction picker styled after Apple Messages.
 ///
-/// Displays a grid of common emoji and a button to open the system Character Palette
-/// for access to the full emoji catalog.
+/// Displays a horizontally scrollable capsule of common emoji with a trailing
+/// button to open the system Character Palette for the full emoji catalog.
 struct EmojiPickerPopover: View {
     /// Called with the selected emoji string when the user taps an emoji.
     let onSelect: (String) -> Void
 
     @State private var openCharacterPalette = false
 
-    private static let emoji: [[String]] = [
-        ["👍", "👎", "❤️", "😂", "🎉"],
-        ["😮", "🙏", "👀", "🔥", "✨"],
+    private static let emoji: [String] = [
+        "👍", "👎", "❤️", "😂", "😮", "🙏", "🔥", "🎉", "👀", "✨",
     ]
 
     var body: some View {
-        VStack(spacing: 6) {
-            ForEach(Self.emoji, id: \.self) { row in
-                HStack(spacing: 4) {
-                    ForEach(row, id: \.self) { e in
-                        EmojiCell(emoji: e) { onSelect(e) }
-                    }
-                }
+        HStack(spacing: 0) {
+            ForEach(Self.emoji, id: \.self) { e in
+                EmojiCell(emoji: e) { onSelect(e) }
             }
 
             Divider()
+                .frame(height: 20)
+                .padding(.horizontal, 2)
 
             Button {
                 openCharacterPalette = true
             } label: {
-                Label("Emoji & Symbols", systemImage: "character.book.closed")
-                    .font(.callout)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+                Image(systemName: "face.smiling")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
         }
-        .padding(8)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
         .background {
             EmojiCaptureField(activate: $openCharacterPalette) { text in
                 onSelect(text)
@@ -109,9 +107,9 @@ private struct EmojiCell: View {
         Button(action: action) {
             Text(emoji)
                 .font(.title2)
-                .frame(width: 36, height: 36)
+                .frame(width: 32, height: 32)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    Circle()
                         .fill(isHovering ? Color.primary.opacity(0.1) : Color.clear)
                 )
         }

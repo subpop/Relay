@@ -38,6 +38,7 @@ struct MessageView: View {
     var onAvatarDoubleTap: (() -> Void)?
 
     @Environment(\.swipeOffset) private var swipeOffset
+    @State private var showEmojiPicker = false
 
     var body: some View {
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
@@ -82,6 +83,19 @@ struct MessageView: View {
                         specialContent
                     } else {
                         textContent
+                    }
+                }
+                .onLongPressGesture {
+                    showEmojiPicker = true
+                }
+                .popover(
+                    isPresented: $showEmojiPicker,
+                    attachmentAnchor: .point(message.isOutgoing ? .topLeading : .topTrailing),
+                    arrowEdge: .top
+                ) {
+                    EmojiPickerPopover { emoji in
+                        onToggleReaction?(emoji)
+                        showEmojiPicker = false
                     }
                 }
                 .background(alignment: .leading) {

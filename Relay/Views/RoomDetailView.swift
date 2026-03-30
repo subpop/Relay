@@ -29,7 +29,6 @@ struct RoomDetailView: View {
 
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
-    @State private var emojiPickerMessageId: String?
 
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
@@ -183,23 +182,8 @@ struct RoomDetailView: View {
                     }
                     .id(message.id)
                     .help(message.formattedTime)
-                    .onLongPressGesture {
-                        emojiPickerMessageId = message.id
-                    }
                     .contextMenu {
                         messageContextMenu(for: message)
-                    }
-                    .popover(
-                        isPresented: Binding(
-                            get: { emojiPickerMessageId == message.id },
-                            set: { if !$0 { emojiPickerMessageId = nil } }
-                        ),
-                        arrowEdge: message.isOutgoing ? .trailing : .leading
-                    ) {
-                        EmojiPickerPopover { emoji in
-                            Task { await viewModel.toggleReaction(messageId: message.id, key: emoji) }
-                            emojiPickerMessageId = nil
-                        }
                     }
                 }
 
@@ -318,12 +302,6 @@ struct RoomDetailView: View {
             replyingTo = message
         } label: {
             Label("Reply", systemImage: "arrowshape.turn.up.left")
-        }
-
-        Button {
-            emojiPickerMessageId = message.id
-        } label: {
-            Label("Add Reaction", systemImage: "face.smiling")
         }
 
         Button {
