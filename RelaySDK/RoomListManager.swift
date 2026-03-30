@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import Foundation
 import MatrixRustSDK
 import os
@@ -5,89 +6,155 @@ import RelayCore
 
 private let logger = Logger(subsystem: "RelaySDK", category: "RoomList")
 
-/// Maintains the sorted list of joined rooms by polling the Matrix SDK.
+/// Maintains the sorted list of joined rooms using the SDK's reactive `RoomListService`.
 ///
-/// ``RoomListManager`` periodically fetches all joined rooms from the SDK client,
-/// extracts summary information (name, avatar, unread counts, latest message preview),
-/// and produces a sorted ``RoomSummary`` array. The polling runs on a background task
-/// and can be started/stopped by the caller.
+/// ``RoomListManager`` subscribes to `RoomListService.allRooms().entriesWithDynamicAdapters()`
+/// for incremental room list diffs, and each room subscribes to `Room.subscribeToRoomInfoUpdates()`
+/// for live unread counts, display names, and latest message previews. This replaces the
+/// previous polling approach with event-driven updates from the Matrix Rust SDK.
 @Observable
 @MainActor
 final class RoomListManager {
-    /// The current sorted list of room summaries.
+    /// The current list of room summaries, updated reactively via SDK diffs.
     private(set) var rooms: [RoomSummary] = []
 
     /// Whether the initial room list has been loaded.
     private(set) var hasLoadedRooms = false
 
-    private var pollTask: Task<Void, Never>?
+    /// The current state of the room list service.
+    private(set) var roomListServiceState: RoomListServiceState?
 
-    /// Performs an immediate room list refresh and starts background polling.
+    private var roomListService: RoomListService?
+    private var entriesHandle: RoomListEntriesWithDynamicAdaptersResult?
+    private var serviceStateHandle: TaskHandle?
+    private var entriesTask: Task<Void, Never>?
+
+    /// Internal room entries that wrap SDK `Room` objects and manage `subscribeToRoomInfoUpdates`.
+    private var roomEntries: [RoomEntry] = []
+
+    /// Starts the reactive room list using the sync service's `RoomListService`.
     ///
-    /// The room list is refreshed every 3 seconds in a background task.
+    /// This method subscribes to room list entry diffs and applies them incrementally.
+    /// Each room entry subscribes to `subscribeToRoomInfoUpdates` for live property changes.
     ///
-    /// - Parameter client: The authenticated Matrix SDK client.
-    func startPolling(client: Client) async {
-        await refresh(client: client)
+    /// - Parameter syncService: The active SDK sync service.
+    func start(syncService: SyncService) async throws {
+        let rls = syncService.roomListService()
+        roomListService = rls
+
+        // Observe room list service state
+        let stateListener = AsyncSDKListener<RoomListServiceState>()
+        serviceStateHandle = rls.state(listener: stateListener)
+        Task { [weak self] in
+            for await state in stateListener {
+                guard let self else { break }
+                self.roomListServiceState = state
+            }
+        }
+
+        // Subscribe to room list entries with dynamic adapters
+        let entriesListener = AsyncSDKListener<[RoomListEntriesUpdate]>()
+        let allRooms = try await rls.allRooms()
+        let handle = allRooms.entriesWithDynamicAdapters(pageSize: 100, listener: entriesListener)
+        _ = handle.controller().setFilter(kind: .all(filters: [.nonLeft, .nonSpace]))
+        entriesHandle = handle
+
         hasLoadedRooms = true
 
-        pollTask?.cancel()
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await self?.refresh(client: client)
+        entriesTask = Task { [weak self] in
+            // Throttle rapid entry updates to 500ms batches
+            let throttled = entriesListener._throttle(for: .milliseconds(500), reducing: { result, next in
+                (result ?? []) + next
+            })
+
+            for await updates in throttled {
+                guard let self else { break }
+                self.applyEntryUpdates(updates)
             }
         }
     }
 
-    /// Stops the background polling task.
-    func stopPolling() {
-        pollTask?.cancel()
-        pollTask = nil
-    }
-
-    /// Clears the room list and resets state.
+    /// Stops listening and clears state.
     func reset() {
-        stopPolling()
+        entriesTask?.cancel()
+        entriesTask = nil
+        entriesHandle = nil
+        serviceStateHandle = nil
+        roomListService = nil
+        roomEntries = []
         rooms = []
         hasLoadedRooms = false
+        roomListServiceState = nil
     }
 
-    /// Performs a single room list refresh from the SDK.
-    ///
-    /// - Parameter client: The authenticated Matrix SDK client.
-    func refresh(client: Client) async {
-        let sdkRooms = client.rooms().filter { $0.membership() == .joined && !$0.isSpace() }
-        var summaries: [RoomSummary] = []
+    // MARK: - Room Lookup
 
-        for room in sdkRooms {
-            let name = room.displayName() ?? room.id()
-            let avatarUrl = room.avatarUrl()
+    /// Returns the SDK `Room` for a given room ID, if known.
+    func sdkRoom(id: String) -> Room? {
+        roomEntries.first { $0.id == id }?.room
+    }
 
-            var unreadMessages: UInt64 = 0
-            var unreadMentions: UInt64 = 0
-            var isDirect = false
-            if let info = try? await room.roomInfo() {
-                unreadMessages = info.numUnreadMessages
-                unreadMentions = info.numUnreadMentions
-                isDirect = info.isDirect
+    // MARK: - Private
+
+    private func applyEntryUpdates(_ updates: [RoomListEntriesUpdate]) {
+        for update in updates {
+            switch update {
+            case .append(let values):
+                let entries = values.map { RoomEntry(room: $0) }
+                roomEntries.append(contentsOf: entries)
+            case .clear:
+                roomEntries.removeAll()
+            case .pushFront(let value):
+                roomEntries.insert(RoomEntry(room: value), at: 0)
+            case .pushBack(let value):
+                roomEntries.append(RoomEntry(room: value))
+            case .popFront:
+                if !roomEntries.isEmpty { roomEntries.removeFirst() }
+            case .popBack:
+                if !roomEntries.isEmpty { roomEntries.removeLast() }
+            case .insert(let index, let value):
+                let i = Int(index)
+                if i <= roomEntries.count {
+                    roomEntries.insert(RoomEntry(room: value), at: i)
+                }
+            case .set(let index, let value):
+                let i = Int(index)
+                if i < roomEntries.count {
+                    let existing = roomEntries[i]
+                    if existing.id == value.id() {
+                        existing.updateRoom(value)
+                    } else {
+                        roomEntries[i] = RoomEntry(room: value)
+                    }
+                }
+            case .remove(let index):
+                let i = Int(index)
+                if i < roomEntries.count {
+                    roomEntries.remove(at: i)
+                }
+            case .truncate(let length):
+                let len = Int(length)
+                if len < roomEntries.count {
+                    roomEntries.removeSubrange(len..<roomEntries.count)
+                }
+            case .reset(let values):
+                let existingById = Dictionary(roomEntries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                roomEntries = values.map { room in
+                    if let existing = existingById[room.id()] {
+                        existing.updateRoom(room)
+                        return existing
+                    }
+                    return RoomEntry(room: room)
+                }
             }
-
-            let (lastMessage, lastTimestamp) = await latestMessagePreview(for: room)
-
-            summaries.append(RoomSummary(
-                id: room.id(),
-                name: name,
-                avatarURL: avatarUrl,
-                lastMessage: lastMessage,
-                lastMessageTimestamp: lastTimestamp,
-                unreadCount: UInt(unreadMessages),
-                unreadMentions: UInt(unreadMentions),
-                isDirect: isDirect
-            ))
         }
 
-        rooms = summaries.sorted { lhs, rhs in
+        // Rebuild the sorted room summaries from room entries
+        rebuildRoomSummaries()
+    }
+
+    private func rebuildRoomSummaries() {
+        rooms = roomEntries.map(\.summary).sorted { lhs, rhs in
             switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
             case (.some(let l), .some(let r)):
                 return l > r
@@ -100,10 +167,90 @@ final class RoomListManager {
             }
         }
     }
+}
 
-    // MARK: - Latest Message Preview
+// MARK: - Room Entry
 
-    private func latestMessagePreview(for room: Room) async -> (String?, Date?) {
+/// Wraps a Matrix SDK `Room` and subscribes to `subscribeToRoomInfoUpdates` for live property changes.
+///
+/// Each ``RoomEntry`` owns a ``RoomSummary`` that it updates reactively when the SDK delivers
+/// room info updates. This preserves object identity so SwiftUI can efficiently diff the room list.
+@Observable
+@MainActor
+private final class RoomEntry: Identifiable {
+    let id: String
+    private(set) var room: Room
+    let summary: RoomSummary
+
+    @ObservationIgnored private var roomInfoHandle: TaskHandle?
+    @ObservationIgnored private var listenerTask: Task<Void, Never>?
+
+    init(room: Room) {
+        self.id = room.id()
+        self.room = room
+        self.summary = RoomSummary(
+            id: room.id(),
+            name: room.displayName() ?? room.id()
+        )
+
+        // Fetch initial room info and start listening
+        Task { [weak self] in
+            guard let self else { return }
+            await self.fetchAndApplyRoomInfo()
+            self.listenToRoomInfo()
+        }
+    }
+
+    /// Updates the underlying room reference in-place without replacing this entry.
+    func updateRoom(_ newRoom: Room) {
+        assert(id == newRoom.id())
+        room = newRoom
+        listenerTask?.cancel()
+        roomInfoHandle = nil
+
+        // Re-fetch info and re-subscribe on the new room reference
+        Task { [weak self] in
+            guard let self else { return }
+            await self.fetchAndApplyRoomInfo()
+            self.listenToRoomInfo()
+        }
+    }
+
+    private func fetchAndApplyRoomInfo() async {
+        guard let info = try? await room.roomInfo() else { return }
+        applyRoomInfo(info)
+    }
+
+    private func listenToRoomInfo() {
+        let listener = AsyncSDKListener<RoomInfo>()
+        roomInfoHandle = room.subscribeToRoomInfoUpdates(listener: listener)
+
+        listenerTask = Task { [weak self] in
+            let throttled = listener._throttle(for: .milliseconds(500))
+            for await info in throttled {
+                guard let self, !Task.isCancelled else { break }
+                self.applyRoomInfo(info)
+            }
+        }
+    }
+
+    private func applyRoomInfo(_ info: RoomInfo) {
+        summary.name = info.displayName ?? room.displayName() ?? id
+        summary.avatarURL = info.avatarUrl
+        summary.unreadMessages = UInt(info.numUnreadMessages)
+        summary.unreadMentions = UInt(info.numUnreadMentions)
+        summary.isDirect = info.isDirect
+
+        // Extract latest message preview
+        Task { [weak self] in
+            guard let self else { return }
+            let (msg, ts) = await self.latestMessagePreview()
+            self.summary.lastMessage = msg
+            self.summary.lastMessageTimestamp = ts
+        }
+    }
+
+    private func latestMessagePreview() async -> (String?, Date?) {
         let latest = await room.latestEvent()
 
         let content: TimelineItemContent

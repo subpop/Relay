@@ -129,7 +129,9 @@ public final class MatrixService: MatrixServiceProtocol {
         do {
             try await syncManager.startSync(client: client)
             verificationController = try? await client.getSessionVerificationController()
-            await roomListManager.startPolling(client: client)
+            if let syncService = syncManager.syncService {
+                try await roomListManager.start(syncService: syncService)
+            }
         } catch is CancellationError {
             // Logout cancelled the sync — don't overwrite state
         } catch {
@@ -144,7 +146,7 @@ public final class MatrixService: MatrixServiceProtocol {
     /// - Parameter id: The Matrix room ID.
     /// - Returns: The SDK `Room` object, or `nil` if not found.
     func room(id: String) -> Room? {
-        client?.rooms().first { $0.id() == id }
+        roomListManager.sdkRoom(id: id) ?? client?.rooms().first { $0.id() == id }
     }
 
     public func userId() -> String? {
@@ -180,7 +182,6 @@ public final class MatrixService: MatrixServiceProtocol {
     public func joinRoom(idOrAlias: String) async throws {
         guard let client else { return }
         _ = try await client.joinRoomByIdOrAlias(roomIdOrAlias: idOrAlias, serverNames: [])
-        await roomListManager.refresh(client: client)
     }
 
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
@@ -193,18 +194,13 @@ public final class MatrixService: MatrixServiceProtocol {
             visibility: isPublic ? .public : .private,
             preset: isPublic ? .publicChat : .privateChat
         )
-        let roomId = try await client.createRoom(request: params)
-        await roomListManager.refresh(client: client)
-        return roomId
+        return try await client.createRoom(request: params)
     }
 
     public func leaveRoom(id: String) async throws {
         guard let room = room(id: id) else { return }
         try await room.leave()
         roomViewModels.removeValue(forKey: id)
-        if let client {
-            await roomListManager.refresh(client: client)
-        }
     }
 
     // MARK: - Read Receipts & Typing
@@ -213,9 +209,6 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let room = room(id: roomId) else { return }
         let receiptType: ReceiptType = sendPublicReceipt ? .read : .readPrivate
         try? await room.markAsRead(receiptType: receiptType)
-        if let client {
-            await roomListManager.refresh(client: client)
-        }
     }
 
     public func sendTypingNotice(roomId: String, isTyping: Bool) async {

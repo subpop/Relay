@@ -31,17 +31,9 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     }
     func sendTypingNotice(roomId: String, isTyping: Bool) async {}
     func markAsRead(roomId: String, sendPublicReceipt: Bool) async {
-        if let idx = rooms.firstIndex(where: { $0.id == roomId }) {
-            rooms[idx] = RoomSummary(
-                id: rooms[idx].id,
-                name: rooms[idx].name,
-                avatarURL: rooms[idx].avatarURL,
-                lastMessage: rooms[idx].lastMessage,
-                lastMessageTimestamp: rooms[idx].lastMessageTimestamp,
-                unreadCount: 0,
-                unreadMentions: 0,
-                isDirect: rooms[idx].isDirect
-            )
+        if let room = rooms.first(where: { $0.id == roomId }) {
+            room.unreadMessages = 0
+            room.unreadMentions = 0
         }
     }
     func roomDetails(roomId: String) async -> RoomDetails? {

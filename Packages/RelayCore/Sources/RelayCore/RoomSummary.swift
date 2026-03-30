@@ -1,12 +1,16 @@
 import Foundation
 
-/// A lightweight summary of a Matrix room for display in the room list sidebar.
+/// A summary of a Matrix room for display in the room list sidebar.
 ///
 /// ``RoomSummary`` contains just enough information to render a room row in the
 /// sidebar -- the room name, avatar, last message preview, unread counts, and
 /// whether it is a direct message conversation. The full room state is available
 /// via ``RoomDetails``.
-public struct RoomSummary: Identifiable, Hashable, Sendable {
+///
+/// This is an observable reference type so that individual room properties (such as
+/// unread counts) can be updated reactively without replacing the entire room list.
+@Observable
+public final class RoomSummary: Identifiable {
     /// The Matrix room identifier (e.g. `"!abc123:matrix.org"`).
     public let id: String
 
@@ -31,7 +35,7 @@ public struct RoomSummary: Identifiable, Hashable, Sendable {
     /// Whether this room is a direct message (one-to-one) conversation.
     public var isDirect: Bool
 
-    /// Creates a new ``RoomSummary`` value.
+    /// Creates a new ``RoomSummary`` instance.
     ///
     /// - Parameters:
     ///   - id: The Matrix room identifier.

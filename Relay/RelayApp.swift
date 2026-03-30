@@ -16,9 +16,8 @@ struct RelayApp: App {
         WindowGroup {
             ContentView()
                 .environment(\.matrixService, matrixService)
-                .onChange(of: matrixService.rooms) { oldRooms, newRooms in
-                    updateDockBadge(rooms: newRooms)
-                    postNotificationsForNewMentions(oldRooms: oldRooms, newRooms: newRooms)
+                .onChange(of: matrixService.rooms.map(\.id)) {
+                    updateDockBadge(rooms: matrixService.rooms)
                 }
                 .task {
                     await requestNotificationPermission()
@@ -44,31 +43,6 @@ struct RelayApp: App {
             room.isDirect ? total + room.unreadMessages : total + room.unreadMentions
         }
         NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
-    }
-
-    private func postNotificationsForNewMentions(oldRooms: [RoomSummary], newRooms: [RoomSummary]) {
-        guard !oldRooms.isEmpty else { return }
-        let oldLookup = Dictionary(uniqueKeysWithValues: oldRooms.map { ($0.id, $0) })
-
-        for room in newRooms {
-            guard let old = oldLookup[room.id] else { continue }
-
-            if !room.isDirect && room.unreadMentions > old.unreadMentions {
-                postNotification(
-                    roomName: room.name,
-                    roomId: room.id,
-                    body: room.lastMessage ?? "You were mentioned"
-                )
-            }
-
-            if room.isDirect && room.unreadMessages > old.unreadMessages {
-                postNotification(
-                    roomName: room.name,
-                    roomId: room.id,
-                    body: room.lastMessage ?? "New message"
-                )
-            }
-        }
     }
 
     private func postNotification(roomName: String, roomId: String, body: String) {

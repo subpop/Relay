@@ -17,7 +17,9 @@ final class SyncManager {
     /// The current synchronization state.
     private(set) var syncState: SyncState = .idle
 
-    private var syncService: SyncService?
+    /// The underlying SDK sync service, exposed so that sub-services (e.g. `RoomListManager`)
+    /// can obtain their own service handles from it.
+    private(set) var syncService: SyncService?
     private var syncTask: Task<Void, Never>?
     private var syncStateHandle: TaskHandle?
 
