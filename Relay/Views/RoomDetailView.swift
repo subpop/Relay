@@ -219,11 +219,16 @@ struct RoomDetailView: View {
         }
         .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            let distanceFromBottom = geometry.contentSize.height
-                - geometry.visibleRect.maxY
-            return distanceFromBottom < 50
-        } action: { _, newValue in
+        .onScrollGeometryChange(for: Double.self) { geometry in
+            geometry.contentSize.height - geometry.visibleRect.maxY
+        } action: { _, distanceFromBottom in
+            // Use hysteresis to avoid oscillation when content size is changing:
+            // snap to "near bottom" at <50pt, snap away at >100pt
+            let newValue = if isNearBottom {
+                distanceFromBottom < 100
+            } else {
+                distanceFromBottom < 50
+            }
             guard isNearBottom != newValue else { return }
             isNearBottom = newValue
             if newValue {
