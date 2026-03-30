@@ -21,7 +21,8 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     var hasReachedStart: Bool { get }
 
     /// The event ID of the first unread message, used to display the "New" divider.
-    var firstUnreadMessageId: String? { get }
+    /// Cleared after the room is marked as read.
+    var firstUnreadMessageId: String? { get set }
 
     /// Display names of users who are currently typing in this room.
     var typingUserDisplayNames: [String] { get }

@@ -25,7 +25,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public private(set) var isLoading = true
     public private(set) var isLoadingMore = false
     public private(set) var hasReachedStart = false
-    public private(set) var firstUnreadMessageId: String?
+    public var firstUnreadMessageId: String?
     public private(set) var typingUserDisplayNames: [String] = []
     public var errorMessage: String?
 

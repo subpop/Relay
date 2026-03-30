@@ -75,16 +75,20 @@ struct RoomDetailView: View {
         .task {
             await viewModel.loadTimeline()
             await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
-        }
-        .onChange(of: viewModel.firstUnreadMessageId) {
-            guard viewModel.firstUnreadMessageId != nil else { return }
-            showUnreadMarker = true
-            unreadMarkerDismissTask?.cancel()
-            unreadMarkerDismissTask = Task {
-                try? await Task.sleep(for: .seconds(5))
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.4)) {
-                    showUnreadMarker = false
+
+            // Auto-dismiss the "New" marker after 5 seconds, then clear it
+            if viewModel.firstUnreadMessageId != nil {
+                showUnreadMarker = true
+                unreadMarkerDismissTask?.cancel()
+                unreadMarkerDismissTask = Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        showUnreadMarker = false
+                    }
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    viewModel.firstUnreadMessageId = nil
                 }
             }
         }
