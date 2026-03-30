@@ -35,6 +35,8 @@ struct RoomDetailView: View {
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
     @State private var pendingScrollToBottom = false
+    @State private var showUnreadMarker = true
+    @State private var unreadMarkerDismissTask: Task<Void, Never>?
 
     @AppStorage("safety.sendReadReceipts") private var sendReadReceipts = true
     @AppStorage("safety.sendTypingNotifications") private var sendTypingNotifications = true
@@ -73,6 +75,18 @@ struct RoomDetailView: View {
         .task {
             await viewModel.loadTimeline()
             await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
+        }
+        .onChange(of: viewModel.firstUnreadMessageId) {
+            guard viewModel.firstUnreadMessageId != nil else { return }
+            showUnreadMarker = true
+            unreadMarkerDismissTask?.cancel()
+            unreadMarkerDismissTask = Task {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.4)) {
+                    showUnreadMarker = false
+                }
+            }
         }
         .onDisappear {
             if sendTypingNotifications {
@@ -122,9 +136,9 @@ struct RoomDetailView: View {
 
                 let messages = viewModel.messages
                 ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                    if message.id == viewModel.firstUnreadMessageId {
-                        unreadMarker
-                    }
+                    if showUnreadMarker && message.id == viewModel.firstUnreadMessageId {
+                            unreadMarker
+                        }
 
                     if shouldShowDateHeader(at: index, in: messages) {
                         Text(dateSectionLabel(for: message.timestamp))
@@ -292,6 +306,7 @@ struct RoomDetailView: View {
             VStack { Divider() }
         }
         .padding(.vertical, 4)
+        .transition(.opacity)
     }
 
     // MARK: - Context Menu
