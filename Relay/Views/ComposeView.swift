@@ -24,6 +24,130 @@ struct StagedAttachment: Identifiable {
     var caption: String = ""
 }
 
+/// Monitors Cmd+V key events and intercepts paste when the system pasteboard
+/// contains file URLs (Finder copy), raw image data, or raw video data — but
+/// not plain text, which is left for the TextField to handle normally.
+@Observable
+final class PasteHandler {
+    var pastedURLs: [URL]?
+    private var monitor: Any?
+
+    func startMonitoring() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "v"
+            else { return event }
+
+            if self?.extractPastedContent() == true { return nil }
+            return event
+        }
+    }
+
+    func stopMonitoring() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    deinit { stopMonitoring() }
+
+    // MARK: - Extraction
+
+    private func extractPastedContent() -> Bool {
+        let pasteboard = NSPasteboard.general
+
+        // File URLs from Finder or other file managers. Checked first because
+        // Finder also puts the filename as plain text on the pasteboard.
+        if let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL], !urls.isEmpty {
+            pastedURLs = urls
+            return true
+        }
+
+        // Plain text without file URLs — let the TextField handle it.
+        if pasteboard.string(forType: .string) != nil { return false }
+
+        // Raw image data (screenshots, "Copy Image", etc.)
+        if let url = extractRawImage(from: pasteboard) {
+            pastedURLs = [url]
+            return true
+        }
+
+        // Raw video data
+        if let url = extractRawVideo(from: pasteboard) {
+            pastedURLs = [url]
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Raw Image
+
+    /// Image pasteboard types in preference order. TIFF is last because it is
+    /// the generic macOS image pasteboard format and needs conversion to PNG.
+    private static let imageTypes: [(type: NSPasteboard.PasteboardType, ext: String)] = [
+        (.png, ".png"),
+        (NSPasteboard.PasteboardType("public.jpeg"), ".jpg"),
+        (NSPasteboard.PasteboardType("com.compuserve.gif"), ".gif"),
+        (NSPasteboard.PasteboardType("org.webmproject.webp"), ".webp"),
+        (NSPasteboard.PasteboardType("public.heic"), ".heic"),
+        (.tiff, ".png"),
+    ]
+
+    private func extractRawImage(from pasteboard: NSPasteboard) -> URL? {
+        for (type, ext) in Self.imageTypes {
+            guard let rawData = pasteboard.data(forType: type) else { continue }
+
+            let data: Data
+            if type == .tiff {
+                guard let rep = NSBitmapImageRep(data: rawData),
+                      let png = rep.representation(using: .png, properties: [:])
+                else { continue }
+                data = png
+            } else {
+                data = rawData
+            }
+
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-Pasted Image" + ext)
+            do {
+                try data.write(to: tempURL)
+                return tempURL
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Raw Video
+
+    private static let videoTypes: [(type: NSPasteboard.PasteboardType, ext: String)] = [
+        (NSPasteboard.PasteboardType("public.mpeg-4"), ".mp4"),
+        (NSPasteboard.PasteboardType("com.apple.quicktime-movie"), ".mov"),
+        (NSPasteboard.PasteboardType("public.avi"), ".avi"),
+    ]
+
+    private func extractRawVideo(from pasteboard: NSPasteboard) -> URL? {
+        for (type, ext) in Self.videoTypes {
+            guard let data = pasteboard.data(forType: type) else { continue }
+
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-Pasted Video" + ext)
+            do {
+                try data.write(to: tempURL)
+                return tempURL
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+}
+
 /// The message composition bar at the bottom of the room detail view.
 ///
 /// ``ComposeView`` includes a text field for typing messages, an attachment button for
@@ -57,6 +181,8 @@ struct ComposeView: View {
 
     /// The ID of the attachment whose caption field is currently being edited inline.
     @State private var editingCaptionId: UUID?
+
+    @State private var pasteHandler = PasteHandler()
 
     private var hasContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
@@ -114,6 +240,14 @@ struct ComposeView: View {
             withAnimation(.easeOut(duration: 0.15)) {
                 isDropTargeted = targeted
             }
+        }
+        .onAppear { pasteHandler.startMonitoring() }
+        .onDisappear { pasteHandler.stopMonitoring() }
+        .onChange(of: pasteHandler.pastedURLs) { _, urls in
+            guard let urls else { return }
+            pasteHandler.pastedURLs = nil
+            onAttach(urls)
+            isFocused = true
         }
         .onChange(of: replyingTo) {
             if replyingTo != nil { isFocused = true }
