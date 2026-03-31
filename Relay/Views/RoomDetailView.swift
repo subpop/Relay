@@ -58,6 +58,29 @@ struct RoomDetailView: View {
     var body: some View {
         messageList
             .environment(\.mediaAutoReveal, shouldAutoRevealMedia)
+            .overlay {
+                if let reply = replyingTo {
+                    ZStack {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                                    replyingTo = nil
+                                }
+                            }
+
+                        MessageView(
+                            message: reply,
+                            isLastInGroup: true,
+                            showSenderName: !reply.isOutgoing
+                        )
+                        .allowsHitTesting(false)
+                        .padding(.horizontal, 16)
+                    }
+                    .transition(.opacity)
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if !viewModel.typingUserDisplayNames.isEmpty {
@@ -65,6 +88,28 @@ struct RoomDetailView: View {
                             .padding(.horizontal, 16)
                             .padding(.bottom, 4)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                    if let reply = replyingTo {
+                        HStack {
+                            Label("Replying to \(reply.displayName)", systemImage: "arrowshape.turn.up.left")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                                    replyingTo = nil
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.title2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 4)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, onSend: sendMessage, onAttach: stageAttachments)
                         .padding(.horizontal, 16)
@@ -180,7 +225,9 @@ struct RoomDetailView: View {
                             }
                         )
                     } onReply: {
-                        replyingTo = message
+                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                            replyingTo = message
+                        }
                     }
                     .id(message.id)
                     .help(message.formattedTime)
@@ -301,7 +348,9 @@ struct RoomDetailView: View {
     @ViewBuilder
     private func messageContextMenu(for message: TimelineMessage) -> some View {
         Button {
-            replyingTo = message
+            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                replyingTo = message
+            }
         } label: {
             Label("Reply", systemImage: "arrowshape.turn.up.left")
         }
@@ -363,7 +412,7 @@ struct RoomDetailView: View {
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         let replyEventId = replyingTo?.id
         draftMessage = ""
-        replyingTo = nil
+        withAnimation(.easeOut(duration: 0.2)) { replyingTo = nil }
         stagedAttachments = []
         pendingScrollToBottom = true
         Task {

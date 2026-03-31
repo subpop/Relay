@@ -201,19 +201,15 @@ struct ComposeView: View {
                 .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    if let reply = replyingTo {
-                        replyBanner(reply)
-                    }
-
                     if !attachments.isEmpty {
                         attachmentCapsules
                     }
 
                     messageField
                 }
-                .glassEffect(in: .rect(cornerRadius: (replyingTo != nil || !attachments.isEmpty) ? 16 : 20))
+                .glassEffect(in: .rect(cornerRadius: !attachments.isEmpty ? 16 : 20))
                 .overlay(
-                    RoundedRectangle(cornerRadius: (replyingTo != nil || !attachments.isEmpty) ? 18 : 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: !attachments.isEmpty ? 18 : 22, style: .continuous)
                         .strokeBorder(Color.accentColor, lineWidth: 2)
                         .padding(-4)
                         .opacity(isDropTargeted ? 1 : 0)
@@ -368,42 +364,7 @@ struct ComposeView: View {
         return "doc"
     }
 
-    // MARK: - Reply Banner
 
-    private func replyBanner(_ message: TimelineMessage) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(Color.accentColor)
-                .frame(width: 3, height: 28)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(message.displayName)
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color.accentColor)
-                    .lineLimit(1)
-                Text(message.body)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { replyingTo = nil }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.title3)
-                    .frame(width: 20, height: 20)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-    }
 }
 
 #Preview("Empty") {
