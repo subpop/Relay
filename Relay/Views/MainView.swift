@@ -97,30 +97,60 @@ struct MainView: View {
             ToolbarItem(placement: .primaryAction) {
                 if let selectedRoomId,
                    let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            if showingInspector {
-                                showingInspector = false
-                                inspectorProfile = nil
-                            } else {
-                                showingInspector = true
+                    GlassEffectContainer {
+                        if !showingInspector {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showingInspector = true
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .trailing, spacing: 1) {
+                                        Text(summary.name)
+                                            .fontWeight(.semibold)
+                                            .lineLimit(1)
+
+                                        if let topic = summary.topic, !topic.isEmpty {
+                                            Text(topic)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+
+                                    AvatarView(name: summary.name, mxcURL: summary.avatarURL, size: 36)
+                                }
+                                .padding(.leading, 10)
+                                .padding(.trailing, 2)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: 200)
                             }
+                            .buttonStyle(.plain)
+                            .glassEffect(in: .capsule)
+                            .help("Show Room Info")
                         }
-                    } label: {
+
                         if showingInspector {
-                            Image(systemName: "xmark")
-                                .font(.title2)
-                                .foregroundStyle(.primary)
-                                .frame(width: 36, height: 36)
-                                .contentShape(Circle())
-                        } else {
-                            AvatarView(name: summary.name, mxcURL: summary.avatarURL, size: 36)
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showingInspector = false
+                                    inspectorProfile = nil
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.title2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 36, height: 36)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(in: .circle)
+                            .help("Hide Room Info")
                         }
                     }
-                    .buttonStyle(.plain)
-                    .help(showingInspector ? "Hide Room Info" : "Show Room Info")
                 }
             }
+            .sharedBackgroundVisibility(.hidden)
         }
     }
 

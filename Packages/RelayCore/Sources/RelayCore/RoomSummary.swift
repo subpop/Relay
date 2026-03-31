@@ -17,6 +17,9 @@ public final class RoomSummary: Identifiable {
     /// The display name of the room.
     public var name: String
 
+    /// The room's topic description, if set.
+    public var topic: String?
+
     /// The `mxc://` URL of the room's avatar image, if set.
     public var avatarURL: String?
 
@@ -43,6 +46,7 @@ public final class RoomSummary: Identifiable {
     /// - Parameters:
     ///   - id: The Matrix room identifier.
     ///   - name: The room display name.
+    ///   - topic: The room topic description.
     ///   - avatarURL: The `mxc://` URL for the room avatar.
     ///   - lastMessage: A rich text preview of the most recent message.
     ///   - lastMessageTimestamp: The timestamp of the most recent message.
@@ -52,6 +56,7 @@ public final class RoomSummary: Identifiable {
     public init(
         id: String,
         name: String,
+        topic: String? = nil,
         avatarURL: String? = nil,
         lastMessage: AttributedString? = nil,
         lastMessageTimestamp: Date? = nil,
@@ -61,6 +66,7 @@ public final class RoomSummary: Identifiable {
     ) {
         self.id = id
         self.name = name
+        self.topic = topic
         self.avatarURL = avatarURL
         self.lastMessage = lastMessage
         self.lastMessageTimestamp = lastMessageTimestamp

@@ -256,6 +256,7 @@ private final class RoomEntry: Identifiable {
 
     private func applyRoomInfo(_ info: RoomInfo) {
         summary.name = info.displayName ?? room.displayName() ?? id
+        summary.topic = info.topic
         summary.avatarURL = info.avatarUrl
         summary.unreadMessages = UInt(info.numUnreadMessages)
         summary.unreadMentions = UInt(info.numUnreadMentions)

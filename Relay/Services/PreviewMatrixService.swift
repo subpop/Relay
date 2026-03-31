@@ -109,6 +109,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         RoomSummary(
             id: "!design:matrix.org",
             name: "Design Team",
+            topic: "UI/UX design discussion",
             avatarURL: nil,
             lastMessage: try? AttributedString(
                 markdown: "Let's **finalize** the mockups tomorrow",
@@ -134,6 +135,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         RoomSummary(
             id: "!hq:matrix.org",
             name: "Matrix HQ",
+            topic: "General discussion on anything related to Matrix",
             avatarURL: nil,
             lastMessage: nil,
             lastMessageTimestamp: nil,
