@@ -65,6 +65,24 @@ struct MainView: View {
                 )
             }
         }
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white, location: 0),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .ignoresSafeArea()
+                .frame(height: 52)
+                .allowsHitTesting(false)
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
