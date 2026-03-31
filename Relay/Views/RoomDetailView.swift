@@ -383,15 +383,28 @@ struct RoomDetailView: View {
     /// Stages selected files as ``StagedAttachment`` capsules in the compose bar
     /// instead of sending them immediately. Files are copied to a temp directory
     /// so the security-scoped bookmark can be released right away.
+    ///
+    /// Works for file-picker URLs (security-scoped), drag-and-drop URLs, and
+    /// pasted temp-file URLs. Security-scoped access is attempted but not required
+    /// since drag/paste URLs are not sandboxed.
     private func stageAttachments(_ urls: [URL]) {
         let tempDir = FileManager.default.temporaryDirectory
         for url in urls {
-            guard url.startAccessingSecurityScopedResource() else {
-                logger.error("Failed to access security-scoped resource: \(url.lastPathComponent)")
-                viewModel.errorMessage = "Could not access \(url.lastPathComponent). Check file permissions."
+            // Attempt security-scoped access (required for file-picker URLs,
+            // returns false harmlessly for drag-and-drop / paste URLs).
+            let didAccessScope = url.startAccessingSecurityScopedResource()
+            defer { if didAccessScope { url.stopAccessingSecurityScopedResource() } }
+
+            // If the file is already in our temp directory (e.g. pasted data),
+            // use it directly instead of copying again.
+            if url.path.hasPrefix(tempDir.path) {
+                let thumbnail = generateThumbnail(for: url)
+                let staged = StagedAttachment(url: url, filename: url.lastPathComponent, thumbnail: thumbnail)
+                withAnimation(.easeOut(duration: 0.15)) {
+                    stagedAttachments.append(staged)
+                }
                 continue
             }
-            defer { url.stopAccessingSecurityScopedResource() }
 
             let dest = tempDir.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
             do {

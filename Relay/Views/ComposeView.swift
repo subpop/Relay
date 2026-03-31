@@ -45,11 +45,15 @@ struct ComposeView: View {
     /// Called when the user submits the message (presses Return).
     var onSend: () -> Void
 
-    /// Called when the user selects files to attach via the file picker.
+    /// Called when the user selects files to attach via the file picker or drag-and-drop.
     var onAttach: ([URL]) -> Void
+
+    /// Supported UTTypes for attachments (shared by file picker and drop).
+    static let supportedTypes: [UTType] = [.image, .movie, .audio, .item]
 
     @FocusState private var isFocused: Bool
     @State private var isShowingFilePicker = false
+    @State private var isDropTargeted = false
 
     /// The ID of the attachment whose caption field is currently being edited inline.
     @State private var editingCaptionId: UUID?
@@ -79,24 +83,20 @@ struct ComposeView: View {
                         attachmentCapsules
                     }
 
-                    TextField("Message", text: $text, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...5)
-                        .focused($isFocused)
-                        .onSubmit {
-                            if hasContent {
-                                onSend()
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                    messageField
                 }
                 .glassEffect(in: .rect(cornerRadius: (replyingTo != nil || !attachments.isEmpty) ? 16 : 20))
+                .overlay(
+                    RoundedRectangle(cornerRadius: (replyingTo != nil || !attachments.isEmpty) ? 18 : 22, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(-4)
+                        .opacity(isDropTargeted ? 1 : 0)
+                )
             }
         }
         .fileImporter(
             isPresented: $isShowingFilePicker,
-            allowedContentTypes: [.image, .movie, .audio, .item],
+            allowedContentTypes: Self.supportedTypes,
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result, !urls.isEmpty {
@@ -104,9 +104,36 @@ struct ComposeView: View {
                 isFocused = true
             }
         }
+        .dropDestination(for: URL.self) { urls, _ in
+            let fileURLs = urls.filter(\.isFileURL)
+            guard !fileURLs.isEmpty else { return false }
+            onAttach(fileURLs)
+            isFocused = true
+            return true
+        } isTargeted: { targeted in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isDropTargeted = targeted
+            }
+        }
         .onChange(of: replyingTo) {
             if replyingTo != nil { isFocused = true }
         }
+    }
+
+    // MARK: - Message Field
+
+    private var messageField: some View {
+        TextField("Message", text: $text, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(1...5)
+            .focused($isFocused)
+            .onSubmit {
+                if hasContent {
+                    onSend()
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
     }
 
     // MARK: - Attachment Capsules
