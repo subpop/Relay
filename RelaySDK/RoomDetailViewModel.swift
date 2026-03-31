@@ -144,12 +144,15 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
-    public func sendAttachment(url: URL) async {
+    public func sendAttachment(url: URL, caption: String? = nil) async {
         guard let timeline else { return }
 
         let filename = url.lastPathComponent
         let utType = UTType(filenameExtension: url.pathExtension) ?? .data
         let mime = utType.preferredMIMEType
+
+        // Convert a plain-text caption to simple HTML for formattedCaption
+        let formattedCaption: String? = caption.map { "<p>\($0)</p>" }
 
         do {
             let handle: SendAttachmentJoinHandle
@@ -173,8 +176,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
                 let params = UploadParameters(
                     source: .data(bytes: data, filename: filename),
-                    caption: nil,
-                    formattedCaption: nil,
+                    caption: caption,
+                    formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
                     inReplyTo: nil
                 )
@@ -215,8 +218,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
                 let params = UploadParameters(
                     source: .file(filename: url.path),
-                    caption: nil,
-                    formattedCaption: nil,
+                    caption: caption,
+                    formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
                     inReplyTo: nil
                 )
@@ -238,8 +241,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
                 let params = UploadParameters(
                     source: .file(filename: url.path),
-                    caption: nil,
-                    formattedCaption: nil,
+                    caption: caption,
+                    formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
                     inReplyTo: nil
                 )
@@ -261,8 +264,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 let fileSize = UInt64(data.count)
                 let params = UploadParameters(
                     source: .data(bytes: data, filename: filename),
-                    caption: nil,
-                    formattedCaption: nil,
+                    caption: caption,
+                    formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
                     inReplyTo: nil
                 )

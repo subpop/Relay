@@ -48,8 +48,10 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     /// The file type is automatically detected. Images include a blurhash placeholder;
     /// videos and generic files are sent with appropriate metadata.
     ///
-    /// - Parameter url: A local file URL pointing to the attachment to upload.
-    func sendAttachment(url: URL) async
+    /// - Parameters:
+    ///   - url: A local file URL pointing to the attachment to upload.
+    ///   - caption: Optional alt-text / caption to include with the attachment.
+    func sendAttachment(url: URL, caption: String?) async
 
     /// Toggles an emoji reaction on a message. Adds the reaction if not present; removes it if already sent.
     ///

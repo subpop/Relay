@@ -1,6 +1,7 @@
 import OSLog
 import RelayCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "Relay", category: "RoomDetail")
 
@@ -29,6 +30,7 @@ struct RoomDetailView: View {
 
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
+    @State private var stagedAttachments: [StagedAttachment] = []
 
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
@@ -64,7 +66,7 @@ struct RoomDetailView: View {
                             .padding(.bottom, 4)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, onSend: sendMessage, onAttach: sendAttachments)
+                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, onSend: sendMessage, onAttach: stageAttachments)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                 }
@@ -357,21 +359,31 @@ struct RoomDetailView: View {
 
     private func sendMessage() {
         let text = draftMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let pendingAttachments = stagedAttachments
+        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         let replyEventId = replyingTo?.id
         draftMessage = ""
         replyingTo = nil
+        stagedAttachments = []
         pendingScrollToBottom = true
         Task {
             if sendTypingNotifications {
                 await matrixService.sendTypingNotice(roomId: roomId, isTyping: false)
             }
-            await viewModel.send(text: text, inReplyTo: replyEventId)
+            if !text.isEmpty {
+                await viewModel.send(text: text, inReplyTo: replyEventId)
+            }
+            for attachment in pendingAttachments {
+                let caption = attachment.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+                await viewModel.sendAttachment(url: attachment.url, caption: caption.isEmpty ? nil : caption)
+            }
         }
     }
 
-    private func sendAttachments(_ urls: [URL]) {
-        pendingScrollToBottom = true
+    /// Stages selected files as ``StagedAttachment`` capsules in the compose bar
+    /// instead of sending them immediately. Files are copied to a temp directory
+    /// so the security-scoped bookmark can be released right away.
+    private func stageAttachments(_ urls: [URL]) {
         let tempDir = FileManager.default.temporaryDirectory
         for url in urls {
             guard url.startAccessingSecurityScopedResource() else {
@@ -389,8 +401,29 @@ struct RoomDetailView: View {
                 viewModel.errorMessage = "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
                 continue
             }
-            Task { await viewModel.sendAttachment(url: dest) }
+
+            let thumbnail = generateThumbnail(for: dest)
+            let staged = StagedAttachment(url: dest, filename: url.lastPathComponent, thumbnail: thumbnail)
+            withAnimation(.easeOut(duration: 0.15)) {
+                stagedAttachments.append(staged)
+            }
         }
+    }
+
+    /// Generates a small thumbnail for image files, or `nil` for other types.
+    private func generateThumbnail(for url: URL) -> NSImage? {
+        let utType = UTType(filenameExtension: url.pathExtension) ?? .data
+        guard utType.conforms(to: .image) else { return nil }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        let maxDimension: CGFloat = 56
+        let size = image.size
+        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
+        let targetSize = NSSize(width: size.width * scale, height: size.height * scale)
+        let thumbnail = NSImage(size: targetSize)
+        thumbnail.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: targetSize))
+        thumbnail.unlockFocus()
+        return thumbnail
     }
 }
 
