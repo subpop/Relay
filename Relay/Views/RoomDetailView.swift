@@ -33,6 +33,7 @@ struct RoomDetailView: View {
     @State private var stagedAttachments: [StagedAttachment] = []
     @State private var roomMembers: [RoomMemberDetails] = []
     @State private var draftMentions: [Mention] = []
+    @State private var messageToDelete: TimelineMessage?
 
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
@@ -165,6 +166,22 @@ struct RoomDetailView: View {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+        .alert("Delete Message", isPresented: Binding(
+            get: { messageToDelete != nil },
+            set: { if !$0 { messageToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let message = messageToDelete {
+                    Task { await viewModel.redact(messageId: message.id, reason: nil) }
+                }
+                messageToDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                messageToDelete = nil
+            }
+        } message: {
+            Text("Are you sure you want to delete this message? This cannot be undone.")
         }
     }
 
@@ -375,6 +392,16 @@ struct RoomDetailView: View {
             NSPasteboard.general.setString(message.body, forType: .string)
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
+        }
+
+        if message.isOutgoing && message.kind != .redacted {
+            Divider()
+
+            Button(role: .destructive) {
+                messageToDelete = message
+            } label: {
+                Label("Delete Message", systemImage: "trash")
+            }
         }
     }
 

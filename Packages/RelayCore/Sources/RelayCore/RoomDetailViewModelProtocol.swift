@@ -61,4 +61,14 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     ///   - messageId: The event or transaction ID of the message to react to.
     ///   - key: The emoji character to toggle (e.g. `"👍"`).
     func toggleReaction(messageId: String, key: String) async
+
+    /// Redacts (deletes) a message from the room timeline.
+    ///
+    /// For local (unsent) messages the SDK attempts to cancel the send; for remote messages
+    /// a redaction request is sent to the homeserver.
+    ///
+    /// - Parameters:
+    ///   - messageId: The event or transaction ID of the message to redact.
+    ///   - reason: An optional human-readable reason for the redaction.
+    func redact(messageId: String, reason: String?) async
 }

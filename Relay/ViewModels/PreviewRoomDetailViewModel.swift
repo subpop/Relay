@@ -34,6 +34,7 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
     func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {}
     func sendAttachment(url: URL, caption: String?) async {}
     func toggleReaction(messageId: String, key: String) async {}
+    func redact(messageId: String, reason: String?) async {}
 
     nonisolated static let sampleMessages: [TimelineMessage] = [
         .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",

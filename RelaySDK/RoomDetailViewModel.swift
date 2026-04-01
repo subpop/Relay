@@ -148,6 +148,21 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    public func redact(messageId: String, reason: String? = nil) async {
+        guard let timeline else { return }
+        let itemId: EventOrTransactionId = if messageId.hasPrefix("$") {
+            .eventId(eventId: messageId)
+        } else {
+            .transactionId(transactionId: messageId)
+        }
+        do {
+            try await timeline.redactEvent(eventOrTransactionId: itemId, reason: reason)
+        } catch {
+            logger.error("Failed to delete message: \(error)")
+            errorMessage = "Could not delete message: \(error.localizedDescription)"
+        }
+    }
+
     public func sendAttachment(url: URL, caption: String? = nil) async {
         guard let timeline else { return }
 
