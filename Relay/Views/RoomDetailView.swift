@@ -31,6 +31,8 @@ struct RoomDetailView: View {
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
     @State private var stagedAttachments: [StagedAttachment] = []
+    @State private var roomMembers: [RoomMemberDetails] = []
+    @State private var draftMentions: [Mention] = []
 
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isNearBottom = true
@@ -111,7 +113,7 @@ struct RoomDetailView: View {
                         .padding(.bottom, 4)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, onSend: sendMessage, onAttach: stageAttachments)
+                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, members: roomMembers, mentions: $draftMentions,  onSend: sendMessage, onAttach: stageAttachments)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                 }
@@ -120,6 +122,11 @@ struct RoomDetailView: View {
         .task {
             await viewModel.loadTimeline()
             await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
+
+            // Fetch room members for mention autocomplete
+            if let details = await matrixService.roomDetails(roomId: roomId) {
+                roomMembers = details.members
+            }
 
             // Auto-dismiss the "New" marker after 5 seconds, then clear it
             if viewModel.firstUnreadMessageId != nil {
@@ -411,7 +418,15 @@ struct RoomDetailView: View {
         let pendingAttachments = stagedAttachments
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         let replyEventId = replyingTo?.id
+
+        // Capture mentions and convert to markdown with Matrix.to links
+        let currentMentions = draftMentions
+        let mentionedUserIds = currentMentions.map(\.userId)
+        let messageText = ComposeView.markdownWithMentions(text: draftMessage, mentions: currentMentions)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
         draftMessage = ""
+        draftMentions = []
         withAnimation(.easeOut(duration: 0.2)) { replyingTo = nil }
         stagedAttachments = []
         pendingScrollToBottom = true
@@ -419,8 +434,8 @@ struct RoomDetailView: View {
             if sendTypingNotifications {
                 await matrixService.sendTypingNotice(roomId: roomId, isTyping: false)
             }
-            if !text.isEmpty {
-                await viewModel.send(text: text, inReplyTo: replyEventId)
+            if !messageText.isEmpty {
+                await viewModel.send(text: messageText, inReplyTo: replyEventId, mentionedUserIds: mentionedUserIds)
             }
             for attachment in pendingAttachments {
                 let caption = attachment.caption.trimmingCharacters(in: .whitespacesAndNewlines)

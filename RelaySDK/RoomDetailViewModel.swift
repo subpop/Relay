@@ -114,9 +114,13 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
-    public func send(text: String, inReplyTo eventId: String? = nil) async {
+    public func send(text: String, inReplyTo eventId: String? = nil, mentionedUserIds: [String] = []) async {
         guard let timeline else { return }
+        // The spec recommends always including m.mentions on every event, even
+        // when empty, to prevent legacy push rules (e.g. .m.rule.contains_display_name)
+        // from triggering unintentional notifications.
         let msg = messageEventContentFromMarkdown(md: text)
+            .withMentions(mentions: Mentions(userIds: mentionedUserIds, room: false))
         do {
             if let eventId {
                 try await timeline.sendReply(msg: msg, eventId: eventId)

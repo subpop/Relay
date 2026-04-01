@@ -39,9 +39,11 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     /// Sends a text message to the room, optionally as a reply to another message.
     ///
     /// - Parameters:
-    ///   - text: The message body (may contain Markdown).
+    ///   - text: The message body (may contain Markdown and Matrix.to mention links).
     ///   - eventId: The event ID of the message being replied to, or `nil` for a new message.
-    func send(text: String, inReplyTo eventId: String?) async
+    ///   - mentionedUserIds: Matrix user IDs mentioned in the message, included in the
+    ///     `m.mentions` event content for notification routing. Defaults to an empty array.
+    func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async
 
     /// Sends a file attachment to the room.
     ///

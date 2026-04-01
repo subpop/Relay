@@ -3,6 +3,42 @@ import RelayCore
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Notification Name
+
+extension Notification.Name {
+    /// Posted when the user selects a member from the mention suggestion list.
+    /// The `userInfo` dictionary contains `"userId"` and `"displayName"` strings.
+    static let insertMention = Notification.Name("relay.insertMention")
+}
+
+// MARK: - Mention Helpers
+
+extension ComposeView {
+    /// Converts resolved mentions into Matrix-format markdown for the message body.
+    ///
+    /// Each mention's display name is replaced with a Matrix.to permalink:
+    /// `[@DisplayName](https://matrix.to/#/@user:server)` which the SDK's
+    /// `messageEventContentFromMarkdown` will render into proper HTML links.
+    static func markdownWithMentions(text: String, mentions: [Mention]) -> String {
+        guard !mentions.isEmpty else { return text }
+
+        // Sort mentions by range location descending so we can replace from the end
+        // without invalidating earlier ranges.
+        let sorted = mentions.sorted { $0.range.location > $1.range.location }
+        var result = text as NSString
+
+        for mention in sorted {
+            let pillText = "@\(mention.displayName)"
+            let markdownLink = "[\(pillText)](https://matrix.to/#/\(mention.userId))"
+            if mention.range.location + mention.range.length <= result.length {
+                result = result.replacingCharacters(in: mention.range, with: markdownLink) as NSString
+            }
+        }
+
+        return result as String
+    }
+}
+
 /// A file staged for sending, shown as a capsule in the compose bar.
 ///
 /// Each ``StagedAttachment`` holds the local file URL (already copied to a temp directory),
@@ -166,6 +202,13 @@ struct ComposeView: View {
     /// Files staged for sending, displayed as removable capsules in the compose bar.
     @Binding var attachments: [StagedAttachment]
 
+    /// The room members available for `@` mention autocomplete.
+    var members: [RoomMemberDetails]
+
+    /// Resolved mentions currently in the compose text, bound to the parent view's state
+    /// so they can be read when sending the message.
+    @Binding var mentions: [Mention]
+
     /// Called when the user submits the message (presses Return).
     var onSend: () -> Void
 
@@ -184,38 +227,46 @@ struct ComposeView: View {
 
     @State private var pasteHandler = PasteHandler()
 
+    /// The active query string after `@`, or `nil` when no mention autocomplete is active.
+    @State private var mentionQuery: String?
+
     private var hasContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
     }
 
     var body: some View {
-        GlassEffectContainer {
-            HStack(alignment: .bottom, spacing: 8) {
-                Button { isShowingFilePicker = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .regular))
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                        .glassEffect(in: .circle)
-                }
-                .buttonStyle(.plain)
+        VStack(spacing: 4) {
+            mentionSuggestions
 
-                VStack(alignment: .leading, spacing: 0) {
-                    if !attachments.isEmpty {
-                        attachmentCapsules
+            GlassEffectContainer {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Button { isShowingFilePicker = true } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .regular))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                            .glassEffect(in: .circle)
                     }
+                    .buttonStyle(.plain)
 
-                    messageField
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !attachments.isEmpty {
+                            attachmentCapsules
+                        }
+
+                        messageField
+                    }
+                    .glassEffect(in: .rect(cornerRadius: !attachments.isEmpty ? 16 : 20))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: !attachments.isEmpty ? 18 : 22, style: .continuous)
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .padding(-4)
+                            .opacity(isDropTargeted ? 1 : 0)
+                    )
                 }
-                .glassEffect(in: .rect(cornerRadius: !attachments.isEmpty ? 16 : 20))
-                .overlay(
-                    RoundedRectangle(cornerRadius: !attachments.isEmpty ? 18 : 22, style: .continuous)
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
-                        .padding(-4)
-                        .opacity(isDropTargeted ? 1 : 0)
-                )
             }
         }
+        .animation(.easeOut(duration: 0.15), value: mentionQuery != nil)
         .fileImporter(
             isPresented: $isShowingFilePicker,
             allowedContentTypes: Self.supportedTypes,
@@ -253,17 +304,49 @@ struct ComposeView: View {
     // MARK: - Message Field
 
     private var messageField: some View {
-        TextField("Message", text: $text, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(1...5)
-            .focused($isFocused)
-            .onSubmit {
+        ComposeTextView(
+            text: $text,
+            mentions: $mentions,
+            mentionQuery: $mentionQuery,
+            onSubmit: {
                 if hasContent {
                     onSend()
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+        )
+    }
+
+    // MARK: - Mention Suggestions
+
+    @ViewBuilder
+    private var mentionSuggestions: some View {
+        if mentionQuery != nil {
+            MentionSuggestionView(
+                members: members,
+                query: mentionQuery ?? "",
+                onSelect: { member in
+                    insertMention(member)
+                },
+                onDismiss: {
+                    mentionQuery = nil
+                }
+            )
+            .padding(.leading, 40)  // Aligns with the text field, past the + button (32pt) + spacing (8pt)
+        }
+    }
+
+    private func insertMention(_ member: RoomMemberDetails) {
+        // Find the ComposeTextView's coordinator and call insertMention
+        // This is handled via the ComposeTextView's notification system
+        // We post a notification that the coordinator picks up
+        NotificationCenter.default.post(
+            name: .insertMention,
+            object: nil,
+            userInfo: [
+                "userId": member.userId,
+                "displayName": member.displayName ?? member.userId,
+            ]
+        )
     }
 
     // MARK: - Attachment Capsules
@@ -367,19 +450,31 @@ struct ComposeView: View {
 
 }
 
+// MARK: - Preview Data
+
+private let previewMembers: [RoomMemberDetails] = [
+    RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
+    RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
+    RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis"),
+    RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans"),
+]
+
 #Preview("Empty") {
-    ComposeView(text: .constant(""), replyingTo: .constant(nil), attachments: .constant([]), onSend: {}, onAttach: { _ in })
+    ComposeView(text: .constant(""), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in })
         .frame(width: 400)
+        .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Text") {
-    ComposeView(text: .constant("Hello, world!"), replyingTo: .constant(nil), attachments: .constant([]), onSend: {}, onAttach: { _ in })
+    ComposeView(text: .constant("Hello, world!"), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in })
         .frame(width: 400)
+        .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Long Text") {
-    ComposeView(text: .constant("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum. Donec vitae elit a tortor ultrices condimentum. Donec vitae elit a tortor ultrices condimentum. Donec vitae elit a tortor ultrices condimentum."), replyingTo: .constant(nil), attachments: .constant([]), onSend: {}, onAttach: { _ in })
+    ComposeView(text: .constant("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum."), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in })
         .frame(width: 400)
+        .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("Replying") {
@@ -391,11 +486,15 @@ struct ComposeView: View {
             timestamp: .now, isOutgoing: false
         )),
         attachments: .constant([]),
+        members: previewMembers,
+        mentions: .constant([]),
         onSend: {},
         onAttach: { _ in }
     )
     .frame(width: 400)
+    .environment(\.matrixService, PreviewMatrixService())
 }
+
 #Preview("With Attachments") {
     ComposeView(
         text: .constant("Check these out"),
@@ -404,9 +503,12 @@ struct ComposeView: View {
             StagedAttachment(url: URL(fileURLWithPath: "/tmp/photo.jpg"), filename: "photo.jpg", thumbnail: nil),
             StagedAttachment(url: URL(fileURLWithPath: "/tmp/document.pdf"), filename: "document.pdf", thumbnail: nil, caption: "Project brief"),
         ]),
+        members: previewMembers,
+        mentions: .constant([]),
         onSend: {},
         onAttach: { _ in }
     )
     .frame(width: 500)
+    .environment(\.matrixService, PreviewMatrixService())
 }
 
