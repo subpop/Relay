@@ -440,6 +440,13 @@ final class MentionTextView: NSTextView {
         return NSSize(width: NSView.noIntrinsicMetric, height: height)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            window.makeFirstResponder(self)
+        }
+    }
+
     override func didChangeText() {
         super.didChangeText()
         invalidateIntrinsicContentSize()
