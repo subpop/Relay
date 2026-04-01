@@ -20,6 +20,12 @@ A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](http
 - 🧵 Thread support
 - 🔔 Notification sync
 
+# Get Involved
+
+Join us in the Matrix room to ask questions, discuss ideas, or just say hello:
+
+[#relayapp:matrix.org](https://matrix.to/#/#relayapp:matrix.org)
+
 # License
 
 Apache 2.0. See the [LICENSE](./LICENSE) file for details.
