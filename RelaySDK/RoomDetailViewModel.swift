@@ -28,6 +28,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public var firstUnreadMessageId: String?
     public private(set) var typingUserDisplayNames: [String] = []
     public var errorMessage: String?
+    public private(set) var timelineFocus: TimelineFocusState = .live
 
     private let room: Room
     private let roomId: String
@@ -74,30 +75,13 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         guard sdkTimeline == nil else { return }
 
         isLoading = true
-
         do {
-            let config = TimelineConfiguration(
-                focus: .live(hideThreadedEvents: true),
-                filter: .all,
-                internalIdPrefix: nil,
-                dateDividerMode: .daily,
-                trackReadReceipts: .allEvents,
-                reportUtds: false
-            )
-            let tl = try await room.timelineWithConfiguration(configuration: config)
-            sdkTimeline = tl
-            observeTimeline(tl)
+            try await setupTimeline(focus: .live(hideThreadedEvents: true))
+            timelineFocus = .live
             observeTypingNotifications()
-
-            // Subscribe to back-pagination status for authoritative pagination state
-            do {
-                try await observePaginationStatus(tl)
-            } catch {
-                logger.error("Failed to subscribe to pagination status: \(error)")
+            if let tl = sdkTimeline {
+                await paginateInitialHistory(tl)
             }
-
-            // Paginate to get initial history
-            await paginateInitialHistory(tl)
         } catch {
             logger.error("Failed to load timeline: \(error)")
             errorMessage = "Could not load messages: \(error.localizedDescription)"
@@ -113,6 +97,48 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             logger.error("Failed to load earlier messages: \(error)")
             errorMessage = "Could not load earlier messages: \(error.localizedDescription)"
         }
+    }
+
+    public func focusOnEvent(eventId: String) async {
+        isLoading = true
+        teardownTimeline()
+
+        do {
+            try await setupTimeline(focus: .event(
+                eventId: eventId,
+                numContextEvents: 50,
+                hideThreadedEvents: true
+            ))
+            timelineFocus = .focusedOnEvent(eventId)
+        } catch {
+            logger.error("Failed to focus on event \(eventId): \(error)")
+            errorMessage = "Could not load message: \(error.localizedDescription)"
+            // Attempt to recover by returning to live
+            do {
+                try await setupTimeline(focus: .live(hideThreadedEvents: true))
+                timelineFocus = .live
+            } catch {
+                logger.error("Failed to recover live timeline: \(error)")
+            }
+        }
+        isLoading = false
+    }
+
+    public func returnToLive() async {
+        isLoading = true
+        teardownTimeline()
+
+        do {
+            try await setupTimeline(focus: .live(hideThreadedEvents: true))
+            timelineFocus = .live
+            if let tl = sdkTimeline {
+                await paginateInitialHistory(tl)
+            }
+        } catch {
+            logger.error("Failed to return to live timeline: \(error)")
+            errorMessage = "Could not restore timeline: \(error.localizedDescription)"
+        }
+        isLoading = false
     }
 
     public func send(text: String, inReplyTo eventId: String? = nil, mentionedUserIds: [String] = []) async {
@@ -305,6 +331,46 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
 
         try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - Timeline Lifecycle
+
+    /// Tears down the current timeline: cancels observation tasks, releases SDK handles,
+    /// and clears the in-memory timeline items and messages.
+    private func teardownTimeline() {
+        observationTask?.cancel()
+        observationTask = nil
+        paginationTask?.cancel()
+        paginationTask = nil
+        timelineHandle = nil
+        paginationHandle = nil
+        sdkTimeline = nil
+        timelineItems = []
+        messages = []
+        hasReachedStart = false
+        isLoadingMore = false
+        fetchedReplyEventIds = []
+    }
+
+    /// Creates a new SDK timeline with the given focus, subscribes to diffs and pagination status.
+    private func setupTimeline(focus: TimelineFocus) async throws {
+        let config = TimelineConfiguration(
+            focus: focus,
+            filter: .all,
+            internalIdPrefix: nil,
+            dateDividerMode: .daily,
+            trackReadReceipts: .allEvents,
+            reportUtds: false
+        )
+        let tl = try await room.timelineWithConfiguration(configuration: config)
+        sdkTimeline = tl
+        observeTimeline(tl)
+
+        do {
+            try await observePaginationStatus(tl)
+        } catch {
+            logger.error("Failed to subscribe to pagination status: \(error)")
+        }
     }
 
     // MARK: - Private

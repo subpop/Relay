@@ -172,14 +172,23 @@ struct RoomDetailView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .onChange(of: focusedMessageId) {
-            if let eventId = focusedMessageId {
+            guard let eventId = focusedMessageId else { return }
+            focusedMessageId = nil
+
+            if viewModel.messages.contains(where: { $0.id == eventId }) {
+                // Message is already loaded — just scroll to it
                 withAnimation(.easeInOut(duration: 0.3)) {
                     scrollPosition.scrollTo(id: eventId, anchor: .center)
                 }
-                // Clear after a short delay so it can be set again for the same message
+            } else {
+                // Message is not in the loaded timeline — load an event-focused timeline
                 Task {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    focusedMessageId = nil
+                    await viewModel.focusOnEvent(eventId: eventId)
+                    // After the focused timeline loads, scroll to the target event
+                    try? await Task.sleep(for: .milliseconds(200))
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        scrollPosition.scrollTo(id: eventId, anchor: .center)
+                    }
                 }
             }
         }
@@ -306,6 +315,9 @@ struct RoomDetailView: View {
         .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition)
         .onChange(of: viewModel.messages.last?.id) {
+            // Don't auto-scroll when viewing a focused event context
+            guard viewModel.timelineFocus == .live else { return }
+
             if isNearBottom || pendingScrollToBottom {
                 pendingScrollToBottom = false
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -318,13 +330,17 @@ struct RoomDetailView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if !isNearBottom {
+            if viewModel.timelineFocus != .live || !isNearBottom {
                 Button {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        scrollPosition.scrollTo(edge: .bottom)
+                    if viewModel.timelineFocus != .live {
+                        Task { await viewModel.returnToLive() }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            scrollPosition.scrollTo(edge: .bottom)
+                        }
                     }
                 } label: {
-                    Image(systemName: "arrow.down")
+                    Image(systemName: viewModel.timelineFocus != .live ? "arrow.uturn.down" : "arrow.down")
                         .font(.title)
                         .frame(width: 40, height: 40)
                         .contentShape(Circle())

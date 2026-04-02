@@ -14,6 +14,7 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
     var firstUnreadMessageId: String?
     var typingUserDisplayNames: [String]
     var errorMessage: String?
+    var timelineFocus: TimelineFocusState = .live
 
     init(
         messages: [TimelineMessage]? = nil,
@@ -31,6 +32,8 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
 
     func loadTimeline() async {}
     func loadMoreHistory() async {}
+    func focusOnEvent(eventId: String) async { timelineFocus = .focusedOnEvent(eventId) }
+    func returnToLive() async { timelineFocus = .live }
     func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {}
     func sendAttachment(url: URL, caption: String?) async {}
     func toggleReaction(messageId: String, key: String) async {}

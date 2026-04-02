@@ -1,5 +1,13 @@
 import Foundation
 
+/// Describes whether the timeline is showing live messages or focused on a specific event.
+public enum TimelineFocusState: Equatable, Sendable {
+    /// The timeline is showing the latest (live) messages, anchored at the bottom.
+    case live
+    /// The timeline is focused on a specific event with context around it.
+    case focusedOnEvent(String)
+}
+
 /// The view model protocol for displaying and interacting with a room's message timeline.
 ///
 /// ``RoomDetailViewModelProtocol`` defines the observable state and actions needed by the
@@ -30,11 +38,29 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     /// A user-facing error message from the most recent failed operation, if any.
     var errorMessage: String? { get set }
 
+    /// Whether the timeline is showing live messages or focused on a specific event.
+    var timelineFocus: TimelineFocusState { get }
+
     /// Loads the room timeline, restoring cached messages and subscribing to live updates.
     func loadTimeline() async
 
     /// Paginates backward to load older messages from the room history.
     func loadMoreHistory() async
+
+    /// Focuses the timeline on a specific event, loading context events around it.
+    ///
+    /// Creates a new event-focused timeline centered on the given event ID. The previous
+    /// live timeline is torn down and replaced. Call ``returnToLive()`` to restore the
+    /// live timeline.
+    ///
+    /// - Parameter eventId: The Matrix event ID to focus on.
+    func focusOnEvent(eventId: String) async
+
+    /// Returns the timeline to its live state after an event-focused navigation.
+    ///
+    /// Tears down the event-focused timeline and recreates the standard live timeline
+    /// anchored at the most recent messages.
+    func returnToLive() async
 
     /// Sends a text message to the room, optionally as a reply to another message.
     ///
