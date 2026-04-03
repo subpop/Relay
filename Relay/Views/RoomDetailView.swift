@@ -111,12 +111,6 @@ struct RoomDetailView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
-                    if !viewModel.typingUserDisplayNames.isEmpty {
-                        typingIndicator
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 4)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
                     if let reply = replyingTo {
                         HStack {
                             Label("Replying to \(reply.displayName)", systemImage: "arrowshape.turn.up.left")
@@ -343,6 +337,12 @@ struct RoomDetailView: View {
                         }
                 }
 
+                if !viewModel.typingUserDisplayNames.isEmpty {
+                    typingIndicator
+                        .padding(.top, 4)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
                 // Bottom sentinel: tracks whether the user is scrolled near the bottom.
                 // Uses onAppear/onDisappear instead of onScrollGeometryChange to avoid
                 // the "tried to update multiple times per frame" warning during content
@@ -428,14 +428,18 @@ struct RoomDetailView: View {
     // MARK: - Typing Indicator
 
     private var typingIndicator: some View {
-        HStack(spacing: 4) {
-            TypingBubble()
+        VStack(alignment: .leading, spacing: 4) {
             Text(typingLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            TypingBubble()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color(.systemGray).opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 4)
     }
 
     private var typingLabel: String {
@@ -681,35 +685,30 @@ struct RoomDetailView: View {
 // MARK: - Typing Bubble Animation
 
 private struct TypingBubble: View {
-    @State private var phase = 0.0
+    private let startDate = Date()
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(.secondary)
-                    .frame(width: 4, height: 4)
-                    .scaleEffect(dotScale(for: index))
-                    .opacity(dotOpacity(for: index))
-            }
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                phase = 1.0
+        TimelineView(.animation) { context in
+            let elapsed = context.date.timeIntervalSince(startDate)
+            HStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { index in
+                    let phase = dotPhase(elapsed: elapsed, index: index)
+                    Circle()
+                        .fill(.secondary)
+                        .frame(width: 6, height: 6)
+                        .scaleEffect(0.6 + 0.4 * phase)
+                        .opacity(0.4 + 0.6 * phase)
+                }
             }
         }
     }
 
-    private func dotScale(for index: Int) -> Double {
-        let offset = Double(index) * 0.15
-        let t = (phase + offset).truncatingRemainder(dividingBy: 1.0)
-        return 0.6 + 0.4 * sin(t * .pi)
-    }
-
-    private func dotOpacity(for index: Int) -> Double {
-        let offset = Double(index) * 0.15
-        let t = (phase + offset).truncatingRemainder(dividingBy: 1.0)
-        return 0.4 + 0.6 * sin(t * .pi)
+    /// Returns a 0...1 pulsing value for each dot, staggered by index.
+    private func dotPhase(elapsed: TimeInterval, index: Int) -> Double {
+        let period = 1.8 // full cycle duration in seconds
+        let delay = Double(index) * 0.15
+        let t = (elapsed + delay).truncatingRemainder(dividingBy: period) / period
+        return sin(t * .pi)
     }
 }
 
