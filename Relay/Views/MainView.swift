@@ -34,6 +34,9 @@ struct MainView: View {
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
     @State private var isJoiningLinkedRoom = false
+    @AppStorage("roomSortOrder") private var roomSortOrder: RoomSortOrder = .lastMessage
+    @AppStorage("roomSortDirection") private var roomSortDirection: RoomSortDirection = .descending
+    @AppStorage("roomTypeFilter") private var roomTypeFilter: RoomTypeFilter = .all
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -49,7 +52,13 @@ struct MainView: View {
 
     var body: some View {
         NavigationSplitView {
-            RoomListView(selectedRoomId: $selectedRoomId, searchText: $searchText)
+            RoomListView(
+                    selectedRoomId: $selectedRoomId,
+                    searchText: $searchText,
+                    sortOrder: roomSortOrder,
+                    sortDirection: roomSortDirection,
+                    typeFilter: roomTypeFilter
+                )
                 .navigationSplitViewColumnWidth(min: 116, ideal: 260, max: 360)
                 .onChange(of: selectedRoomId) {
                     if selectedRoomId != nil {
@@ -113,6 +122,41 @@ struct MainView: View {
                 .allowsHitTesting(false)
         }
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Menu {
+                    Picker("Sort By", selection: $roomSortOrder) {
+                        Label("Last Message", systemImage: "clock")
+                            .tag(RoomSortOrder.lastMessage)
+                        Label("Name", systemImage: "textformat")
+                            .tag(RoomSortOrder.name)
+                    }
+                    .pickerStyle(.inline)
+
+                    Picker("Direction", selection: $roomSortDirection) {
+                        Label("Ascending", systemImage: "arrow.up")
+                            .tag(RoomSortDirection.ascending)
+                        Label("Descending", systemImage: "arrow.down")
+                            .tag(RoomSortDirection.descending)
+                    }
+                    .pickerStyle(.inline)
+
+                    Divider()
+
+                    Picker("Show", selection: $roomTypeFilter) {
+                        Label("All", systemImage: "tray.2")
+                            .tag(RoomTypeFilter.all)
+                        Label("Rooms", systemImage: "bubble.left.and.bubble.right")
+                            .tag(RoomTypeFilter.rooms)
+                        Label("Direct Messages", systemImage: "person.2")
+                            .tag(RoomTypeFilter.directMessages)
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                }
+                .padding(1)
+                .help("Sort and Filter")
+            }
             ToolbarItem(placement: .navigation) {
                 Button {
                     showingCreateRoom = true

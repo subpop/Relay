@@ -21,15 +21,55 @@ struct RoomListView: View {
     @Environment(\.errorReporter) private var errorReporter
     @Binding var selectedRoomId: String?
     @Binding var searchText: String
+    var sortOrder: RoomSortOrder
+    var sortDirection: RoomSortDirection
+    var typeFilter: RoomTypeFilter
 
     private var filteredRooms: [RoomSummary] {
-        let rooms = matrixService.rooms
-        if searchText.isEmpty {
-            return rooms
+        var rooms = matrixService.rooms
+
+        // Apply type filter.
+        switch typeFilter {
+        case .all:
+            break
+        case .rooms:
+            rooms = rooms.filter { !$0.isDirect }
+        case .directMessages:
+            rooms = rooms.filter { $0.isDirect }
         }
-        return rooms.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
+
+        // Apply search filter.
+        if !searchText.isEmpty {
+            rooms = rooms.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText)
+            }
         }
+
+        // Apply sort.
+        rooms.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortOrder {
+            case .lastMessage:
+                switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
+                case (.some(let l), .some(let r)):
+                    result = l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
+                case (.some, .none):
+                    result = .orderedDescending
+                case (.none, .some):
+                    result = .orderedAscending
+                case (.none, .none):
+                    result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                }
+            case .name:
+                result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            }
+
+            return sortDirection == .ascending
+                ? result == .orderedAscending
+                : result == .orderedDescending
+        }
+
+        return rooms
     }
 
     @State private var roomToLeave: RoomSummary?
@@ -143,12 +183,24 @@ extension RoomListView {
 #Preview("Room Rows") {
     @Previewable @State var sel: String? = nil
     @Previewable @State var search = ""
-    RoomListView(selectedRoomId: $sel, searchText: $search)
-        .environment(\.matrixService, PreviewMatrixService())
-        .frame(width: 300, height: 400)
+    RoomListView(
+        selectedRoomId: $sel,
+        searchText: $search,
+        sortOrder: .lastMessage,
+        sortDirection: .descending,
+        typeFilter: .all
+    )
+    .environment(\.matrixService, PreviewMatrixService())
+    .frame(width: 300, height: 400)
 }
 
 #Preview("Empty State") {
-    RoomListView(selectedRoomId: .constant(nil), searchText: .constant(""))
-        .frame(width: 300, height: 400)
+    RoomListView(
+        selectedRoomId: .constant(nil),
+        searchText: .constant(""),
+        sortOrder: .lastMessage,
+        sortDirection: .descending,
+        typeFilter: .all
+    )
+    .frame(width: 300, height: 400)
 }
