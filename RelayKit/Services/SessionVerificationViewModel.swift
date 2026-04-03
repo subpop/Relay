@@ -79,6 +79,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
     /// Confirms that the displayed emoji match on both devices, completing verification.
     @MainActor
     public func approveVerification() async {
+        state = .approving
         do {
             try await controller.approveVerification()
             logger.info("Verification approved")

@@ -511,7 +511,7 @@ private struct VerificationSheet: View {
             switch viewModel.state {
             case .idle:
                 idleView
-            case .requesting, .waitingForOtherDevice, .sasStarted:
+            case .requesting, .waitingForOtherDevice, .sasStarted, .approving:
                 waitingView
             case .showingEmojis:
                 emojiView

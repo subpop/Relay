@@ -50,6 +50,8 @@ public enum VerificationState: Sendable {
     case sasStarted
     /// Emoji are ready for the user to compare and confirm.
     case showingEmojis
+    /// The user confirmed the emoji match; waiting for the SDK to finish.
+    case approving
     /// The user confirmed the emoji match and verification succeeded.
     case verified
     /// Either side cancelled the verification.
