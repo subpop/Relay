@@ -143,7 +143,7 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let client else { return }
 
         do {
-            try await syncManager.startSync(client: client.underlyingClient)
+            try await syncManager.startSync(client: client)
             verificationController = try? await client.getSessionVerificationController()
             if let syncService = syncManager.syncService {
                 try await roomListManager.start(syncService: syncService)
@@ -171,7 +171,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func userDisplayName() async -> String? {
         guard let client else { return nil }
-        return try? await client.underlyingClient.displayName()
+        return client.displayName
     }
 
     public func setDisplayName(_ name: String) async throws {
@@ -181,7 +181,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func userAvatarURL() async -> String? {
         guard let client else { return nil }
-        return try? await client.underlyingClient.avatarUrl()
+        return client.avatarURL?.absoluteString
     }
 
     public func makeRoomDetailViewModel(roomId: String) -> (any RoomDetailViewModelProtocol)? {
@@ -207,7 +207,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func joinRoom(idOrAlias: String) async throws {
         guard let client else { return }
-        _ = try await client.underlyingClient.joinRoomByIdOrAlias(roomIdOrAlias: idOrAlias, serverNames: [])
+        _ = try await client.joinRoomByIdOrAlias(roomIdOrAlias: idOrAlias, serverNames: [])
     }
 
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
@@ -239,12 +239,12 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? {
         guard let client else { return nil }
-        return RoomDirectoryViewModel(client: client.underlyingClient)
+        return RoomDirectoryViewModel(client: client)
     }
 
     public func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? {
         guard let client else { return nil }
-        return RoomPreviewViewModel(roomId: roomId, client: client.underlyingClient)
+        return RoomPreviewViewModel(roomId: roomId, client: client)
     }
 
     public func leaveRoom(id: String) async throws {
@@ -283,7 +283,7 @@ public final class MatrixService: MatrixServiceProtocol {
                 }
             }
             do {
-                handle = try client.underlyingClient.observeRoomAccountDataEvent(
+                handle = try client.observeRoomAccountDataEvent(
                     roomId: roomId,
                     eventType: .fullyRead,
                     listener: listener
@@ -425,24 +425,24 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func searchDirectory(query: String) async throws -> [DirectoryRoom] {
         guard let client else { return [] }
-        return try await directorySearch.search(query: query, client: client.underlyingClient)
+        return try await directorySearch.search(query: query, client: client)
     }
 
     // MARK: - Media
 
     public func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? {
         guard let client else { return nil }
-        return await media.avatarThumbnail(mxcURL: mxcURL, size: size, client: client.underlyingClient)
+        return await media.avatarThumbnail(mxcURL: mxcURL, size: size, client: client)
     }
 
     public func mediaContent(mxcURL: String) async -> Data? {
         guard let client else { return nil }
-        return await media.mediaContent(mxcURL: mxcURL, client: client.underlyingClient)
+        return await media.mediaContent(mxcURL: mxcURL, client: client)
     }
 
     public func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data? {
         guard let client else { return nil }
-        return await media.mediaThumbnail(mxcURL: mxcURL, width: width, height: height, client: client.underlyingClient)
+        return await media.mediaThumbnail(mxcURL: mxcURL, width: width, height: height, client: client)
     }
 
     // MARK: - Notification Settings

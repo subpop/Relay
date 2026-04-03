@@ -285,7 +285,41 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
         try client.session()
     }
 
-    // MARK: - Underlying Client
+    // MARK: - Room Directory
 
-    public var underlyingClient: Client { client }
+    public func roomDirectorySearch() -> RoomDirectorySearch {
+        client.roomDirectorySearch()
+    }
+
+    // MARK: - Room Preview
+
+    public func getRoomPreviewFromRoomId(roomId: String, viaServers: [String]) async throws -> RoomPreview {
+        try await client.getRoomPreviewFromRoomId(roomId: roomId, viaServers: viaServers)
+    }
+
+    // MARK: - Room Lookup
+
+    public func getRoom(roomId: String) throws -> Room? {
+        try client.getRoom(roomId: roomId)
+    }
+
+    public func joinRoomByIdOrAlias(roomIdOrAlias: String, serverNames: [String]) async throws -> Room {
+        try await client.joinRoomByIdOrAlias(roomIdOrAlias: roomIdOrAlias, serverNames: serverNames)
+    }
+
+    // MARK: - Room Account Data
+
+    public func observeRoomAccountDataEvent(roomId: String, eventType: RoomAccountDataEventType, listener: RoomAccountDataListener) throws -> TaskHandle {
+        try client.observeRoomAccountDataEvent(roomId: roomId, eventType: eventType, listener: listener)
+    }
+
+    // MARK: - QR Code Login
+
+    public func newGrantLoginWithQrCodeHandler() -> GrantLoginWithQrCodeHandler {
+        client.newGrantLoginWithQrCodeHandler()
+    }
+
+    public func newLoginWithQrCodeHandler(oidcConfiguration: OidcConfiguration) -> LoginWithQrCodeHandler {
+        client.newLoginWithQrCodeHandler(oidcConfiguration: oidcConfiguration)
+    }
 }

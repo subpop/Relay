@@ -35,9 +35,9 @@ final class MediaService {
     /// - Parameters:
     ///   - mxcURL: The `mxc://` URL of the media.
     ///   - size: The desired display size in points (the actual download is at 2x scale).
-    ///   - client: The authenticated Matrix SDK client.
+    ///   - client: The authenticated client proxy.
     /// - Returns: The thumbnail image, or `nil` if the download failed.
-    func avatarThumbnail(mxcURL: String, size: CGFloat, client: Client) async -> NSImage? {
+    func avatarThumbnail(mxcURL: String, size: CGFloat, client: any ClientProxyProtocol) async -> NSImage? {
         let scale = 2.0
         let px = UInt64(size * scale)
         let cacheKey = "\(mxcURL)_\(px)" as NSString
@@ -63,9 +63,9 @@ final class MediaService {
     ///
     /// - Parameters:
     ///   - mxcURL: The `mxc://` URL of the media.
-    ///   - client: The authenticated Matrix SDK client.
+    ///   - client: The authenticated client proxy.
     /// - Returns: The raw media data, or `nil` if the download failed.
-    func mediaContent(mxcURL: String, client: Client) async -> Data? {
+    func mediaContent(mxcURL: String, client: any ClientProxyProtocol) async -> Data? {
         let cacheKey = mxcURL as NSString
         if let cached = mediaCache.object(forKey: cacheKey) {
             return cached as Data
@@ -88,9 +88,9 @@ final class MediaService {
     ///   - mxcURL: The `mxc://` URL of the media.
     ///   - width: The desired thumbnail width in pixels.
     ///   - height: The desired thumbnail height in pixels.
-    ///   - client: The authenticated Matrix SDK client.
+    ///   - client: The authenticated client proxy.
     /// - Returns: The thumbnail data, or `nil` if the download failed.
-    func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64, client: Client) async -> Data? {
+    func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64, client: any ClientProxyProtocol) async -> Data? {
         let cacheKey = "\(mxcURL)_thumb_\(width)x\(height)" as NSString
         if let cached = mediaCache.object(forKey: cacheKey) {
             return cached as Data

@@ -42,9 +42,9 @@ final class SyncManager {
     /// This method builds the SDK's `SyncService`, observes its state transitions
     /// via `SDKListener`, and waits for the first `.running` state before returning.
     ///
-    /// - Parameter client: The authenticated Matrix SDK client.
+    /// - Parameter client: The authenticated client proxy.
     /// - Throws: If sync fails to start or is cancelled.
-    func startSync(client: Client) async throws {
+    func startSync(client: any ClientProxyProtocol) async throws {
         guard syncState == .idle else { return }
         syncState = .syncing
 

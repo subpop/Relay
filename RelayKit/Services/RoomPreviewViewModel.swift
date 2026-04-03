@@ -42,7 +42,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     public var errorMessage: String?
     public let roomId: String
 
-    private let client: Client
+    private let client: any ClientProxyProtocol
     private var previewProxy: RoomPreviewProxy?
     private let messageMapper: TimelineMessageMapper
     private var timelineItems: [TimelineItem] = []
@@ -53,11 +53,11 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     ///
     /// - Parameters:
     ///   - roomId: The Matrix room ID to preview.
-    ///   - client: The authenticated Matrix SDK client.
-    public init(roomId: String, client: Client) {
+    ///   - client: The authenticated client proxy.
+    public init(roomId: String, client: any ClientProxyProtocol) {
         self.roomId = roomId
         self.client = client
-        self.messageMapper = TimelineMessageMapper(currentUserId: try? client.userId())
+        self.messageMapper = TimelineMessageMapper(currentUserId: client.userID)
     }
 
     deinit {

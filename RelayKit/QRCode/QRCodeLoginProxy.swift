@@ -34,19 +34,19 @@ public final class QRCodeLoginProxy: @unchecked Sendable {
 
     /// Creates a handler for granting login to another device via QR code.
     ///
-    /// - Parameter client: The authenticated client.
+    /// - Parameter client: The authenticated client proxy.
     /// - Returns: The grant login handler.
-    public func createGrantHandler(client: Client) -> GrantLoginWithQrCodeHandler {
+    public func createGrantHandler(client: any ClientProxyProtocol) -> GrantLoginWithQrCodeHandler {
         client.newGrantLoginWithQrCodeHandler()
     }
 
     /// Creates a handler for logging in by scanning a QR code.
     ///
     /// - Parameters:
-    ///   - client: The client (may not be authenticated).
+    ///   - client: The client proxy (may not be authenticated).
     ///   - oidcConfiguration: The OIDC configuration.
     /// - Returns: The login handler.
-    public func createLoginHandler(client: Client, oidcConfiguration: OidcConfiguration) -> LoginWithQrCodeHandler {
+    public func createLoginHandler(client: any ClientProxyProtocol, oidcConfiguration: OidcConfiguration) -> LoginWithQrCodeHandler {
         client.newLoginWithQrCodeHandler(oidcConfiguration: oidcConfiguration)
     }
 }

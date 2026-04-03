@@ -30,9 +30,9 @@ final class DirectorySearchService {
     ///
     /// - Parameters:
     ///   - query: The search string to match against room names and aliases.
-    ///   - client: The authenticated Matrix SDK client.
+    ///   - client: The authenticated client proxy.
     /// - Returns: A list of matching ``DirectoryRoom`` results.
-    func search(query: String, client: Client) async throws -> [DirectoryRoom] {
+    func search(query: String, client: any ClientProxyProtocol) async throws -> [DirectoryRoom] {
         let search = client.roomDirectorySearch()
         let collector = DirectorySearchCollector()
 

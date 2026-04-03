@@ -340,12 +340,64 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
     /// - Throws: `ClientError` if session data is unavailable.
     func session() throws -> Session
 
-    // MARK: - Underlying Client
+    // MARK: - Room Directory
 
-    /// The raw SDK `Client` instance.
+    /// Creates a room directory search handle.
     ///
-    /// Use this only when interfacing with sub-services that have not yet been
-    /// migrated to use ``ClientProxyProtocol``. Prefer protocol methods for
-    /// new code.
-    var underlyingClient: Client { get }
+    /// - Returns: The room directory search handle.
+    func roomDirectorySearch() -> RoomDirectorySearch
+
+    // MARK: - Room Preview
+
+    /// Fetches a room preview from the homeserver.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room ID to preview.
+    ///   - viaServers: Optional server names to route the request through.
+    /// - Returns: The room preview.
+    /// - Throws: `ClientError` if the preview cannot be fetched.
+    func getRoomPreviewFromRoomId(roomId: String, viaServers: [String]) async throws -> RoomPreview
+
+    // MARK: - Room Lookup
+
+    /// Returns a room by its Matrix room ID without requiring membership.
+    ///
+    /// - Parameter roomId: The Matrix room ID.
+    /// - Returns: The room if available locally, otherwise `nil`.
+    /// - Throws: `ClientError` if the lookup fails.
+    func getRoom(roomId: String) throws -> Room?
+
+    /// Joins a room by its ID or alias.
+    ///
+    /// - Parameters:
+    ///   - roomIdOrAlias: The room ID or alias to join.
+    ///   - serverNames: Server names to route the join request through.
+    /// - Returns: The joined room.
+    /// - Throws: `ClientError` if joining fails.
+    func joinRoomByIdOrAlias(roomIdOrAlias: String, serverNames: [String]) async throws -> Room
+
+    // MARK: - Room Account Data
+
+    /// Observes a room account data event.
+    ///
+    /// - Parameters:
+    ///   - roomId: The room ID to observe.
+    ///   - eventType: The account data event type.
+    ///   - listener: The listener to receive events.
+    /// - Returns: A task handle that keeps the observation alive.
+    /// - Throws: `ClientError` if observation setup fails.
+    func observeRoomAccountDataEvent(roomId: String, eventType: RoomAccountDataEventType, listener: RoomAccountDataListener) throws -> TaskHandle
+
+    // MARK: - QR Code Login
+
+    /// Creates a handler for granting login to another device via QR code.
+    ///
+    /// - Returns: The grant login handler.
+    func newGrantLoginWithQrCodeHandler() -> GrantLoginWithQrCodeHandler
+
+    /// Creates a handler for logging in by scanning a QR code.
+    ///
+    /// - Parameter oidcConfiguration: The OIDC configuration.
+    /// - Returns: The login handler.
+    func newLoginWithQrCodeHandler(oidcConfiguration: OidcConfiguration) -> LoginWithQrCodeHandler
 }

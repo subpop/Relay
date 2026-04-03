@@ -36,13 +36,13 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
     public private(set) var isAtEnd = false
     public var errorMessage: String?
 
-    private let client: Client
+    private let client: any ClientProxyProtocol
     private var searchProxy: RoomDirectorySearchProxy?
 
     /// Creates a room directory view model.
     ///
-    /// - Parameter client: The authenticated Matrix SDK client.
-    public init(client: Client) {
+    /// - Parameter client: The authenticated client proxy.
+    public init(client: any ClientProxyProtocol) {
         self.client = client
     }
 
