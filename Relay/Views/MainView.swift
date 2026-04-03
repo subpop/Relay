@@ -34,9 +34,7 @@ struct MainView: View {
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
     @State private var isJoiningLinkedRoom = false
-    @AppStorage("roomSortOrder") private var roomSortOrder: RoomSortOrder = .lastMessage
-    @AppStorage("roomSortDirection") private var roomSortDirection: RoomSortDirection = .descending
-    @AppStorage("roomTypeFilter") private var roomTypeFilter: RoomTypeFilter = .all
+
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -54,10 +52,7 @@ struct MainView: View {
         NavigationSplitView {
             RoomListView(
                     selectedRoomId: $selectedRoomId,
-                    searchText: $searchText,
-                    sortOrder: roomSortOrder,
-                    sortDirection: roomSortDirection,
-                    typeFilter: roomTypeFilter
+                    searchText: $searchText
                 )
                 .navigationSplitViewColumnWidth(min: 116, ideal: 260, max: 360)
                 .onChange(of: selectedRoomId) {
@@ -73,27 +68,20 @@ struct MainView: View {
             } else if let selectedRoomId,
                       let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
                       let viewModel = matrixService.makeRoomDetailViewModel(roomId: selectedRoomId) {
-                HStack(spacing: 0) {
-                    RoomDetailView(
-                        roomId: selectedRoomId,
-                        roomName: summary.name,
-                        roomAvatarURL: summary.avatarURL,
-                        viewModel: viewModel,
-                        focusedMessageId: $focusedMessageId,
-                        onUserTap: { profile in showUserProfile(profile) },
-                        onRoomTap: { identifier in handleRoomTap(identifier) }
-                    )
-                    .id(selectedRoomId)
-                    .frame(maxWidth: .infinity)
-
-                    if showingInspector {
-                        Divider()
-
-                        inspectorPanel(roomId: selectedRoomId)
-                            .id(selectedRoomId)
-                            .frame(width: 260)
-                            .transition(.move(edge: .trailing))
-                    }
+                RoomDetailView(
+                    roomId: selectedRoomId,
+                    roomName: summary.name,
+                    roomAvatarURL: summary.avatarURL,
+                    viewModel: viewModel,
+                    focusedMessageId: $focusedMessageId,
+                    onUserTap: { profile in showUserProfile(profile) },
+                    onRoomTap: { identifier in handleRoomTap(identifier) }
+                )
+                .id(selectedRoomId)
+                .inspector(isPresented: $showingInspector) {
+                    inspectorPanel(roomId: selectedRoomId)
+                        .id(selectedRoomId)
+                        .inspectorColumnWidth(min: 200, ideal: 260, max: 320)
                 }
             } else {
                 ContentUnavailableView(
@@ -103,60 +91,7 @@ struct MainView: View {
                 )
             }
         }
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .white, location: 0),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .ignoresSafeArea()
-                .frame(height: 52)
-                .allowsHitTesting(false)
-        }
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Menu {
-                    Picker("Sort By", selection: $roomSortOrder) {
-                        Label("Last Message", systemImage: "clock")
-                            .tag(RoomSortOrder.lastMessage)
-                        Label("Name", systemImage: "textformat")
-                            .tag(RoomSortOrder.name)
-                    }
-                    .pickerStyle(.inline)
-
-                    Picker("Direction", selection: $roomSortDirection) {
-                        Label("Ascending", systemImage: "arrow.up")
-                            .tag(RoomSortDirection.ascending)
-                        Label("Descending", systemImage: "arrow.down")
-                            .tag(RoomSortDirection.descending)
-                    }
-                    .pickerStyle(.inline)
-
-                    Divider()
-
-                    Picker("Show", selection: $roomTypeFilter) {
-                        Label("All", systemImage: "tray.2")
-                            .tag(RoomTypeFilter.all)
-                        Label("Rooms", systemImage: "bubble.left.and.bubble.right")
-                            .tag(RoomTypeFilter.rooms)
-                        Label("Direct Messages", systemImage: "person.2")
-                            .tag(RoomTypeFilter.directMessages)
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                }
-                .padding(1)
-                .help("Sort and Filter")
-            }
             ToolbarItem(placement: .navigation) {
                 Button {
                     showingCreateRoom = true

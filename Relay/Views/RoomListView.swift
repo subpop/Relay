@@ -21,9 +21,9 @@ struct RoomListView: View {
     @Environment(\.errorReporter) private var errorReporter
     @Binding var selectedRoomId: String?
     @Binding var searchText: String
-    var sortOrder: RoomSortOrder
-    var sortDirection: RoomSortDirection
-    var typeFilter: RoomTypeFilter
+    @AppStorage("roomSortOrder") private var sortOrder: RoomSortOrder = .lastMessage
+    @AppStorage("roomSortDirection") private var sortDirection: RoomSortDirection = .descending
+    @AppStorage("roomTypeFilter") private var typeFilter: RoomTypeFilter = .all
 
     private var filteredRooms: [RoomSummary] {
         var rooms = matrixService.rooms
@@ -125,6 +125,42 @@ struct RoomListView: View {
             }
         }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Menu {
+                    Picker("Sort By", selection: $sortOrder) {
+                        Label("Last Message", systemImage: "clock")
+                            .tag(RoomSortOrder.lastMessage)
+                        Label("Name", systemImage: "textformat")
+                            .tag(RoomSortOrder.name)
+                    }
+                    .pickerStyle(.inline)
+
+                    Picker("Direction", selection: $sortDirection) {
+                        Label("Ascending", systemImage: "arrow.up")
+                            .tag(RoomSortDirection.ascending)
+                        Label("Descending", systemImage: "arrow.down")
+                            .tag(RoomSortDirection.descending)
+                    }
+                    .pickerStyle(.inline)
+
+                    Divider()
+
+                    Picker("Show", selection: $typeFilter) {
+                        Label("All", systemImage: "tray.2")
+                            .tag(RoomTypeFilter.all)
+                        Label("Rooms", systemImage: "bubble.left.and.bubble.right")
+                            .tag(RoomTypeFilter.rooms)
+                        Label("Direct Messages", systemImage: "person.2")
+                            .tag(RoomTypeFilter.directMessages)
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                }
+                .help("Sort and Filter")
+            }
+        }
         .overlay {
             if matrixService.rooms.isEmpty {
                 if matrixService.hasLoadedRooms {
@@ -185,10 +221,7 @@ extension RoomListView {
     @Previewable @State var search = ""
     RoomListView(
         selectedRoomId: $sel,
-        searchText: $search,
-        sortOrder: .lastMessage,
-        sortDirection: .descending,
-        typeFilter: .all
+        searchText: $search
     )
     .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 300, height: 400)
@@ -197,10 +230,7 @@ extension RoomListView {
 #Preview("Empty State") {
     RoomListView(
         selectedRoomId: .constant(nil),
-        searchText: .constant(""),
-        sortOrder: .lastMessage,
-        sortDirection: .descending,
-        typeFilter: .all
+        searchText: .constant("")
     )
     .frame(width: 300, height: 400)
 }
