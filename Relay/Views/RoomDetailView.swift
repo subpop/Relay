@@ -26,6 +26,7 @@ private let logger = Logger(subsystem: "Relay", category: "RoomDetail")
 /// emoji reaction popovers for individual messages.
 struct RoomDetailView: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
 
     /// The Matrix room identifier for the displayed room.
     let roomId: String
@@ -68,13 +69,6 @@ struct RoomDetailView: View {
     @AppStorage("behavior.alwaysLoadNewest") private var alwaysLoadNewest = true
     @AppStorage("behavior.showMembershipEvents") private var showMembershipEvents = true
     @AppStorage("behavior.showStateEvents") private var showStateEvents = true
-
-    private var showErrorAlert: Binding<Bool> {
-        Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
-        )
-    }
 
     private var shouldAutoRevealMedia: Bool {
         if mediaPreviewMode == "allRooms" { return true }
@@ -190,11 +184,6 @@ struct RoomDetailView: View {
             } else if !wasEmpty && isEmpty {
                 Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: false) }
             }
-        }
-        .alert("Error", isPresented: showErrorAlert) {
-            Button("OK") { viewModel.errorMessage = nil }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
         }
         .onChange(of: focusedMessageId) {
             guard let eventId = focusedMessageId else { return }
@@ -653,7 +642,7 @@ struct RoomDetailView: View {
                 try FileManager.default.copyItem(at: url, to: dest)
             } catch {
                 logger.error("Failed to copy file \(url.lastPathComponent): \(error)")
-                viewModel.errorMessage = "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
+                errorReporter.report(.fileCopyFailed(filename: url.lastPathComponent, reason: error.localizedDescription))
                 continue
             }
 

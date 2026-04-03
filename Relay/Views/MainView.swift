@@ -22,6 +22,7 @@ import SwiftUI
 /// panel on the trailing edge shows room info or a selected user's profile.
 struct MainView: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
     @State private var selectedRoomId: String?
     @State private var searchText = ""
     @State private var showingCreateRoom = false
@@ -30,7 +31,6 @@ struct MainView: View {
     @State private var inspectorProfile: UserProfile?
     @State private var showingPinnedMessages = false
     @State private var focusedMessageId: String?
-    @State private var dmErrorMessage: String?
     @State private var incomingVerificationItem: VerificationItem?
 
     private func scrollToMessage(_ eventId: String) {
@@ -224,18 +224,6 @@ struct MainView: View {
         .sheet(isPresented: $showingCreateRoom) {
             CreateRoomSheet(selectedRoomId: $selectedRoomId)
         }
-        .alert("Could Not Open Conversation", isPresented: showingDMError, presenting: dmErrorMessage) { _ in
-            Button("OK") { dmErrorMessage = nil }
-        } message: { message in
-            Text(message)
-        }
-    }
-
-    private var showingDMError: Binding<Bool> {
-        Binding(
-            get: { dmErrorMessage != nil },
-            set: { if !$0 { dmErrorMessage = nil } }
-        )
     }
 
     // MARK: - Inspector Panel
@@ -275,7 +263,7 @@ struct MainView: View {
                                 showingInspector = false
                             }
                         } catch {
-                            dmErrorMessage = error.localizedDescription
+                            errorReporter.report(.dmCreationFailed(error.localizedDescription))
                         }
                     }
                 }

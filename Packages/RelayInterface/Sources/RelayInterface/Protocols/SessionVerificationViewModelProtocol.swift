@@ -86,10 +86,6 @@ public protocol SessionVerificationViewModelProtocol: AnyObject, Observable {
     var state: VerificationState { get }
     /// The SAS emoji to display. Non-empty only when ``state`` is ``VerificationState/showingEmojis``.
     var emojis: [VerificationEmoji] { get }
-    /// A user-facing error message. Set by the implementation on failure; the view
-    /// should present it in an alert and clear it when dismissed.
-    var errorMessage: String? { get set }
-
     /// Sends an outgoing verification request to other sessions.
     func requestVerification() async
     /// Confirms that the displayed emoji match the other device.

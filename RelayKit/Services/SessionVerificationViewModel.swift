@@ -41,17 +41,16 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
     /// The SAS emoji to display for comparison during the `.showingEmojis` state.
     public private(set) var emojis: [RelayInterface.VerificationEmoji] = []
 
-    /// A user-facing error message from the most recent failed operation, if any.
-    public var errorMessage: String?
-
     @ObservationIgnored private let controller: any SessionVerificationControllerProxyProtocol
     @ObservationIgnored private var observationTask: Task<Void, Never>?
+    private let errorReporter: ErrorReporter
 
     /// - Parameter controller: A proxy wrapping the SDK's verification controller.
     ///   The proxy must outlive any individual verification flow so that state
     ///   updates continue to arrive.
-    public init(controller: any SessionVerificationControllerProxyProtocol) {
+    public init(controller: any SessionVerificationControllerProxyProtocol, errorReporter: ErrorReporter) {
         self.controller = controller
+        self.errorReporter = errorReporter
         observationTask = Task { [weak self] in
             await self?.observeFlowState()
         }
@@ -87,7 +86,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         } catch {
             logger.error("Failed to request verification: \(error)")
             state = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            errorReporter.report(.verificationFailed(error.localizedDescription))
         }
     }
 
@@ -99,7 +98,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         } catch {
             logger.error("Failed to approve verification: \(error)")
             state = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            errorReporter.report(.verificationFailed(error.localizedDescription))
         }
     }
 
@@ -111,7 +110,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         } catch {
             logger.error("Failed to decline verification: \(error)")
             state = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            errorReporter.report(.verificationFailed(error.localizedDescription))
         }
     }
 
@@ -123,7 +122,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         } catch {
             logger.error("Failed to cancel verification: \(error)")
             state = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            errorReporter.report(.verificationFailed(error.localizedDescription))
         }
     }
 
@@ -182,7 +181,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         case .failed:
             guard !state.isTerminal else { return }
             state = .failed("Verification failed.")
-            errorMessage = "Verification failed."
+            errorReporter.report(.verificationFailed("Verification failed."))
         }
     }
 
@@ -211,7 +210,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         } catch {
             logger.error("Failed to accept incoming request: \(error)")
             state = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            errorReporter.report(.verificationFailed(error.localizedDescription))
         }
     }
 
@@ -224,7 +223,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         } catch {
             logger.error("Failed to start SAS verification: \(error)")
             state = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            errorReporter.report(.verificationFailed(error.localizedDescription))
         }
     }
 
@@ -243,7 +242,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
             state = .showingEmojis
         case .decimals:
             state = .failed("Decimal verification is not supported.")
-            errorMessage = "Decimal verification is not supported."
+            errorReporter.report(.verificationFailed("Decimal verification is not supported."))
         }
     }
 }

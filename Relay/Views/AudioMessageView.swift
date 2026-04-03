@@ -21,12 +21,12 @@ import UniformTypeIdentifiers
 /// duration, download button, and QuickLook support on double-click.
 struct AudioMessageView: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
     let message: TimelineMessage
 
     @State private var quickLookURL: URL?
     @State private var isLoadingMedia = false
     @State private var isHovering = false
-    @State private var errorMessage: String?
 
     private var mediaInfo: TimelineMessage.MediaInfo {
         message.mediaInfo!
@@ -94,11 +94,6 @@ struct AudioMessageView: View {
             }
         }
         .quickLookPreview($quickLookURL)
-        .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
     }
@@ -130,7 +125,7 @@ struct AudioMessageView: View {
             try data.write(to: url)
             quickLookURL = url
         } catch {
-            errorMessage = "Could not preview audio: \(error.localizedDescription)"
+            errorReporter.report(.mediaPreviewFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
         }
     }
 
@@ -144,7 +139,11 @@ struct AudioMessageView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        try? data.write(to: url)
+        do {
+            try data.write(to: url)
+        } catch {
+            errorReporter.report(.mediaSaveFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+        }
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {

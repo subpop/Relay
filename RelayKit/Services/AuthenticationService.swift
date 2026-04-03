@@ -190,7 +190,7 @@ final class AuthenticationService {
 
         let loginDetails = await client.homeserverLoginDetails()
         guard loginDetails.supportsOidcLogin() else {
-            throw OAuthError.notSupported
+            throw RelayError.oauthNotSupported
         }
 
         let oidcConfig = OidcConfiguration(
@@ -213,7 +213,7 @@ final class AuthenticationService {
 
         let loginURL = authData.loginUrl()
         guard let url = URL(string: loginURL) else {
-            throw OAuthError.invalidURL
+            throw RelayError.oauthInvalidURL
         }
 
         let callbackURL = try await openURL(url)
@@ -306,14 +306,4 @@ enum KeychainSessionError: Error {
     case sessionNotFound
 }
 
-enum OAuthError: LocalizedError {
-    case notSupported
-    case invalidURL
 
-    var errorDescription: String? {
-        switch self {
-        case .notSupported: "This homeserver does not support OAuth login."
-        case .invalidURL: "Invalid OAuth login URL."
-        }
-    }
-}

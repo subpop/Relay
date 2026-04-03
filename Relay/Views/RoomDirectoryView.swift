@@ -23,6 +23,7 @@ import SwiftUI
 /// button that opens a read-only timeline.
 struct RoomDirectoryView: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
     @Binding var selectedRoomId: String?
     @Binding var isBrowsing: Bool
 
@@ -108,9 +109,7 @@ struct RoomDirectoryView: View {
 
     private func directoryList(_ viewModel: any RoomDirectoryViewModelProtocol) -> some View {
         Group {
-            if let error = viewModel.errorMessage {
-                errorView(error, viewModel: viewModel)
-            } else if viewModel.rooms.isEmpty && !viewModel.isSearching {
+            if viewModel.rooms.isEmpty && !viewModel.isSearching {
                 ContentUnavailableView(
                     "No Rooms Found",
                     systemImage: "magnifyingglass",
@@ -173,22 +172,6 @@ struct RoomDirectoryView: View {
             .padding(.vertical, 6)
     }
 
-    private func errorView(_ message: String, viewModel: any RoomDirectoryViewModelProtocol) -> some View {
-        ContentUnavailableView {
-            Label("Something went wrong", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try Again") {
-                viewModel.errorMessage = nil
-                searchTask = Task {
-                    let q = query.trimmingCharacters(in: .whitespaces)
-                    await viewModel.search(query: q.isEmpty ? nil : q)
-                }
-            }
-        }
-    }
-
     // MARK: - Search Logic
 
     private func debounceSearch(_ text: String) {
@@ -229,7 +212,7 @@ struct RoomDirectoryView: View {
                 }
                 isBrowsing = false
             } catch {
-                viewModel?.errorMessage = error.localizedDescription
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
             }
             isJoining = false
             joiningRoomId = nil

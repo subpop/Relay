@@ -34,21 +34,20 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
     public private(set) var rooms: [DirectoryRoom] = []
     public private(set) var isSearching = false
     public private(set) var isAtEnd = false
-    public var errorMessage: String?
-
     private let client: any ClientProxyProtocol
     private var searchProxy: RoomDirectorySearchProxy?
+    private let errorReporter: ErrorReporter
 
     /// Creates a room directory view model.
     ///
     /// - Parameter client: The authenticated client proxy.
-    public init(client: any ClientProxyProtocol) {
+    public init(client: any ClientProxyProtocol, errorReporter: ErrorReporter) {
         self.client = client
+        self.errorReporter = errorReporter
     }
 
     public func search(query: String?) async {
         isSearching = true
-        errorMessage = nil
         rooms = []
         isAtEnd = false
 
@@ -73,7 +72,7 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
             // Ignore cancellation
         } catch {
             logger.error("Directory search failed: \(error)")
-            errorMessage = error.localizedDescription
+            errorReporter.report(.roomJoinFailed(error.localizedDescription))
         }
 
         isSearching = false
@@ -95,7 +94,7 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
             // Ignore cancellation
         } catch {
             logger.error("Directory load more failed: \(error)")
-            errorMessage = error.localizedDescription
+            errorReporter.report(.roomJoinFailed(error.localizedDescription))
         }
 
         isSearching = false

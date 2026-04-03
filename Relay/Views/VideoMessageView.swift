@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
 struct VideoMessageView: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.mediaAutoReveal) private var autoReveal
+    @Environment(\.errorReporter) private var errorReporter
     let message: TimelineMessage
 
     @State private var thumbnail: NSImage?
@@ -30,7 +31,6 @@ struct VideoMessageView: View {
     @State private var isHovering = false
     @State private var quickLookURL: URL?
     @State private var isLoadingMedia = false
-    @State private var errorMessage: String?
     @State private var isRevealed = false
     @State private var cachedVideoFileURL: URL?
 
@@ -149,11 +149,6 @@ struct VideoMessageView: View {
             }
         }
         .quickLookPreview($quickLookURL)
-        .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .task(id: shouldShow ? mediaInfo.mxcURL : nil) {
@@ -220,7 +215,7 @@ struct VideoMessageView: View {
                 try data.write(to: url)
                 cachedVideoFileURL = url
             } catch {
-                errorMessage = "Could not preview video: \(error.localizedDescription)"
+                errorReporter.report(.mediaPreviewFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
                 return
             }
         }
@@ -244,7 +239,11 @@ struct VideoMessageView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        try? data.write(to: url)
+        do {
+            try data.write(to: url)
+        } catch {
+            errorReporter.report(.mediaSaveFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+        }
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {

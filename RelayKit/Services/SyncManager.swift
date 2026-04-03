@@ -67,8 +67,10 @@ final class SyncManager {
                     self.syncState = .running
                 case .idle, .offline:
                     break
-                case .terminated, .error:
-                    self.syncState = .error
+                case .terminated:
+                    self.syncState = .error("The sync service was terminated.")
+                case .error:
+                    self.syncState = .error("The sync service encountered an error.")
                 }
             }
         }

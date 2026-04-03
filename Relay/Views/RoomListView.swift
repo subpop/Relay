@@ -18,6 +18,7 @@ import SwiftUI
 /// The sidebar list of joined rooms with unread indicators, search filtering, and swipe-to-leave.
 struct RoomListView: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
     @Binding var selectedRoomId: String?
     @Binding var searchText: String
 
@@ -106,7 +107,13 @@ struct RoomListView: View {
                 if selectedRoomId == room.id {
                     selectedRoomId = nil
                 }
-                Task { try? await matrixService.leaveRoom(id: room.id) }
+                Task {
+                    do {
+                        try await matrixService.leaveRoom(id: room.id)
+                    } catch {
+                        errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+                    }
+                }
             }
         } message: { room in
             Text("Are you sure you want to leave \"\(room.name)\"? You'll need to be re-invited or rejoin manually.")

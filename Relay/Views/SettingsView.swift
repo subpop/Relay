@@ -53,6 +53,7 @@ struct SettingsView: View {
 
 private struct AccountSettingsTab: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
 
     @State private var displayName = ""
     @State private var savedDisplayName = ""
@@ -129,7 +130,11 @@ private struct AccountSettingsTab: View {
             displayNameSaveTask = Task {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                try? await matrixService.setDisplayName(trimmed)
+                do {
+                    try await matrixService.setDisplayName(trimmed)
+                } catch {
+                    errorReporter.report(.displayNameUpdateFailed(error.localizedDescription))
+                }
                 savedDisplayName = trimmed
             }
         }
@@ -206,7 +211,7 @@ private final class NotificationSettingsViewModel {
     var roomMentionsEnabled = true
     var userMentionsEnabled = true
     var isLoading = true
-    var errorMessage: String?
+    var errorReporter: ErrorReporter?
 
     private var matrixService: (any MatrixServiceProtocol)?
 
@@ -221,7 +226,7 @@ private final class NotificationSettingsViewModel {
             roomMentionsEnabled = try await service.isRoomMentionEnabled()
             userMentionsEnabled = try await service.isUserMentionEnabled()
         } catch {
-            errorMessage = error.localizedDescription
+            errorReporter?.report(.notificationSettingsFailed(error.localizedDescription))
         }
         isLoading = false
     }
@@ -233,7 +238,7 @@ private final class NotificationSettingsViewModel {
             do {
                 try await block(matrixService)
             } catch {
-                errorMessage = error.localizedDescription
+                errorReporter?.report(.notificationSettingsFailed(error.localizedDescription))
             }
         }
     }
@@ -241,6 +246,7 @@ private final class NotificationSettingsViewModel {
 
 private struct NotificationSettingsTab: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
     @State private var viewModel = NotificationSettingsViewModel()
     @AppStorage("notifications.sessionEnabled") private var sessionEnabled = true
 
@@ -291,11 +297,9 @@ private struct NotificationSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .task { await viewModel.load(service: matrixService) }
-        .alert("Notification Settings Error", isPresented: showErrorBinding) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
+        .task {
+            viewModel.errorReporter = errorReporter
+            await viewModel.load(service: matrixService)
         }
     }
 
@@ -361,12 +365,6 @@ private struct NotificationSettingsTab: View {
         )
     }
 
-    private var showErrorBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
-        )
-    }
 }
 
 // MARK: - Safety Settings
@@ -390,7 +388,7 @@ private final class SessionsSettingsViewModel {
     var devices: [DeviceInfo] = []
     var isSessionVerified = false
     var isLoading = true
-    var errorMessage: String?
+    var errorReporter: ErrorReporter?
 
     @MainActor
     func load(service: any MatrixServiceProtocol) async {
@@ -400,7 +398,7 @@ private final class SessionsSettingsViewModel {
             devices = try await devicesTask.sorted(by: Self.deviceOrder)
             isSessionVerified = await verifiedTask
         } catch {
-            errorMessage = error.localizedDescription
+            errorReporter?.report(.sessionsFailed(error.localizedDescription))
         }
         isLoading = false
     }
@@ -422,6 +420,7 @@ struct VerificationItem: Identifiable {
 
 private struct SessionsSettingsTab: View {
     @Environment(\.matrixService) private var matrixService
+    @Environment(\.errorReporter) private var errorReporter
     @State private var viewModel = SessionsSettingsViewModel()
     @State private var verificationItem: VerificationItem?
 
@@ -460,7 +459,7 @@ private struct SessionsSettingsTab: View {
                                         verificationItem = VerificationItem(viewModel: vm)
                                     }
                                 } catch {
-                                    viewModel.errorMessage = error.localizedDescription
+                                    errorReporter.report(.verificationFailed(error.localizedDescription))
                                 }
                             }
                         } label: {
@@ -481,23 +480,15 @@ private struct SessionsSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .task { await viewModel.load(service: matrixService) }
-        .alert("Sessions Error", isPresented: showErrorBinding) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
+        .task {
+            viewModel.errorReporter = errorReporter
+            await viewModel.load(service: matrixService)
         }
         .sheet(item: $verificationItem) { item in
             VerificationSheet(viewModel: item.viewModel)
         }
     }
 
-    private var showErrorBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
-        )
-    }
 }
 
 private struct DeviceRow: View {

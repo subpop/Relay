@@ -31,6 +31,7 @@ struct RelayApp: App {
         WindowGroup {
             ContentView()
                 .environment(\.matrixService, matrixService)
+                .environment(\.errorReporter, matrixService.errorReporter)
                 .onChange(of: matrixService.rooms.map(\.id)) {
                     updateDockBadge(rooms: matrixService.rooms)
                 }
@@ -48,6 +49,7 @@ struct RelayApp: App {
         Settings {
             SettingsView()
                 .environment(\.matrixService, matrixService)
+                .environment(\.errorReporter, matrixService.errorReporter)
         }
     }
 

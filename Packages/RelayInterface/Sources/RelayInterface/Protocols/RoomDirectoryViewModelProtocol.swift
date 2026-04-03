@@ -31,9 +31,6 @@ public protocol RoomDirectoryViewModelProtocol: AnyObject, Observable {
     /// Whether all available pages of results have been loaded.
     var isAtEnd: Bool { get }
 
-    /// A user-facing error message from the most recent failed operation, if any.
-    var errorMessage: String? { get set }
-
     /// Searches the room directory with the given query.
     ///
     /// Pass `nil` or an empty string to load the default popular rooms listing.

@@ -40,7 +40,8 @@ public enum SyncState: Equatable, Sendable {
     /// The sync service is running and continuously receiving updates.
     case running
     /// The sync service encountered an error and stopped.
-    case error
+    /// The associated value is a human-readable error description.
+    case error(String)
 }
 
 /// The default notification mode for rooms, corresponding to Matrix push rule presets.

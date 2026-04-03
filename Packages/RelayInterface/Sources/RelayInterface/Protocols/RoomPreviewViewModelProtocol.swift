@@ -46,9 +46,6 @@ public protocol RoomPreviewViewModelProtocol: AnyObject, Observable {
     /// Whether the preview is currently loading room info or timeline messages.
     var isLoading: Bool { get }
 
-    /// A user-facing error message from the most recent failed operation, if any.
-    var errorMessage: String? { get set }
-
     /// The Matrix room ID being previewed.
     var roomId: String { get }
 

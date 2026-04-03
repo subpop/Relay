@@ -23,7 +23,6 @@ final class PreviewRoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
     var rooms: [DirectoryRoom] = PreviewRoomDirectoryViewModel.sampleRooms
     var isSearching = false
     var isAtEnd = true
-    var errorMessage: String?
 
     func search(query: String?) async {
         isSearching = true

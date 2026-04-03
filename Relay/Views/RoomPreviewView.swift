@@ -105,12 +105,6 @@ struct RoomPreviewView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = viewModel.errorMessage {
-                ContentUnavailableView {
-                    Label("Preview Unavailable", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                }
             } else if viewModel.messages.isEmpty {
                 roomInfoPanel(viewModel)
             } else {

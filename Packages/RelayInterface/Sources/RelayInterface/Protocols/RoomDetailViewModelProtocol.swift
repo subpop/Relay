@@ -55,9 +55,6 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     /// Display names of users who are currently typing in this room.
     var typingUserDisplayNames: [String] { get }
 
-    /// A user-facing error message from the most recent failed operation, if any.
-    var errorMessage: String? { get set }
-
     /// Whether the timeline is showing live messages or focused on a specific event.
     var timelineFocus: TimelineFocusState { get }
 

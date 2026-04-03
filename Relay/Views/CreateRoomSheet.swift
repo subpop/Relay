@@ -23,6 +23,7 @@ import SwiftUI
 struct CreateRoomSheet: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.errorReporter) private var errorReporter
 
     @Binding var selectedRoomId: String?
 
@@ -32,7 +33,6 @@ struct CreateRoomSheet: View {
     @State private var isPublic = false
     @State private var isEncrypted = true
     @State private var isCreating = false
-    @State private var errorMessage: String?
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -47,11 +47,6 @@ struct CreateRoomSheet: View {
         }
         .frame(width: 420, height: 420)
         .onAppear { focusedField = .name }
-        .alert("Room Creation Failed", isPresented: showingError, presenting: errorMessage) { _ in
-            Button("OK") { errorMessage = nil }
-        } message: { message in
-            Text(message)
-        }
     }
 
     // MARK: - Header
@@ -122,18 +117,10 @@ struct CreateRoomSheet: View {
 
     // MARK: - Helpers
 
-    private var showingError: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
-    }
-
     private func createRoom() {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty, !isCreating else { return }
         isCreating = true
-        errorMessage = nil
 
         Task {
             do {
@@ -152,7 +139,7 @@ struct CreateRoomSheet: View {
                 selectedRoomId = roomId
                 dismiss()
             } catch {
-                errorMessage = error.localizedDescription
+                errorReporter.report(.roomCreationFailed(error.localizedDescription))
                 isCreating = false
             }
         }

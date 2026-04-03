@@ -61,11 +61,6 @@ struct VerificationSheet: View {
             }
         }
         .frame(width: 380, height: 340)
-        .alert("Error", isPresented: showErrorBinding) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
-        }
     }
 
     // MARK: - Idle
@@ -229,10 +224,4 @@ struct VerificationSheet: View {
         }
     }
 
-    private var showErrorBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
-        )
-    }
 }

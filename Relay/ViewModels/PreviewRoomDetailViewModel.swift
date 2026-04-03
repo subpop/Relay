@@ -28,7 +28,6 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
     var hasReachedEnd: Bool = true
     var firstUnreadMessageId: String?
     var typingUserDisplayNames: [String]
-    var errorMessage: String?
     var timelineFocus: TimelineFocusState = .live
 
     init(

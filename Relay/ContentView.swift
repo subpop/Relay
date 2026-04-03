@@ -48,10 +48,11 @@ struct ContentView: View {
                 } else {
                     MainView()
                 }
-            case .error(let message):
-                LoginView(initialError: message)
+            case .error:
+                LoginView()
             }
         }
+        .relayErrorAlert()
         .frame(minWidth: 700, minHeight: 250)
     }
 }

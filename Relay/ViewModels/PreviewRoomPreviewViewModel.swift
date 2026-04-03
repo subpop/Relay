@@ -27,7 +27,6 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol {
     var canonicalAlias: String?
     var messages: [TimelineMessage]
     var isLoading = false
-    var errorMessage: String?
     let roomId: String
 
     init(

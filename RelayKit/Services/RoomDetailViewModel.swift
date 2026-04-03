@@ -37,7 +37,6 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public private(set) var hasReachedEnd = true
     public var firstUnreadMessageId: String?
     public private(set) var typingUserDisplayNames: [String] = []
-    public var errorMessage: String?
     public private(set) var timelineFocus: TimelineFocusState = .live
 
     private let room: Room
@@ -51,6 +50,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     private var paginationTask: Task<Void, Never>?
     private var typingTask: Task<Void, Never>?
     private let messageMapper: TimelineMessageMapper
+    private let errorReporter: ErrorReporter
     private var hasComputedUnreadMarker = false
     private var fetchedReplyEventIds: Set<String> = []
 
@@ -64,12 +64,13 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     ///   - room: The Matrix Rust SDK `Room` object.
     ///   - currentUserId: The Matrix user ID of the signed-in user, used for highlight detection.
     ///   - unreadCount: The number of unread messages, used to position the "New" divider.
-    public init(room: Room, currentUserId: String?, unreadCount: Int = 0) {
+    public init(room: Room, currentUserId: String?, unreadCount: Int = 0, errorReporter: ErrorReporter) {
         self.room = room
         self.roomId = room.id()
         self.currentUserId = currentUserId
         self.unreadCount = unreadCount
         self.messageMapper = TimelineMessageMapper(currentUserId: currentUserId)
+        self.errorReporter = errorReporter
     }
 
     deinit {
@@ -106,7 +107,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             }
         } catch {
             logger.error("Failed to load timeline: \(error)")
-            errorMessage = "Could not load messages: \(error.localizedDescription)"
+            errorReporter.report(.messageLoadFailed(error.localizedDescription))
         }
         isLoading = false
     }
@@ -117,7 +118,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             _ = try await sdkTimeline.paginateBackwards(numEvents: 40)
         } catch {
             logger.error("Failed to load earlier messages: \(error)")
-            errorMessage = "Could not load earlier messages: \(error.localizedDescription)"
+            errorReporter.report(.messageLoadFailed(error.localizedDescription))
         }
     }
 
@@ -160,7 +161,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             hasReachedEnd = false
         } catch {
             logger.error("Failed to focus on event \(eventId): \(error)")
-            errorMessage = "Could not load message: \(error.localizedDescription)"
+            errorReporter.report(.messageLoadFailed(error.localizedDescription))
             // Attempt to recover by returning to live
             do {
                 try await setupTimeline(focus: .live(hideThreadedEvents: true))
@@ -184,7 +185,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             }
         } catch {
             logger.error("Failed to return to live timeline: \(error)")
-            errorMessage = "Could not restore timeline: \(error.localizedDescription)"
+            errorReporter.report(.messageLoadFailed(error.localizedDescription))
         }
         isLoading = false
     }
@@ -204,7 +205,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             }
         } catch {
             logger.error("Failed to send message: \(error)")
-            errorMessage = "Could not send message: \(error.localizedDescription)"
+            errorReporter.report(.messageSendFailed(error.localizedDescription))
         }
     }
 
@@ -219,7 +220,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             _ = try await sdkTimeline.toggleReaction(itemId: itemId, key: key)
         } catch {
             logger.error("Failed to toggle reaction: \(error)")
-            errorMessage = "Could not toggle reaction: \(error.localizedDescription)"
+            errorReporter.report(.reactionFailed(error.localizedDescription))
         }
     }
 
@@ -234,7 +235,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             try await sdkTimeline.redactEvent(eventOrTransactionId: itemId, reason: reason)
         } catch {
             logger.error("Failed to delete message: \(error)")
-            errorMessage = "Could not delete message: \(error.localizedDescription)"
+            errorReporter.report(.redactFailed(error.localizedDescription))
         }
     }
 
@@ -260,7 +261,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                     data = try Data(contentsOf: url)
                 } catch {
                     logger.error("Failed to read attachment \(filename): \(error)")
-                    errorMessage = "Could not read \(filename): \(error.localizedDescription)"
+                    errorReporter.report(.fileCopyFailed(filename: filename, reason: error.localizedDescription))
                     return
                 }
                 let fileSize = UInt64(data.count)
@@ -352,7 +353,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                     data = try Data(contentsOf: url)
                 } catch {
                     logger.error("Failed to read attachment \(filename): \(error)")
-                    errorMessage = "Could not read \(filename): \(error.localizedDescription)"
+                    errorReporter.report(.fileCopyFailed(filename: filename, reason: error.localizedDescription))
                     return
                 }
                 let fileSize = UInt64(data.count)
@@ -375,7 +376,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             try await handle.join()
         } catch {
             logger.error("Failed to send attachment \(filename): \(error)")
-            errorMessage = "Could not send \(filename): \(error.localizedDescription)"
+            errorReporter.report(.attachmentSendFailed(filename: filename, reason: error.localizedDescription))
         }
 
         try? FileManager.default.removeItem(at: url)

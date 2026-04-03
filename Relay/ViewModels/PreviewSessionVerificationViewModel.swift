@@ -23,7 +23,6 @@ import RelayInterface
 final class PreviewSessionVerificationViewModel: SessionVerificationViewModelProtocol {
     var state: VerificationState
     var emojis: [VerificationEmoji]
-    var errorMessage: String?
 
     init(state: VerificationState = .idle, emojis: [VerificationEmoji] = []) {
         self.state = state

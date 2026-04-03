@@ -39,12 +39,12 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     public private(set) var canonicalAlias: String?
     public private(set) var messages: [TimelineMessage] = []
     public private(set) var isLoading = false
-    public var errorMessage: String?
     public let roomId: String
 
     private let client: any ClientProxyProtocol
     private var previewProxy: RoomPreviewProxy?
     private let messageMapper: TimelineMessageMapper
+    private let errorReporter: ErrorReporter
     private var timelineItems: [TimelineItem] = []
     @ObservationIgnored private var timelineHandle: TaskHandle?
     private var observationTask: Task<Void, Never>?
@@ -54,10 +54,11 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     /// - Parameters:
     ///   - roomId: The Matrix room ID to preview.
     ///   - client: The authenticated client proxy.
-    public init(roomId: String, client: any ClientProxyProtocol) {
+    public init(roomId: String, client: any ClientProxyProtocol, errorReporter: ErrorReporter) {
         self.roomId = roomId
         self.client = client
         self.messageMapper = TimelineMessageMapper(currentUserId: client.userID)
+        self.errorReporter = errorReporter
     }
 
     deinit {
@@ -68,8 +69,6 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     public func loadPreview() async {
         guard !isLoading else { return }
         isLoading = true
-        errorMessage = nil
-
         do {
             let preview = try await client.getRoomPreviewFromRoomId(
                 roomId: roomId,
@@ -94,7 +93,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
             // Ignore
         } catch {
             logger.error("Failed to load room preview for \(self.roomId): \(error)")
-            errorMessage = error.localizedDescription
+            errorReporter.report(.messageLoadFailed(error.localizedDescription))
         }
 
         isLoading = false

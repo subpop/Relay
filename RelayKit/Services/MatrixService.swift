@@ -19,18 +19,6 @@ import os
 
 private let logger = Logger(subsystem: "RelayKit", category: "MatrixService")
 
-/// Errors that can be thrown by ``MatrixService`` operations.
-public enum MatrixServiceError: LocalizedError {
-    /// The operation requires an authenticated session but the user is not logged in.
-    case notLoggedIn
-
-    public var errorDescription: String? {
-        switch self {
-        case .notLoggedIn: "Not logged in"
-        }
-    }
-}
-
 /// The concrete implementation of ``MatrixServiceProtocol`` backed by the Matrix Rust SDK.
 ///
 /// ``MatrixService`` acts as a thin facade that coordinates several focused sub-services:
@@ -55,6 +43,7 @@ public final class MatrixService: MatrixServiceProtocol {
     public private(set) var isSessionVerified: Bool = false
     public var pendingVerificationRequest: IncomingVerificationRequest?
     public var shouldPresentVerificationSheet: Bool = false
+    public let errorReporter = ErrorReporter()
 
     // MARK: - Private State
 
@@ -265,7 +254,7 @@ public final class MatrixService: MatrixServiceProtocol {
         if let cached = roomViewModels[roomId] { return cached }
         guard let room = room(id: roomId) else { return nil }
         let unreadCount = rooms.first(where: { $0.id == roomId })?.unreadMessages ?? 0
-        let vm = RoomDetailViewModel(room: room, currentUserId: userId(), unreadCount: Int(unreadCount))
+        let vm = RoomDetailViewModel(room: room, currentUserId: userId(), unreadCount: Int(unreadCount), errorReporter: errorReporter)
         roomViewModels[roomId] = vm
 
         // Subscribe to this room at a higher detail level in the sliding sync.
@@ -288,7 +277,7 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
-        guard let client else { throw MatrixServiceError.notLoggedIn }
+        guard let client else { throw RelayError.notLoggedIn }
         let params = CreateRoomParameters(
             name: name,
             topic: topic,
@@ -301,7 +290,7 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func createRoom(options: CreateRoomOptions) async throws -> String {
-        guard let client else { throw MatrixServiceError.notLoggedIn }
+        guard let client else { throw RelayError.notLoggedIn }
         let params = CreateRoomParameters(
             name: options.name,
             topic: options.topic,
@@ -315,7 +304,7 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func createDirectMessage(userId: String) async throws -> String {
-        guard let client else { throw MatrixServiceError.notLoggedIn }
+        guard let client else { throw RelayError.notLoggedIn }
 
         // Check if a DM room already exists with this user
         if let existingRoom = try? client.getDmRoom(userId: userId) {
@@ -336,12 +325,12 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? {
         guard let client else { return nil }
-        return RoomDirectoryViewModel(client: client)
+        return RoomDirectoryViewModel(client: client, errorReporter: errorReporter)
     }
 
     public func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? {
         guard let client else { return nil }
-        return RoomPreviewViewModel(roomId: roomId, client: client)
+        return RoomPreviewViewModel(roomId: roomId, client: client, errorReporter: errorReporter)
     }
 
     public func leaveRoom(id: String) async throws {
@@ -545,7 +534,7 @@ public final class MatrixService: MatrixServiceProtocol {
     // MARK: - Notification Settings
 
     private func notificationSettings() async throws -> NotificationSettings {
-        guard let client else { throw MatrixServiceError.notLoggedIn }
+        guard let client else { throw RelayError.notLoggedIn }
         return await client.getNotificationSettings()
     }
 
@@ -616,7 +605,7 @@ public final class MatrixService: MatrixServiceProtocol {
     public func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)? {
         guard let controller = verificationController else { return nil }
         isVerificationFlowActive = true
-        let viewModel = SessionVerificationViewModel(controller: controller)
+        let viewModel = SessionVerificationViewModel(controller: controller, errorReporter: errorReporter)
         // Reset the flag when the view model is deallocated (sheet dismissed).
         Task { [weak self, weak viewModel] in
             // Wait until the view model is released.
@@ -660,7 +649,7 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func getDevices() async throws -> [DeviceInfo] {
-        guard let client else { throw MatrixServiceError.notLoggedIn }
+        guard let client else { throw RelayError.notLoggedIn }
 
         let currentDeviceId = client.deviceID
         let session = try client.session()

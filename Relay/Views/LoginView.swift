@@ -25,12 +25,9 @@ import SwiftUI
 struct LoginView: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @Environment(\.errorReporter) private var errorReporter
     @State private var matrixID = MatrixID()
     @State private var password = ""
-    @State private var errorMessage: String?
-
-    /// An error message to display immediately on load (e.g. from a failed session restore).
-    var initialError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,13 +53,6 @@ struct LoginView: View {
                     SecureField("Password", text: $password)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(signIn)
-                }
-
-                if let error = errorMessage ?? initialError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
                 }
 
                 VStack(spacing: 10) {
@@ -106,7 +96,6 @@ struct LoginView: View {
 
     private func signIn() {
         guard matrixID.isValid, !password.isEmpty else { return }
-        errorMessage = nil
         Task {
             await matrixService.login(
                 username: matrixID.username,
@@ -114,14 +103,13 @@ struct LoginView: View {
                 homeserver: matrixID.homeserver
             )
             if case .error(let msg) = matrixService.authState {
-                errorMessage = msg
+                errorReporter.report(.loginFailed(msg))
             }
         }
     }
 
     private func signInWithOAuth() {
         guard matrixID.isValid else { return }
-        errorMessage = nil
         Task {
             do {
                 try await matrixService.startOAuthLogin(
@@ -138,10 +126,10 @@ struct LoginView: View {
                 // User cancelled the browser — silently revert to logged-out state
                 return
             } catch {
-                errorMessage = error.localizedDescription
+                errorReporter.report(.loginFailed(error.localizedDescription))
             }
             if case .error(let msg) = matrixService.authState {
-                errorMessage = msg
+                errorReporter.report(.loginFailed(msg))
             }
         }
     }
@@ -153,7 +141,7 @@ struct LoginView: View {
 }
 
 #Preview("With Error") {
-    LoginView(initialError: "Invalid username or password. Please try again.")
+    LoginView()
         .frame(width: 600, height: 500)
 }
 
