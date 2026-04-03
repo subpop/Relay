@@ -47,6 +47,9 @@ struct RoomDetailView: View {
     /// Called when a user's profile should be shown (e.g. after double-tapping an avatar).
     var onUserTap: ((UserProfile) -> Void)?
 
+    /// Called when the user clicks a `matrix.to` room link, with the room ID or alias.
+    var onRoomTap: ((String) -> Void)?
+
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
     @State private var stagedAttachments: [StagedAttachment] = []
@@ -299,7 +302,8 @@ struct RoomDetailView: View {
                                     let profile = member.map { UserProfile(member: $0) }
                                         ?? UserProfile(userId: userId)
                                     onUserTap?(profile)
-                                }
+                                },
+                                onRoomTap: onRoomTap
                             )
                         } onReply: {
                             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {

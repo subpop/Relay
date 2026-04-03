@@ -297,6 +297,10 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
         try await client.getRoomPreviewFromRoomId(roomId: roomId, viaServers: viaServers)
     }
 
+    public func getRoomPreviewFromRoomAlias(roomAlias: String) async throws -> RoomPreview {
+        try await client.getRoomPreviewFromRoomAlias(roomAlias: roomAlias)
+    }
+
     // MARK: - Room Lookup
 
     public func getDmRoom(userId: String) throws -> Room? {

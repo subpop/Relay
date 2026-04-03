@@ -32,6 +32,9 @@ final class MessageTextContent: NSTextView {
     /// Called when the user clicks a `matrix.to` user mention link, with the Matrix user ID.
     var onUserTap: ((String) -> Void)?
 
+    /// Called when the user clicks a `matrix.to` room link, with the room ID or alias.
+    var onRoomTap: ((String) -> Void)?
+
     // MARK: - Link Click Interception
 
     override func clicked(onLink link: Any, at charIndex: Int) {
@@ -39,10 +42,24 @@ final class MessageTextContent: NSTextView {
            url.host?.lowercased() == "matrix.to",
            let fragment = url.fragment,
            fragment.hasPrefix("/") {
-            let userId = String(fragment.dropFirst())
-                .removingPercentEncoding ?? String(fragment.dropFirst())
-            if userId.hasPrefix("@") {
-                onUserTap?(userId)
+            // Extract the identifier, stripping any event ID suffix (/$eventId)
+            // and query parameters (?via=server).
+            var raw = String(fragment.dropFirst())
+            // Remove query string if present (e.g. "?via=server1&via=server2").
+            if let queryStart = raw.firstIndex(of: "?") {
+                raw = String(raw[raw.startIndex..<queryStart])
+            }
+            // Strip event permalink suffix (e.g. "/$eventId").
+            if let eventStart = raw.range(of: "/\\$", options: .regularExpression) {
+                raw = String(raw[raw.startIndex..<eventStart.lowerBound])
+            }
+            let identifier = raw.removingPercentEncoding ?? raw
+            if identifier.hasPrefix("@") {
+                onUserTap?(identifier)
+                return
+            }
+            if identifier.hasPrefix("!") || identifier.hasPrefix("#") {
+                onRoomTap?(identifier)
                 return
             }
         }
@@ -144,20 +161,35 @@ struct MessageTextView: NSViewRepresentable {
     /// Called when the user clicks a `matrix.to` user mention link, with the Matrix user ID.
     var onUserTap: ((String) -> Void)?
 
+    /// Called when the user clicks a `matrix.to` room link, with the room ID or alias.
+    var onRoomTap: ((String) -> Void)?
+
     /// Creates a ``MessageTextView`` from a SwiftUI `AttributedString` (Markdown path).
-    init(attributedString: AttributedString, isOutgoing: Bool, onUserTap: ((String) -> Void)? = nil) {
+    init(
+        attributedString: AttributedString,
+        isOutgoing: Bool,
+        onUserTap: ((String) -> Void)? = nil,
+        onRoomTap: ((String) -> Void)? = nil
+    ) {
         self.attributedString = attributedString
         self.resolvedAttributedString = nil
         self.isOutgoing = isOutgoing
         self.onUserTap = onUserTap
+        self.onRoomTap = onRoomTap
     }
 
     /// Creates a ``MessageTextView`` from a pre-resolved `NSAttributedString` (HTML path).
-    init(resolved: NSAttributedString, isOutgoing: Bool, onUserTap: ((String) -> Void)? = nil) {
+    init(
+        resolved: NSAttributedString,
+        isOutgoing: Bool,
+        onUserTap: ((String) -> Void)? = nil,
+        onRoomTap: ((String) -> Void)? = nil
+    ) {
         self.attributedString = nil
         self.resolvedAttributedString = resolved
         self.isOutgoing = isOutgoing
         self.onUserTap = onUserTap
+        self.onRoomTap = onRoomTap
     }
 
     private var foregroundColor: NSColor {
@@ -186,12 +218,14 @@ struct MessageTextView: NSViewRepresentable {
         view.isAutomaticLinkDetectionEnabled = false
         view.setContentHuggingPriority(.required, for: .vertical)
         view.onUserTap = onUserTap
+        view.onRoomTap = onRoomTap
         return view
     }
 
     func updateNSView(_ view: MessageTextContent, context: Context) {
         view.resetHoverState()
         view.onUserTap = onUserTap
+        view.onRoomTap = onRoomTap
         let resolved: NSAttributedString
         if let preResolved = resolvedAttributedString {
             // HTML path: apply foreground/link color overrides to the pre-resolved string.

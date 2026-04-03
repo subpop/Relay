@@ -70,10 +70,15 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
         guard !isLoading else { return }
         isLoading = true
         do {
-            let preview = try await client.getRoomPreviewFromRoomId(
-                roomId: roomId,
-                viaServers: []
-            )
+            let preview: RoomPreview
+            if roomId.hasPrefix("#") {
+                preview = try await client.getRoomPreviewFromRoomAlias(roomAlias: roomId)
+            } else {
+                preview = try await client.getRoomPreviewFromRoomId(
+                    roomId: roomId,
+                    viaServers: []
+                )
+            }
             let proxy = RoomPreviewProxy(preview: preview)
             self.previewProxy = proxy
 

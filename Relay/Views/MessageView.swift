@@ -54,6 +54,9 @@ struct MessageView: View {
     /// Called when the user clicks a user mention link, with the Matrix user ID.
     var onUserTap: ((String) -> Void)?
 
+    /// Called when the user clicks a room link, with the room ID or alias.
+    var onRoomTap: ((String) -> Void)?
+
     @Environment(\.swipeOffset) private var swipeOffset
     @State private var showEmojiPicker = false
 
@@ -239,9 +242,9 @@ struct MessageView: View {
                 inlineReply(reply, outgoing: message.isOutgoing)
             }
             if let resolved = htmlBody {
-                MessageTextView(resolved: resolved, isOutgoing: message.isOutgoing, onUserTap: onUserTap)
+                MessageTextView(resolved: resolved, isOutgoing: message.isOutgoing, onUserTap: onUserTap, onRoomTap: onRoomTap)
             } else {
-                MessageTextView(attributedString: markdownBody, isOutgoing: message.isOutgoing, onUserTap: onUserTap)
+                MessageTextView(attributedString: markdownBody, isOutgoing: message.isOutgoing, onUserTap: onUserTap, onRoomTap: onRoomTap)
             }
         }
         .padding(.horizontal, 12)
@@ -282,9 +285,9 @@ struct MessageView: View {
                 inlineReply(reply, outgoing: false)
             }
             if let resolved = emoteHtmlBody {
-                MessageTextView(resolved: resolved, isOutgoing: false, onUserTap: onUserTap)
+                MessageTextView(resolved: resolved, isOutgoing: false, onUserTap: onUserTap, onRoomTap: onRoomTap)
             } else {
-                MessageTextView(attributedString: emoteBody, isOutgoing: false, onUserTap: onUserTap)
+                MessageTextView(attributedString: emoteBody, isOutgoing: false, onUserTap: onUserTap, onRoomTap: onRoomTap)
             }
         }
         .padding(.horizontal, 12)

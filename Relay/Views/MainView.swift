@@ -32,6 +32,8 @@ struct MainView: View {
     @State private var showingPinnedMessages = false
     @State private var focusedMessageId: String?
     @State private var incomingVerificationItem: VerificationItem?
+    @State private var previewingLinkedRoom: DirectoryRoom?
+    @State private var isJoiningLinkedRoom = false
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -69,7 +71,8 @@ struct MainView: View {
                         roomAvatarURL: summary.avatarURL,
                         viewModel: viewModel,
                         focusedMessageId: $focusedMessageId,
-                        onUserTap: { profile in showUserProfile(profile) }
+                        onUserTap: { profile in showUserProfile(profile) },
+                        onRoomTap: { identifier in handleRoomTap(identifier) }
                     )
                     .id(selectedRoomId)
                     .frame(maxWidth: .infinity)
@@ -223,6 +226,64 @@ struct MainView: View {
         }
         .sheet(isPresented: $showingCreateRoom) {
             CreateRoomSheet(selectedRoomId: $selectedRoomId)
+        }
+        .sheet(item: $previewingLinkedRoom) { room in
+            RoomPreviewView(
+                room: room,
+                onJoin: { joinLinkedRoom(room) },
+                onClose: { previewingLinkedRoom = nil }
+            )
+            .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500)
+        }
+    }
+
+    // MARK: - Room Link Handling
+
+    /// Handles a tap on a `matrix.to` room link.
+    ///
+    /// If the user is already a member of the room, the sidebar selection
+    /// navigates to it directly. Otherwise a room preview sheet is shown.
+    private func handleRoomTap(_ identifier: String) {
+        // Check if the user is already a member by room ID or canonical alias.
+        if let joined = matrixService.rooms.first(where: {
+            $0.id == identifier || $0.canonicalAlias == identifier
+        }) {
+            selectedRoomId = joined.id
+            return
+        }
+
+        // Not a member -- show the room preview.
+        let room: DirectoryRoom
+        if identifier.hasPrefix("#") {
+            room = DirectoryRoom(roomId: identifier, alias: identifier)
+        } else {
+            room = DirectoryRoom(roomId: identifier)
+        }
+        previewingLinkedRoom = room
+    }
+
+    /// Joins a room opened from a `matrix.to` link and navigates to it.
+    private func joinLinkedRoom(_ room: DirectoryRoom) {
+        guard !isJoiningLinkedRoom else { return }
+        isJoiningLinkedRoom = true
+
+        Task {
+            do {
+                let idOrAlias = room.alias ?? room.roomId
+                try await matrixService.joinRoom(idOrAlias: idOrAlias)
+
+                // Wait briefly for the room list to sync.
+                try? await Task.sleep(for: .milliseconds(500))
+                if let joined = matrixService.rooms.first(where: {
+                    $0.id == room.roomId
+                }) {
+                    selectedRoomId = joined.id
+                }
+                previewingLinkedRoom = nil
+            } catch {
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
+            }
+            isJoiningLinkedRoom = false
         }
     }
 

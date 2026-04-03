@@ -279,6 +279,7 @@ private final class RoomEntry: Identifiable {
         summary.unreadMessages = UInt(info.numUnreadMessages)
         summary.unreadMentions = UInt(info.numUnreadMentions)
         summary.isDirect = info.isDirect
+        summary.canonicalAlias = info.canonicalAlias
         summary.pinnedEventIds = info.pinnedEventIds
 
         // Extract latest message preview and notify the manager to re-sort

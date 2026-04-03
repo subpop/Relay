@@ -358,6 +358,13 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
     /// - Throws: `ClientError` if the preview cannot be fetched.
     func getRoomPreviewFromRoomId(roomId: String, viaServers: [String]) async throws -> RoomPreview
 
+    /// Fetches a room preview from the homeserver using a room alias.
+    ///
+    /// - Parameter roomAlias: The Matrix room alias (e.g. `#room:matrix.org`).
+    /// - Returns: The room preview.
+    /// - Throws: `ClientError` if the preview cannot be fetched.
+    func getRoomPreviewFromRoomAlias(roomAlias: String) async throws -> RoomPreview
+
     // MARK: - Room Lookup
 
     /// Returns the existing direct message room with a given user, if one exists.
