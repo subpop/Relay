@@ -360,6 +360,13 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
 
     // MARK: - Room Lookup
 
+    /// Returns the existing direct message room with a given user, if one exists.
+    ///
+    /// - Parameter userId: The Matrix user ID (e.g. `@alice:matrix.org`).
+    /// - Returns: The DM room if one exists, otherwise `nil`.
+    /// - Throws: `ClientError` if the lookup fails.
+    func getDmRoom(userId: String) throws -> Room?
+
     /// Returns a room by its Matrix room ID without requiring membership.
     ///
     /// - Parameter roomId: The Matrix room ID.

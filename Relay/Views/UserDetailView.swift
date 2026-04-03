@@ -62,6 +62,16 @@ struct UserDetailView: View {
     /// The user profile to display.
     let profile: UserProfile
 
+    /// Called when the user taps the "Message" button to open a DM.
+    var onMessageTap: (() -> Void)?
+
+    @Environment(\.matrixService) private var matrixService
+
+    /// Whether this profile belongs to the currently logged-in user.
+    private var isSelf: Bool {
+        profile.userId == matrixService.userId()
+    }
+
     private var name: String {
         profile.displayName ?? profile.userId
     }
@@ -70,6 +80,17 @@ struct UserDetailView: View {
         ScrollView {
             VStack(spacing: 20) {
                 headerSection
+
+                if !isSelf, let onMessageTap {
+                    Button(action: onMessageTap) {
+                        Label("Message", systemImage: "bubble.left.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .padding(.horizontal, 16)
+                }
+
                 infoSection
             }
             .padding(.vertical, 16)
@@ -158,6 +179,9 @@ struct UserDetailView: View {
         displayName: "Alice",
         avatarURL: nil,
         role: .administrator
-    ))
+    )) {
+        print("Message tapped")
+    }
+    .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 260, height: 500)
 }

@@ -30,6 +30,7 @@ struct MainView: View {
     @State private var inspectorProfile: UserProfile?
     @State private var showingPinnedMessages = false
     @State private var focusedMessageId: String?
+    @State private var dmErrorMessage: String?
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -209,6 +210,18 @@ struct MainView: View {
         .sheet(isPresented: $showingCreateRoom) {
             CreateRoomSheet(selectedRoomId: $selectedRoomId)
         }
+        .alert("Could Not Open Conversation", isPresented: showingDMError, presenting: dmErrorMessage) { _ in
+            Button("OK") { dmErrorMessage = nil }
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    private var showingDMError: Binding<Bool> {
+        Binding(
+            get: { dmErrorMessage != nil },
+            set: { if !$0 { dmErrorMessage = nil } }
+        )
     }
 
     // MARK: - Inspector Panel
@@ -238,7 +251,20 @@ struct MainView: View {
 
                 Divider()
 
-                UserDetailView(profile: profile)
+                UserDetailView(profile: profile) {
+                    Task {
+                        do {
+                            let roomId = try await matrixService.createDirectMessage(userId: profile.userId)
+                            selectedRoomId = roomId
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                inspectorProfile = nil
+                                showingInspector = false
+                            }
+                        } catch {
+                            dmErrorMessage = error.localizedDescription
+                        }
+                    }
+                }
             }
         } else {
             RoomInfoView(

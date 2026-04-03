@@ -299,6 +299,10 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
 
     // MARK: - Room Lookup
 
+    public func getDmRoom(userId: String) throws -> Room? {
+        try client.getDmRoom(userId: userId)
+    }
+
     public func getRoom(roomId: String) throws -> Room? {
         try client.getRoom(roomId: roomId)
     }

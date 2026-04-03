@@ -166,6 +166,15 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Returns: The Matrix room ID of the newly created room.
     func createRoom(options: CreateRoomOptions) async throws -> String
 
+    /// Opens or creates a direct message room with the given user.
+    ///
+    /// If a DM room already exists with the specified user, its room ID is returned.
+    /// Otherwise a new encrypted, private DM room is created and the user is invited.
+    ///
+    /// - Parameter userId: The Matrix user ID to message (e.g. `"@alice:matrix.org"`).
+    /// - Returns: The Matrix room ID of the DM room.
+    func createDirectMessage(userId: String) async throws -> String
+
     /// Creates a view model for browsing the public room directory.
     ///
     /// - Returns: A ``RoomDirectoryViewModelProtocol`` instance, or `nil` if not available.
@@ -341,6 +350,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func joinRoom(idOrAlias: String) async throws {}
     func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String { "" }
     func createRoom(options: CreateRoomOptions) async throws -> String { "" }
+    func createDirectMessage(userId: String) async throws -> String { "" }
     func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? { nil }
     func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? { nil }
     func leaveRoom(id: String) async throws {}

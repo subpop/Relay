@@ -41,6 +41,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func joinRoom(idOrAlias: String) async throws {}
     func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String { "!new:matrix.org" }
     func createRoom(options: CreateRoomOptions) async throws -> String { "!new:matrix.org" }
+    func createDirectMessage(userId: String) async throws -> String { "!dm:matrix.org" }
     func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? { PreviewRoomDirectoryViewModel() }
     func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? { PreviewRoomPreviewViewModel(roomId: roomId) }
     func leaveRoom(id: String) async throws {

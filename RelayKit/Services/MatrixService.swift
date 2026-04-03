@@ -237,6 +237,26 @@ public final class MatrixService: MatrixServiceProtocol {
         return try await client.createRoom(parameters: params)
     }
 
+    public func createDirectMessage(userId: String) async throws -> String {
+        guard let client else { throw MatrixServiceError.notLoggedIn }
+
+        // Check if a DM room already exists with this user
+        if let existingRoom = try? client.getDmRoom(userId: userId) {
+            return existingRoom.id()
+        }
+
+        // Create a new DM room
+        let params = CreateRoomParameters(
+            name: nil,
+            isEncrypted: true,
+            isDirect: true,
+            visibility: .private,
+            preset: .trustedPrivateChat,
+            invite: [userId]
+        )
+        return try await client.createRoom(parameters: params)
+    }
+
     public func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? {
         guard let client else { return nil }
         return RoomDirectoryViewModel(client: client)
