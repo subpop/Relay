@@ -301,6 +301,13 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// notification. The UI observes this flag to present the verification sheet.
     var shouldPresentVerificationSheet: Bool { get set }
 
+    /// A deep link received from an external `matrix:` URI or `matrix.to` URL.
+    ///
+    /// Set by the app's `onOpenURL` handler when an external link is opened.
+    /// The UI observes this property and navigates to the referenced room or user
+    /// once the client is logged in and syncing. The UI clears this after handling.
+    var pendingDeepLink: MatrixURI? { get set }
+
     /// Declines and clears the pending incoming verification request.
     ///
     /// Cancels the verification flow on the SDK side and sets
@@ -386,6 +393,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var isSessionVerified: Bool = false
     var pendingVerificationRequest: IncomingVerificationRequest?
     var shouldPresentVerificationSheet: Bool = false
+    var pendingDeepLink: MatrixURI?
     func declinePendingVerificationRequest() async {}
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}

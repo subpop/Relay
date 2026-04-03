@@ -43,6 +43,7 @@ public final class MatrixService: MatrixServiceProtocol {
     public private(set) var isSessionVerified: Bool = false
     public var pendingVerificationRequest: IncomingVerificationRequest?
     public var shouldPresentVerificationSheet: Bool = false
+    public var pendingDeepLink: MatrixURI?
     public let errorReporter = ErrorReporter()
 
     // MARK: - Private State

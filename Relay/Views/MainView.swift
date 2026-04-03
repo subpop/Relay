@@ -279,6 +279,32 @@ struct MainView: View {
             )
             .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500)
         }
+        .onChange(of: matrixService.pendingDeepLink) { _, deepLink in
+            guard let deepLink else { return }
+            handleDeepLink(deepLink)
+        }
+        .onAppear {
+            if let deepLink = matrixService.pendingDeepLink {
+                handleDeepLink(deepLink)
+            }
+        }
+    }
+
+    // MARK: - Deep Link Handling
+
+    /// Handles an incoming ``MatrixURI`` deep link by navigating to the referenced entity.
+    private func handleDeepLink(_ uri: MatrixURI) {
+        matrixService.pendingDeepLink = nil
+
+        switch uri {
+        case .room(let alias, _), .roomId(let alias, _):
+            handleRoomTap(alias)
+        case .user(let userId):
+            let profile = UserProfile(userId: userId)
+            showUserProfile(profile)
+        case .event(let roomId, _, _):
+            handleRoomTap(roomId)
+        }
     }
 
     // MARK: - Room Link Handling

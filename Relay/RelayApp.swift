@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import os
 import RelayKit
 import RelayInterface
 import SwiftUI
 import UserNotifications
+
+private let logger = Logger(subsystem: "Relay", category: "DeepLink")
 
 /// The main entry point for the Relay macOS application.
 ///
@@ -38,6 +41,12 @@ struct RelayApp: App {
                 .onChange(of: matrixService.pendingVerificationRequest?.id) { _, newValue in
                     if newValue != nil, let request = matrixService.pendingVerificationRequest {
                         postVerificationNotification(request: request)
+                    }
+                }
+                .onOpenURL { url in
+                    if let uri = MatrixURI(url: url) {
+                        logger.info("Received deep link: \(url.absoluteString)")
+                        matrixService.pendingDeepLink = uri
                     }
                 }
                 .task {

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import RelayInterface
 import SwiftUI
 
 // MARK: - MessageTextContent (NSTextView subclass)
@@ -38,30 +39,18 @@ final class MessageTextContent: NSTextView {
     // MARK: - Link Click Interception
 
     override func clicked(onLink link: Any, at charIndex: Int) {
-        if let url = link as? URL,
-           url.host?.lowercased() == "matrix.to",
-           let fragment = url.fragment,
-           fragment.hasPrefix("/") {
-            // Extract the identifier, stripping any event ID suffix (/$eventId)
-            // and query parameters (?via=server).
-            var raw = String(fragment.dropFirst())
-            // Remove query string if present (e.g. "?via=server1&via=server2").
-            if let queryStart = raw.firstIndex(of: "?") {
-                raw = String(raw[raw.startIndex..<queryStart])
+        if let url = link as? URL, let uri = MatrixURI(url: url) {
+            switch uri {
+            case .user(let id):
+                onUserTap?(id)
+            case .room(let alias, _):
+                onRoomTap?(alias)
+            case .roomId(let id, _):
+                onRoomTap?(id)
+            case .event(let roomId, _, _):
+                onRoomTap?(roomId)
             }
-            // Strip event permalink suffix (e.g. "/$eventId").
-            if let eventStart = raw.range(of: "/\\$", options: .regularExpression) {
-                raw = String(raw[raw.startIndex..<eventStart.lowerBound])
-            }
-            let identifier = raw.removingPercentEncoding ?? raw
-            if identifier.hasPrefix("@") {
-                onUserTap?(identifier)
-                return
-            }
-            if identifier.hasPrefix("!") || identifier.hasPrefix("#") {
-                onRoomTap?(identifier)
-                return
-            }
+            return
         }
         super.clicked(onLink: link, at: charIndex)
     }

@@ -12,6 +12,14 @@
 				<string>com.github.subpop.relay</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Matrix URI</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>matrix</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

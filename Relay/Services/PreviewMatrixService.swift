@@ -30,6 +30,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     var isSessionVerified: Bool = true
     var pendingVerificationRequest: IncomingVerificationRequest?
     var shouldPresentVerificationSheet: Bool = false
+    var pendingDeepLink: MatrixURI?
 
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
