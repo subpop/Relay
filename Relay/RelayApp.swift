@@ -21,10 +21,11 @@ import UserNotifications
 ///
 /// ``RelayApp`` creates the ``MatrixService``, injects it into the SwiftUI environment,
 /// manages the dock badge for unread counts, and posts local notifications for new
-/// mentions and direct messages.
+/// mentions, direct messages, and incoming verification requests.
 @main
 struct RelayApp: App {
     @State private var matrixService = MatrixService()
+    @State private var notificationDelegate = NotificationDelegate()
 
     var body: some Scene {
         WindowGroup {
@@ -33,8 +34,13 @@ struct RelayApp: App {
                 .onChange(of: matrixService.rooms.map(\.id)) {
                     updateDockBadge(rooms: matrixService.rooms)
                 }
+                .onChange(of: matrixService.pendingVerificationRequest?.id) { _, newValue in
+                    if newValue != nil, let request = matrixService.pendingVerificationRequest {
+                        postVerificationNotification(request: request)
+                    }
+                }
                 .task {
-                    await requestNotificationPermission()
+                    await setupNotifications()
                 }
         }
         .defaultSize(width: 880, height: 560)
@@ -47,9 +53,24 @@ struct RelayApp: App {
 
     // MARK: - Notifications
 
-    private func requestNotificationPermission() async {
+    private func setupNotifications() async {
         let center = UNUserNotificationCenter.current()
+        center.delegate = notificationDelegate
+        notificationDelegate.matrixService = matrixService
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+
+        // Register the verification request notification category with an Accept action.
+        let acceptAction = UNNotificationAction(
+            identifier: NotificationDelegate.acceptActionIdentifier,
+            title: "Accept",
+            options: [.foreground]
+        )
+        let category = UNNotificationCategory(
+            identifier: NotificationDelegate.verificationCategoryIdentifier,
+            actions: [acceptAction],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([category])
     }
 
     private func updateDockBadge(rooms: [RelayInterface.RoomSummary]) {
@@ -72,5 +93,57 @@ struct RelayApp: App {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+
+    private func postVerificationNotification(request: IncomingVerificationRequest) {
+        let content = UNMutableNotificationContent()
+        content.title = "Verification Request"
+        content.body = "Another device (\(request.deviceId)) wants to verify this session."
+        content.sound = .default
+        content.categoryIdentifier = NotificationDelegate.verificationCategoryIdentifier
+        content.userInfo = ["flowId": request.flowId]
+
+        let notificationRequest = UNNotificationRequest(
+            identifier: "verification-\(request.flowId)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(notificationRequest)
+    }
+}
+
+// MARK: - Notification Delegate
+
+/// Handles notification presentation and user interactions for local notifications.
+///
+/// When the user taps the verification notification or its "Accept" action,
+/// the delegate creates a ``SessionVerificationViewModel`` and presents the
+/// verification sheet via ``MatrixService/showVerificationSheet``.
+@Observable
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let verificationCategoryIdentifier = "VERIFICATION_REQUEST"
+    static let acceptActionIdentifier = "ACCEPT_VERIFICATION"
+
+    weak var matrixService: MatrixService?
+
+    /// Show notifications even when the app is in the foreground.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    /// Handle the user tapping the notification or the Accept action.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let categoryIdentifier = response.notification.request.content.categoryIdentifier
+        guard categoryIdentifier == Self.verificationCategoryIdentifier else { return }
+
+        await MainActor.run {
+            matrixService?.shouldPresentVerificationSheet = true
+        }
     }
 }

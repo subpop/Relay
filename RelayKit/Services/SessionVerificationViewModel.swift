@@ -64,7 +64,21 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
     // MARK: - Actions
 
     /// Sends a verification request to another device and transitions to the waiting state.
+    ///
+    /// If an incoming verification request from another device is already pending
+    /// on the controller, this method accepts that request instead of sending a
+    /// new outgoing one. This avoids a race where both sides send competing
+    /// `m.key.verification.request` messages simultaneously, which the SDK cannot
+    /// reconcile and causes immediate failure.
     public func requestVerification() async {
+        // If an incoming request is already pending, accept it instead of
+        // sending a competing outgoing request.
+        if case .receivedRequest(let details) = controller.flowState {
+            logger.info("Incoming request already pending from \(details.deviceId), accepting instead of sending new request")
+            await handleIncomingRequest(details)
+            return
+        }
+
         state = .requesting
         do {
             try await controller.requestDeviceVerification()
@@ -79,9 +93,9 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
 
     /// Confirms that the displayed emoji match on both devices, completing verification.
     public func approveVerification() async {
+        state = .waitingForApproval
         do {
             try await controller.approveVerification()
-            logger.info("Verification approved")
         } catch {
             logger.error("Failed to approve verification: \(error)")
             state = .failed(error.localizedDescription)
@@ -176,19 +190,16 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
 
     /// Handles an incoming verification request from another device.
     ///
-    /// Accepts the request automatically when the current state is early enough in
-    /// the flow (idle, requesting, or waiting). The SDK starts SAS negotiation
+    /// Accepts the request automatically when the current state is idle
+    /// (no outgoing flow in progress). The SDK starts SAS negotiation
     /// itself after acceptance — calling `startSasVerification()` here would
     /// conflict and cause the SDK to cancel the flow.
     @MainActor
     private func handleIncomingRequest(_ details: SessionVerificationRequestDetails) async {
         logger.info("Incoming verification request from \(details.deviceId)")
-        switch state {
-        case .idle, .requesting, .waitingForOtherDevice:
-            break
-        default:
-            return
-        }
+
+        guard case .idle = state else { return }
+
         state = .waitingForOtherDevice
         do {
             try await controller.acknowledgeVerificationRequest(

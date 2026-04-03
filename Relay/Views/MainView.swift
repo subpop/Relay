@@ -31,6 +31,7 @@ struct MainView: View {
     @State private var showingPinnedMessages = false
     @State private var focusedMessageId: String?
     @State private var dmErrorMessage: String?
+    @State private var incomingVerificationItem: VerificationItem?
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -206,6 +207,19 @@ struct MainView: View {
                 }
             }
             .sharedBackgroundVisibility(.hidden)
+        }
+        .onChange(of: matrixService.shouldPresentVerificationSheet) { _, shouldPresent in
+            guard shouldPresent else { return }
+            matrixService.shouldPresentVerificationSheet = false
+            Task {
+                if let vm = try? await matrixService.makeSessionVerificationViewModel() {
+                    matrixService.pendingVerificationRequest = nil
+                    incomingVerificationItem = VerificationItem(viewModel: vm)
+                }
+            }
+        }
+        .sheet(item: $incomingVerificationItem) { item in
+            VerificationSheet(viewModel: item.viewModel)
         }
         .sheet(isPresented: $showingCreateRoom) {
             CreateRoomSheet(selectedRoomId: $selectedRoomId)

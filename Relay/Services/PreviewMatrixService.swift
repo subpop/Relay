@@ -27,6 +27,9 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     var rooms: [RoomSummary] = PreviewMatrixService.sampleRooms
     var isSyncing: Bool { false }
     var hasLoadedRooms: Bool = true
+    var isSessionVerified: Bool = true
+    var pendingVerificationRequest: IncomingVerificationRequest?
+    var shouldPresentVerificationSheet: Bool = false
 
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
@@ -122,6 +125,10 @@ final class PreviewMatrixService: MatrixServiceProtocol {
 
     func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)? {
         PreviewSessionVerificationViewModel()
+    }
+
+    func declinePendingVerificationRequest() async {
+        pendingVerificationRequest = nil
     }
 
     func isCurrentSessionVerified() async -> Bool { true }

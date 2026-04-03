@@ -62,6 +62,27 @@ public enum DefaultNotificationMode: Sendable, Equatable, CaseIterable {
     }
 }
 
+// MARK: - Incoming Verification Request
+
+/// A lightweight representation of an incoming session verification request
+/// from another device, suitable for display in the UI.
+public struct IncomingVerificationRequest: Sendable, Identifiable {
+    /// The device ID that initiated the verification request.
+    public let deviceId: String
+    /// The Matrix user ID of the sender.
+    public let senderId: String
+    /// The flow identifier for the verification request.
+    public let flowId: String
+
+    public var id: String { flowId }
+
+    public init(deviceId: String, senderId: String, flowId: String) {
+        self.deviceId = deviceId
+        self.senderId = senderId
+        self.flowId = flowId
+    }
+}
+
 // MARK: - Protocol
 
 /// The central protocol for interacting with the Matrix homeserver.
@@ -263,6 +284,28 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     // MARK: Devices & Verification
 
+    /// Whether the current session has been verified via cross-signing.
+    ///
+    /// This property is updated reactively as the SDK's verification state changes,
+    /// so views can bind to it directly.
+    var isSessionVerified: Bool { get }
+
+    /// An incoming verification request from another device, if one is pending.
+    ///
+    /// When non-`nil`, a system notification is posted allowing the user to accept.
+    /// Set back to `nil` when the request is handled or dismissed.
+    var pendingVerificationRequest: IncomingVerificationRequest? { get set }
+
+    /// Set to `true` when the user accepts a verification request via a system
+    /// notification. The UI observes this flag to present the verification sheet.
+    var shouldPresentVerificationSheet: Bool { get set }
+
+    /// Declines and clears the pending incoming verification request.
+    ///
+    /// Cancels the verification flow on the SDK side and sets
+    /// ``pendingVerificationRequest`` to `nil`.
+    func declinePendingVerificationRequest() async
+
     /// Fetches the list of all devices (sessions) associated with the current user's account.
     func getDevices() async throws -> [DeviceInfo]
 
@@ -339,6 +382,10 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var rooms: [RoomSummary] = []
     var isSyncing: Bool { false }
     var hasLoadedRooms: Bool = false
+    var isSessionVerified: Bool = false
+    var pendingVerificationRequest: IncomingVerificationRequest?
+    var shouldPresentVerificationSheet: Bool = false
+    func declinePendingVerificationRequest() async {}
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
     func startOAuthLogin(homeserver: String, openURL: @escaping @concurrent @Sendable (URL) async throws -> URL) async throws {}

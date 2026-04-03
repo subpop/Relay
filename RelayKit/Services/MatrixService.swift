@@ -52,12 +52,18 @@ public final class MatrixService: MatrixServiceProtocol {
     public var isSyncing: Bool { syncState == .syncing || syncState == .running }
     public var hasLoadedRooms: Bool { roomListManager.hasLoadedRooms }
 
+    public private(set) var isSessionVerified: Bool = false
+    public var pendingVerificationRequest: IncomingVerificationRequest?
+    public var shouldPresentVerificationSheet: Bool = false
+
     // MARK: - Private State
 
     private var client: ClientProxy?
     private var syncTask: Task<Void, Never>?
     private var roomViewModels: [String: RoomDetailViewModel] = [:]
     private var verificationController: SessionVerificationControllerProxy?
+    private var verificationObservationTask: Task<Void, Never>?
+    private var verificationStateTask: Task<Void, Never>?
 
     // MARK: - Sub-Services
 
@@ -119,6 +125,10 @@ public final class MatrixService: MatrixServiceProtocol {
     public func logout() async {
         syncTask?.cancel()
         syncTask = nil
+        verificationObservationTask?.cancel()
+        verificationObservationTask = nil
+        verificationStateTask?.cancel()
+        verificationStateTask = nil
 
         await syncManager.stop()
         try? await client?.logout()
@@ -127,6 +137,10 @@ public final class MatrixService: MatrixServiceProtocol {
 
         client = nil
         verificationController = nil
+        isSessionVerified = false
+        isVerificationFlowActive = false
+        pendingVerificationRequest = nil
+        shouldPresentVerificationSheet = false
         roomListManager.reset()
         roomViewModels = [:]
         authState = .loggedOut
@@ -146,7 +160,9 @@ public final class MatrixService: MatrixServiceProtocol {
             try await syncManager.startSync(client: client)
             if let sdkController = try? await client.getSessionVerificationController() {
                 verificationController = SessionVerificationControllerProxy(controller: sdkController)
+                observeVerificationController()
             }
+            observeVerificationState(client: client)
             if let syncService = syncManager.syncService {
                 try await roomListManager.start(syncService: syncService)
             }
@@ -154,6 +170,65 @@ public final class MatrixService: MatrixServiceProtocol {
             // Logout cancelled the sync — don't overwrite state
         } catch {
             logger.error("Sync failed: \(error)")
+        }
+    }
+
+    /// Whether a verification flow is currently being managed by a view model.
+    ///
+    /// When `true`, the `observeVerificationController` observer should not surface
+    /// incoming requests as `pendingVerificationRequest` — the active view model
+    /// handles them directly.
+    private var isVerificationFlowActive = false
+
+    /// Observes the verification controller's flow state for incoming verification requests.
+    ///
+    /// Only surfaces requests when no verification view model is currently active.
+    /// When the user has the verification sheet open (outgoing or incoming), the
+    /// ``SessionVerificationViewModel`` handles flow state transitions directly.
+    private func observeVerificationController() {
+        verificationObservationTask?.cancel()
+        verificationObservationTask = Task { [weak self] in
+            guard let self, let controller = verificationController else { return }
+            while !Task.isCancelled {
+                let flowState = await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = controller.flowState
+                    } onChange: {
+                        Task { @MainActor in
+                            continuation.resume(returning: controller.flowState)
+                        }
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                if case .receivedRequest(let details) = flowState, !isVerificationFlowActive {
+                    logger.info("Incoming verification request from device \(details.deviceId)")
+                    pendingVerificationRequest = IncomingVerificationRequest(
+                        deviceId: String(details.deviceId),
+                        senderId: details.senderProfile.userId,
+                        flowId: details.flowId
+                    )
+                }
+            }
+        }
+    }
+
+    /// Observes the SDK encryption verification state and keeps `isSessionVerified` in sync.
+    private func observeVerificationState(client: ClientProxy) {
+        verificationStateTask?.cancel()
+        isSessionVerified = client.encryption().verificationState() == .verified
+        verificationStateTask = Task { [weak self] in
+            let encryption = client.encryption()
+            let listener = SDKListener<MatrixRustSDK.VerificationState> { [weak self] state in
+                Task { @MainActor [weak self] in
+                    self?.isSessionVerified = state == .verified
+                }
+            }
+            let handle = encryption.verificationStateListener(listener: listener)
+            // Keep the handle alive until the task is cancelled.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+            }
+            handle.cancel()
         }
     }
 
@@ -540,7 +615,22 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)? {
         guard let controller = verificationController else { return nil }
-        return SessionVerificationViewModel(controller: controller)
+        isVerificationFlowActive = true
+        let viewModel = SessionVerificationViewModel(controller: controller)
+        // Reset the flag when the view model is deallocated (sheet dismissed).
+        Task { [weak self, weak viewModel] in
+            // Wait until the view model is released.
+            while viewModel != nil {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            self?.isVerificationFlowActive = false
+        }
+        return viewModel
+    }
+
+    public func declinePendingVerificationRequest() async {
+        pendingVerificationRequest = nil
+        try? await verificationController?.cancelVerification()
     }
 
     public func isCurrentSessionVerified() async -> Bool {

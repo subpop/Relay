@@ -40,6 +40,7 @@ final class PreviewSessionVerificationViewModel: SessionVerificationViewModelPro
     }
 
     func approveVerification() async {
+        state = .waitingForApproval
         try? await Task.sleep(for: .seconds(1))
         state = .verified
     }

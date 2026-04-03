@@ -84,6 +84,8 @@ final class AuthenticationService {
                 cachePath: Self.cacheDirectory.path
             )
             .slidingSyncVersionBuilder(.discoverNative)
+            .autoEnableCrossSigning(true)
+            .autoEnableBackups(true)
             .setSessionDelegate(sessionDelegate)
     }
 
