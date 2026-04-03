@@ -233,11 +233,15 @@ struct ComposeView: View {
     /// Called when the user selects files to attach via the file picker or drag-and-drop.
     var onAttach: ([URL]) -> Void
 
+    /// Called when the user selects a GIF from the GIF picker.
+    var onGIFSelected: (GIFSearchResult) -> Void
+
     /// Supported UTTypes for attachments (shared by file picker and drop).
     static let supportedTypes: [UTType] = [.image, .movie, .audio, .item]
 
     @FocusState private var isFocused: Bool
     @State private var isShowingFilePicker = false
+    @State private var isShowingGIFPicker = false
     @State private var isDropTargeted = false
 
     /// The ID of the attachment whose caption field is currently being edited inline.
@@ -266,6 +270,21 @@ struct ComposeView: View {
                             .glassEffect(in: .circle)
                     }
                     .buttonStyle(.plain)
+
+                    Button { isShowingGIFPicker = true } label: {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 15, weight: .regular))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                            .glassEffect(in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $isShowingGIFPicker, arrowEdge: .top) {
+                        GIFPickerView { gif in
+                            isShowingGIFPicker = false
+                            onGIFSelected(gif)
+                        }
+                    }
 
                     VStack(alignment: .leading, spacing: 0) {
                         if !attachments.isEmpty {
@@ -478,19 +497,19 @@ private let previewMembers: [RoomMemberDetails] = [
 ]
 
 #Preview("Empty") {
-    ComposeView(text: .constant(""), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in })
+    ComposeView(text: .constant(""), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in }, onGIFSelected: { _ in })
         .frame(width: 400)
         .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Text") {
-    ComposeView(text: .constant("Hello, world!"), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in })
+    ComposeView(text: .constant("Hello, world!"), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in }, onGIFSelected: { _ in })
         .frame(width: 400)
         .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Long Text") {
-    ComposeView(text: .constant("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum."), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in })
+    ComposeView(text: .constant("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum."), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in }, onGIFSelected: { _ in })
         .frame(width: 400)
         .environment(\.matrixService, PreviewMatrixService())
 }
@@ -507,7 +526,8 @@ private let previewMembers: [RoomMemberDetails] = [
         members: previewMembers,
         mentions: .constant([]),
         onSend: {},
-        onAttach: { _ in }
+        onAttach: { _ in },
+        onGIFSelected: { _ in }
     )
     .frame(width: 400)
     .environment(\.matrixService, PreviewMatrixService())
@@ -524,7 +544,8 @@ private let previewMembers: [RoomMemberDetails] = [
         members: previewMembers,
         mentions: .constant([]),
         onSend: {},
-        onAttach: { _ in }
+        onAttach: { _ in },
+        onGIFSelected: { _ in }
     )
     .frame(width: 500)
     .environment(\.matrixService, PreviewMatrixService())

@@ -43,6 +43,7 @@
 		3B4AFD892F638A35001F0EA1 /* Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Relay.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3BAE76A72F6A43BA000EC1E6 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		3BRK00002FC00000001F0EA1 /* RelayKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RelayKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -97,6 +98,7 @@
 		3B4AFD802F638A35001F0EA1 = {
 			isa = PBXGroup;
 			children = (
+				3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */,
 				3BAE76A72F6A43BA000EC1E6 /* README.md */,
 				3B4AFD8B2F638A35001F0EA1 /* Relay */,
 				3BRK00112FC00011001F0EA1 /* RelayKit */,
@@ -387,6 +389,7 @@
 		};
 		3B4AFDAD2F638A36001F0EA1 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -432,6 +435,7 @@
 		};
 		3B4AFDAE2F638A36001F0EA1 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

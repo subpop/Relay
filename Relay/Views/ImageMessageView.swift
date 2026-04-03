@@ -23,9 +23,11 @@ struct ImageMessageView: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.mediaAutoReveal) private var autoReveal
     @Environment(\.errorReporter) private var errorReporter
+    @AppStorage("behavior.animateGIFs") private var animateGIFs = GIFAnimationMode.onHover
     let message: TimelineMessage
 
     @State private var image: NSImage?
+    @State private var imageData: Data?
     @State private var isLoading = true
     @State private var isHovering = false
     @State private var quickLookURL: URL?
@@ -51,12 +53,33 @@ struct ImageMessageView: View {
         return CGSize(width: maxWidth, height: 200)
     }
 
+    /// Whether this message contains a GIF image, detected by MIME type or file extension.
+    private var isGIF: Bool {
+        if let mime = mediaInfo.mimetype, mime.lowercased() == "image/gif" {
+            return true
+        }
+        return mediaInfo.filename.lowercased().hasSuffix(".gif")
+    }
+
+    /// Whether the GIF should currently be animating, based on the user preference.
+    private var shouldAnimateGIF: Bool {
+        switch animateGIFs {
+        case .always: true
+        case .onHover: isHovering
+        case .never: false
+        }
+    }
+
     private var shouldShow: Bool { autoReveal || isRevealed }
 
     var body: some View {
         ZStack {
             if shouldShow {
-                if let image {
+                if isGIF, let imageData {
+                    AnimatedImageView(data: imageData, isAnimating: shouldAnimateGIF)
+                        .frame(width: displaySize.width, height: displaySize.height)
+                        .clipped()
+                } else if let image {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
@@ -129,12 +152,20 @@ struct ImageMessageView: View {
         .task(id: shouldShow ? mediaInfo.mxcURL : nil) {
             guard shouldShow else { return }
             isLoading = true
-            if let data = await matrixService.mediaThumbnail(
-                mxcURL: mediaInfo.mxcURL,
-                width: UInt64(displaySize.width * 2),
-                height: UInt64(displaySize.height * 2)
-            ) {
-                image = NSImage(data: data)
+            if isGIF {
+                // Load full content for GIFs to preserve animation frames.
+                if let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) {
+                    imageData = data
+                    image = NSImage(data: data)
+                }
+            } else {
+                if let data = await matrixService.mediaThumbnail(
+                    mxcURL: mediaInfo.mxcURL,
+                    width: UInt64(displaySize.width * 2),
+                    height: UInt64(displaySize.height * 2)
+                ) {
+                    image = NSImage(data: data)
+                }
             }
             isLoading = false
         }

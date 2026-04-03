@@ -104,3 +104,6 @@ iOSInjectionProject/
 
 *.cursor*
 opencode.json
+
+### Secrets ###
+Secrets.xcconfig

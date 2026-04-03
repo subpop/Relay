@@ -156,6 +156,7 @@ private struct BehaviorSettingsTab: View {
     @AppStorage("safety.sendTypingNotifications") private var sendTypingNotifications = true
     @AppStorage("safety.mediaPreviewMode") private var mediaPreviewMode = MediaPreviewMode.privateOnly
     @AppStorage("behavior.showURLPreviews") private var showURLPreviews = true
+    @AppStorage("behavior.animateGIFs") private var animateGIFs = GIFAnimationMode.onHover
     @AppStorage("behavior.alwaysLoadNewest") private var alwaysLoadNewest = true
     @AppStorage("behavior.showMembershipEvents") private var showMembershipEvents = true
     @AppStorage("behavior.showStateEvents") private var showStateEvents = true
@@ -184,6 +185,12 @@ private struct BehaviorSettingsTab: View {
 
             Section {
                 Toggle("Show URL Previews", isOn: $showURLPreviews)
+
+                Picker("Animate GIFs", selection: $animateGIFs) {
+                    ForEach(GIFAnimationMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
 
                 Picker("Show Media Previews In", selection: $mediaPreviewMode) {
                     ForEach(MediaPreviewMode.allCases, id: \.self) { mode in
@@ -365,6 +372,23 @@ private struct NotificationSettingsTab: View {
         )
     }
 
+}
+
+// MARK: - GIF Animation Mode
+
+/// Controls when GIF images animate in the timeline.
+enum GIFAnimationMode: String, CaseIterable {
+    case always
+    case onHover
+    case never
+
+    var label: String {
+        switch self {
+        case .always: "Always"
+        case .onHover: "On hover"
+        case .never: "Never"
+        }
+    }
 }
 
 // MARK: - Safety Settings

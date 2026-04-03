@@ -27,6 +27,7 @@ private let logger = Logger(subsystem: "Relay", category: "RoomDetail")
 struct RoomDetailView: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
+    @Environment(\.gifSearchService) private var gifSearchService
 
     /// The Matrix room identifier for the displayed room.
     let roomId: String
@@ -129,7 +130,7 @@ struct RoomDetailView: View {
                         .padding(.bottom, 4)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, members: roomMembers, mentions: $draftMentions,  onSend: sendMessage, onAttach: stageAttachments)
+                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, members: roomMembers, mentions: $draftMentions,  onSend: sendMessage, onAttach: stageAttachments, onGIFSelected: sendGIF)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                 }
@@ -685,6 +686,43 @@ struct RoomDetailView: View {
             withAnimation(.easeOut(duration: 0.15)) {
                 stagedAttachments.append(staged)
             }
+        }
+    }
+
+    /// Downloads the selected GIF and sends it as an image attachment.
+    ///
+    /// The GIF is downloaded to a temporary file and sent directly via the
+    /// view model's attachment pipeline. Analytics pingbacks are fired for
+    /// click and send events.
+    private func sendGIF(_ gif: GIFSearchResult) {
+        pendingScrollToBottom = true
+        Task {
+            // Fire analytics
+            if let url = gif.onsentURL {
+                await gifSearchService.registerAction(url: url)
+            }
+
+            // Download GIF data
+            let data: Data
+            do {
+                data = try await gifSearchService.downloadGIF(url: gif.originalURL)
+            } catch {
+                errorReporter.report(.fileCopyFailed(filename: "GIF", reason: error.localizedDescription))
+                return
+            }
+
+            // Write to temp file
+            let filename = "\(gif.id).gif"
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            do {
+                try data.write(to: tempURL)
+            } catch {
+                errorReporter.report(.fileCopyFailed(filename: filename, reason: error.localizedDescription))
+                return
+            }
+
+            // Send via existing attachment pipeline
+            await viewModel.sendAttachment(url: tempURL, caption: nil)
         }
     }
 

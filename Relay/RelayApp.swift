@@ -28,12 +28,14 @@ private let logger = Logger(subsystem: "Relay", category: "DeepLink")
 @main
 struct RelayApp: App {
     @State private var matrixService = MatrixService()
+    @State private var gifSearchService = GiphyService()
     @State private var notificationDelegate = NotificationDelegate()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(\.matrixService, matrixService)
+                .environment(\.gifSearchService, gifSearchService)
                 .environment(\.errorReporter, matrixService.errorReporter)
                 .onChange(of: matrixService.rooms.map(\.id)) {
                     updateDockBadge(rooms: matrixService.rooms)
@@ -58,6 +60,7 @@ struct RelayApp: App {
         Settings {
             SettingsView()
                 .environment(\.matrixService, matrixService)
+                .environment(\.gifSearchService, gifSearchService)
                 .environment(\.errorReporter, matrixService.errorReporter)
         }
     }
