@@ -27,9 +27,25 @@ Relay is a native macOS app built with SwiftUI and Xcode.
    cd Relay
    ```
 
-2. Open `Relay.xcodeproj` in Xcode.
-3. Xcode will automatically resolve Swift Package dependencies.
-4. Select the **Relay** scheme and build (`Cmd+B`) or run (`Cmd+R`).
+2. Create your local secrets file from the template:
+
+   ```
+   cp Secrets.xcconfig.example Secrets.xcconfig
+   ```
+
+   Open `Secrets.xcconfig` and fill in your values:
+
+   - **`DEVELOPMENT_TEAM`** -- Your Apple Developer Team ID. Find it in
+     Xcode under **Settings > Accounts**, or at
+     <https://developer.apple.com/account>.
+   - **`GIPHY_API_KEY`** -- Required for GIF search functionality. Create
+     one at <https://developers.giphy.com/dashboard/>.
+
+   `Secrets.xcconfig` is gitignored and will not be committed.
+
+3. Open `Relay.xcodeproj` in Xcode.
+4. Xcode will automatically resolve Swift Package dependencies.
+5. Select the **Relay** scheme and build (`Cmd+B`) or run (`Cmd+R`).
 
 ## Project Structure
 
