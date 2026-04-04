@@ -67,6 +67,7 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
     @State private var unreadMarkerDismissTask: Task<Void, Never>?
     @State private var fullyReadDebounceTask: Task<Void, Never>?
     @State private var lastFullyReadEventId: String?
+    @State private var isDirectRoom = false
 
     @AppStorage("safety.sendReadReceipts") private var sendReadReceipts = true
     @AppStorage("safety.sendTypingNotifications") private var sendTypingNotifications = true
@@ -78,8 +79,7 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
 
     private var shouldAutoRevealMedia: Bool {
         if mediaPreviewMode == "allRooms" { return true }
-        let isDirect = matrixService.rooms.first(where: { $0.id == roomId })?.isDirect ?? false
-        return isDirect
+        return isDirectRoom
     }
 
     var body: some View {
@@ -172,6 +172,9 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
             }
             .navigationTitle("")
         .task {
+            // Cache isDirect once — avoids O(n) room scan on every body evaluation.
+            isDirectRoom = matrixService.rooms.first(where: { $0.id == roomId })?.isDirect ?? false
+
             // Load focused on the fully-read marker if the user has opted out of "always load newest"
             var focusEventId: String?
             if !alwaysLoadNewest {
@@ -287,23 +290,24 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
                 }
 
                 let messages = filteredMessages
-                ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                let groupInfo = Self.buildGroupInfo(for: messages)
+                ForEach(messages) { message in
+                    let info = groupInfo[message.id, default: .default]
+
                     if showUnreadMarker && message.id == viewModel.firstUnreadMessageId {
                             unreadMarker
                         }
 
-                    if shouldShowDateHeader(at: index, in: messages) {
+                    if info.showDateHeader {
                         Text(dateSectionLabel(for: message.timestamp))
                             .font(.caption2)
                             .fontWeight(.medium)
                             .foregroundStyle(.secondary)
-                            .padding(.top, index == 0 ? 4 : 12)
+                            .padding(.top, info.isFirst ? 4 : 12)
                             .padding(.bottom, 4)
                     }
 
-                    if index > 0 && !messages[index - 1].isSystemEvent && !message.isSystemEvent
-                        && messages[index - 1].senderID != message.senderID
-                        && !shouldShowDateHeader(at: index, in: messages) {
+                    if info.showGroupSpacer {
                         Spacer().frame(height: 8)
                     }
 
@@ -313,14 +317,11 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
                             .help(message.formattedTime)
                             .onAppear { advanceFullyReadMarker(to: message.id) }
                     } else {
-                        let isLastInGroup = isLastMessageInGroup(at: index, in: messages)
-                        let showSenderName = shouldShowSenderName(at: index, in: messages)
-
                         MessageSwipeActions {
                             MessageView(
                                 message: message,
-                                isLastInGroup: isLastInGroup,
-                                showSenderName: showSenderName,
+                                isLastInGroup: info.isLastInGroup,
+                                showSenderName: info.showSenderName,
                                 onToggleReaction: { key in
                                     Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
                                 },
@@ -598,20 +599,26 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
 
     // MARK: - URL Extraction
 
+    /// Cache for `firstPreviewURL` results to avoid running `NSDataDetector` on
+    /// every SwiftUI body evaluation.
+    private static let urlCache = ParseCache<String, URL?>(capacity: 256)
+
     /// Returns the first HTTP(S) URL found in the given string, excluding `matrix.to` links.
     private static func firstPreviewURL(in body: String) -> URL? {
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+        urlCache.value(forKey: body) {
+            guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+                return nil
+            }
+            let matches = detector.matches(in: body, range: NSRange(body.startIndex..., in: body))
+            for match in matches {
+                guard let url = match.url,
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "https" || scheme == "http",
+                      url.host?.lowercased() != "matrix.to" else { continue }
+                return url
+            }
             return nil
         }
-        let matches = detector.matches(in: body, range: NSRange(body.startIndex..., in: body))
-        for match in matches {
-            guard let url = match.url,
-                  let scheme = url.scheme?.lowercased(),
-                  scheme == "https" || scheme == "http",
-                  url.host?.lowercased() != "matrix.to" else { continue }
-            return url
-        }
-        return nil
     }
 
     // MARK: - Filtering
@@ -630,33 +637,90 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Grouping Helpers
+    // MARK: - Grouping Info
 
-    private func isLastMessageInGroup(at index: Int, in messages: [TimelineMessage]) -> Bool {
-        guard index < messages.count - 1 else { return true }
-        let current = messages[index]
-        let next = messages[index + 1]
-        if current.isSystemEvent || next.isSystemEvent { return true }
-        return next.senderID != current.senderID
-            || shouldShowDateHeader(at: index + 1, in: messages)
+    /// Precomputed layout metadata for a single message within the timeline.
+    /// Built once per body evaluation by ``buildGroupInfo(for:)`` so the
+    /// `ForEach` body doesn't need index-based lookups.
+    struct MessageGroupInfo {
+        var isFirst = false
+        var showDateHeader = false
+        var showGroupSpacer = false
+        var isLastInGroup = true
+        var showSenderName = false
+
+        static let `default` = MessageGroupInfo()
     }
 
-    private func shouldShowSenderName(at index: Int, in messages: [TimelineMessage]) -> Bool {
-        let current = messages[index]
-        guard !current.isOutgoing, !current.isSystemEvent else { return false }
-        if index == 0 || shouldShowDateHeader(at: index, in: messages) { return true }
-        let prev = messages[index - 1]
-        if prev.isSystemEvent { return true }
-        return prev.senderID != current.senderID
-    }
+    /// Builds a dictionary mapping message IDs to their precomputed grouping
+    /// metadata. This replaces per-item index lookups inside the `ForEach`,
+    /// which required `Array(messages.enumerated())` — a new allocation on
+    /// every body evaluation that forced SwiftUI to re-diff from scratch.
+    private static func buildGroupInfo(for messages: [TimelineMessage]) -> [String: MessageGroupInfo] {
+        guard !messages.isEmpty else { return [:] }
+        let calendar = Calendar.current
+        var result = [String: MessageGroupInfo]()
+        result.reserveCapacity(messages.count)
 
-    private func shouldShowDateHeader(at index: Int, in messages: [TimelineMessage]) -> Bool {
-        guard index > 0 else { return true }
-        return !Calendar.current.isDate(
-            messages[index].timestamp,
-            equalTo: messages[index - 1].timestamp,
-            toGranularity: .hour
-        )
+        for index in messages.indices {
+            let message = messages[index]
+            var info = MessageGroupInfo()
+
+            info.isFirst = index == 0
+
+            // Date header
+            if index == 0 {
+                info.showDateHeader = true
+            } else {
+                info.showDateHeader = !calendar.isDate(
+                    message.timestamp,
+                    equalTo: messages[index - 1].timestamp,
+                    toGranularity: .hour
+                )
+            }
+
+            // Group spacer (between different sender groups, excluding system events)
+            if index > 0 && !messages[index - 1].isSystemEvent && !message.isSystemEvent
+                && messages[index - 1].senderID != message.senderID
+                && !info.showDateHeader {
+                info.showGroupSpacer = true
+            }
+
+            // Last in group
+            if index < messages.count - 1 {
+                let next = messages[index + 1]
+                if message.isSystemEvent || next.isSystemEvent {
+                    info.isLastInGroup = true
+                } else {
+                    let nextHasDateHeader: Bool
+                    if index + 1 == 0 {
+                        nextHasDateHeader = true
+                    } else {
+                        nextHasDateHeader = !calendar.isDate(
+                            next.timestamp,
+                            equalTo: message.timestamp,
+                            toGranularity: .hour
+                        )
+                    }
+                    info.isLastInGroup = next.senderID != message.senderID || nextHasDateHeader
+                }
+            } else {
+                info.isLastInGroup = true
+            }
+
+            // Show sender name
+            if !message.isOutgoing && !message.isSystemEvent {
+                if index == 0 || info.showDateHeader {
+                    info.showSenderName = true
+                } else {
+                    let prev = messages[index - 1]
+                    info.showSenderName = prev.isSystemEvent || prev.senderID != message.senderID
+                }
+            }
+
+            result[message.id] = info
+        }
+        return result
     }
 
     private func dateSectionLabel(for date: Date) -> String {

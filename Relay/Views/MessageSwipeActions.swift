@@ -117,15 +117,20 @@ private struct HorizontalScrollInterceptor: NSViewRepresentable {
 }
 
 /// The AppKit view that performs the actual scroll-wheel interception.
+///
+/// Instead of each instance installing its own `NSEvent` monitor (which scales
+/// as O(visible-messages) per scroll event), instances register with a shared
+/// ``SwipeScrollMonitor`` that maintains a single global monitor and dispatches
+/// to the hit-tested view.
 final class ScrollInterceptorView: NSView {
     var onScrollDelta: ((CGFloat) -> Void)?
     var onScrollEnd: (() -> Void)?
 
-    private var gestureAxis: GestureAxis = .undecided
-    private var accumulatedDeltaX: CGFloat = 0
-    private let axisLockThreshold: CGFloat = 4
+    var gestureAxis: GestureAxis = .undecided
+    var accumulatedDeltaX: CGFloat = 0
+    let axisLockThreshold: CGFloat = 4
 
-    private enum GestureAxis {
+    enum GestureAxis {
         case undecided, horizontal, vertical
     }
 
@@ -135,38 +140,22 @@ final class ScrollInterceptorView: NSView {
         return nil
     }
 
-    private var scrollMonitor: Any?
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, scrollMonitor == nil {
-            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self, self.window != nil else { return event }
-                let locationInWindow = event.locationInWindow
-                let locationInView = self.convert(locationInWindow, from: nil)
-                guard self.bounds.contains(locationInView) else { return event }
-                self.handleScroll(with: event)
-                if self.gestureAxis == .horizontal {
-                    return nil
-                }
-                return event
-            }
-        } else if window == nil, let monitor = scrollMonitor {
-            NSEvent.removeMonitor(monitor)
-            scrollMonitor = nil
+        if window != nil {
+            SwipeScrollMonitor.shared.register(self)
+        } else {
+            SwipeScrollMonitor.shared.unregister(self)
         }
     }
 
     override func removeFromSuperview() {
-        if let monitor = scrollMonitor {
-            NSEvent.removeMonitor(monitor)
-            scrollMonitor = nil
-        }
+        SwipeScrollMonitor.shared.unregister(self)
         super.removeFromSuperview()
     }
 
     // swiftlint:disable:next cyclomatic_complexity
-    private func handleScroll(with event: NSEvent) {
+    func handleScroll(with event: NSEvent) {
         switch event.phase {
         case .began:
             gestureAxis = .undecided
@@ -215,5 +204,85 @@ final class ScrollInterceptorView: NSView {
         default:
             break
         }
+    }
+}
+
+// MARK: - Shared Scroll Monitor
+
+/// Maintains a single global `NSEvent` scroll-wheel monitor and dispatches
+/// events to the appropriate ``ScrollInterceptorView`` based on hit-testing.
+///
+/// This replaces the previous pattern where each visible message installed its
+/// own monitor, causing O(N) coordinate conversions per scroll event.
+private final class SwipeScrollMonitor {
+    static let shared = SwipeScrollMonitor()
+
+    private var registeredViews = NSHashTable<ScrollInterceptorView>.weakObjects()
+    private var monitor: Any?
+    /// The view that "owns" the current scroll gesture (locked on `.began`).
+    private weak var activeView: ScrollInterceptorView?
+
+    private init() {}
+
+    func register(_ view: ScrollInterceptorView) {
+        registeredViews.add(view)
+        installMonitorIfNeeded()
+    }
+
+    func unregister(_ view: ScrollInterceptorView) {
+        registeredViews.remove(view)
+        if activeView === view {
+            activeView = nil
+        }
+        if registeredViews.count == 0, let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+
+    private func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else { return event }
+            return self.dispatch(event)
+        }
+    }
+
+    private func dispatch(_ event: NSEvent) -> NSEvent? {
+        if event.phase == .began {
+            // Lock to the topmost interceptor under the cursor for this gesture.
+            activeView = nil
+            for view in registeredViews.allObjects {
+                guard view.window != nil else { continue }
+                let locationInView = view.convert(event.locationInWindow, from: nil)
+                guard view.bounds.contains(locationInView) else { continue }
+                activeView = view
+                break
+            }
+        }
+
+        guard let target = activeView else { return event }
+
+        // Verify the target is still under the cursor (in case of fast scrolling).
+        let locationInView = target.convert(event.locationInWindow, from: nil)
+        guard target.bounds.contains(locationInView) else {
+            if event.phase == .ended || event.phase == .cancelled {
+                activeView = nil
+            }
+            return event
+        }
+
+        target.handleScroll(with: event)
+        if target.gestureAxis == .horizontal {
+            if event.phase == .ended || event.phase == .cancelled {
+                activeView = nil
+            }
+            return nil
+        }
+
+        if event.phase == .ended || event.phase == .cancelled {
+            activeView = nil
+        }
+        return event
     }
 }

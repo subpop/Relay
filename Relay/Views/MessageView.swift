@@ -537,7 +537,8 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                     senderDisplayName: "Alice",
                     body: "Hey, check out **this link**: https://matrix.org"
                 )
-            )
+            ),
+            currentUserID: "@me:matrix.org"
         )
         MessageView(
             message: TimelineMessage(
