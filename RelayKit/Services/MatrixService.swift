@@ -148,6 +148,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
         do {
             try await syncManager.startSync(client: client)
+            try await client.startObserving()
             if let sdkController = try? await client.getSessionVerificationController() {
                 verificationController = SessionVerificationControllerProxy(controller: sdkController)
                 observeVerificationController()
