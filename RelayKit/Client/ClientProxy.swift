@@ -122,8 +122,18 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
 
     // MARK: - Authentication
 
-    public func login(username: String, password: String, initialDeviceName: String?, deviceId: String?) async throws {
-        try await client.login(username: username, password: password, initialDeviceName: initialDeviceName, deviceId: deviceId)
+    public func login(
+        username: String,
+        password: String,
+        initialDeviceName: String?,
+        deviceId: String?
+    ) async throws {
+        try await client.login(
+            username: username,
+            password: password,
+            initialDeviceName: initialDeviceName,
+            deviceId: deviceId
+        )
         self.userID = try client.userId()
         self.deviceID = try client.deviceId()
     }
@@ -211,8 +221,23 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
 
     // MARK: - Push Notifications
 
-    public func setPusher(identifiers: PusherIdentifiers, kind: PusherKind, appDisplayName: String, deviceDisplayName: String, profileTag: String?, lang: String) async throws {
-        try await client.setPusher(identifiers: identifiers, kind: kind, appDisplayName: appDisplayName, deviceDisplayName: deviceDisplayName, profileTag: profileTag, lang: lang)
+    // swiftlint:disable:next function_parameter_count
+    public func setPusher(
+        identifiers: PusherIdentifiers,
+        kind: PusherKind,
+        appDisplayName: String,
+        deviceDisplayName: String,
+        profileTag: String?,
+        lang: String
+    ) async throws {
+        try await client.setPusher(
+            identifiers: identifiers,
+            kind: kind,
+            appDisplayName: appDisplayName,
+            deviceDisplayName: deviceDisplayName,
+            profileTag: profileTag,
+            lang: lang
+        )
     }
 
     public func deletePusher(identifiers: PusherIdentifiers) async throws {
@@ -317,8 +342,16 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
 
     // MARK: - Room Account Data
 
-    public func observeRoomAccountDataEvent(roomId: String, eventType: RoomAccountDataEventType, listener: RoomAccountDataListener) throws -> TaskHandle {
-        try client.observeRoomAccountDataEvent(roomId: roomId, eventType: eventType, listener: listener)
+    public func observeRoomAccountDataEvent(
+        roomId: String,
+        eventType: RoomAccountDataEventType,
+        listener: RoomAccountDataListener
+    ) throws -> TaskHandle {
+        try client.observeRoomAccountDataEvent(
+            roomId: roomId,
+            eventType: eventType,
+            listener: listener
+        )
     }
 
     // MARK: - QR Code Login

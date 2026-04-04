@@ -41,6 +41,7 @@ struct ImageMessageView: View {
     private var displaySize: CGSize {
         let maxWidth: CGFloat = 280
         let maxHeight: CGFloat = 320
+        // swiftlint:disable:next identifier_name
         if let w = mediaInfo.width, let h = mediaInfo.height, w > 0, h > 0 {
             let aspect = CGFloat(w) / CGFloat(h)
             let width = min(CGFloat(w), maxWidth)

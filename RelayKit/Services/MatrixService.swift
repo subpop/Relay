@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,6 +32,7 @@ private let logger = Logger(subsystem: "RelayKit", category: "MatrixService")
 /// This class is `@Observable` and `@MainActor`-isolated so that SwiftUI views can bind
 /// directly to its published state.
 @Observable
+// swiftlint:disable:next type_body_length
 public final class MatrixService: MatrixServiceProtocol {
 
     public private(set) var authState: AuthState = .unknown
@@ -83,7 +85,9 @@ public final class MatrixService: MatrixServiceProtocol {
     public func login(username: String, password: String, homeserver: String) async {
         authState = .loggingIn
         do {
-            let (newClient, userId) = try await auth.login(username: username, password: password, homeserver: homeserver)
+            let (newClient, userId) = try await auth.login(
+                username: username, password: password, homeserver: homeserver
+            )
             client = newClient
             authState = .loggedIn(userId: userId)
         } catch {
@@ -256,7 +260,11 @@ public final class MatrixService: MatrixServiceProtocol {
         if let cached = roomViewModels[roomId] { return cached }
         guard let room = room(id: roomId) else { return nil }
         let unreadCount = rooms.first(where: { $0.id == roomId })?.unreadMessages ?? 0
-        let vm = RoomDetailViewModel(room: room, currentUserId: userId(), unreadCount: Int(unreadCount), errorReporter: errorReporter)
+        // swiftlint:disable:next identifier_name
+        let vm = RoomDetailViewModel(
+            room: room, currentUserId: userId(),
+            unreadCount: Int(unreadCount), errorReporter: errorReporter
+        )
         roomViewModels[roomId] = vm
 
         // Subscribe to this room at a higher detail level in the sliding sync.
@@ -445,6 +453,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
     // MARK: - Pinned Messages
 
+    // swiftlint:disable:next cyclomatic_complexity
     public func pinnedMessages(roomId: String) async -> [TimelineMessage] {
         guard let room = room(id: roomId) else {
             logger.warning("pinnedMessages: room not found for \(roomId)")
@@ -473,6 +482,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
                 let body: String
                 let kind: TimelineMessage.Kind
+                // swiftlint:disable identifier_name
                 switch messageType {
                 case .text(let c):    body = c.body; kind = .text
                 case .emote(let c):   body = c.body; kind = .emote
@@ -485,10 +495,12 @@ public final class MatrixService: MatrixServiceProtocol {
                 case .gallery:        body = "Gallery"; kind = .image
                 case .other(_, let b): body = b; kind = .other
                 }
+                // swiftlint:enable identifier_name
 
                 let senderId = event.senderId()
                 let displayName = try? await room.memberDisplayName(userId: senderId)
                 let avatarURL = try? await room.memberAvatarUrl(userId: senderId)
+                // swiftlint:disable:next identifier_name
                 let ts = Date(timeIntervalSince1970: TimeInterval(event.timestamp()) / 1000)
 
                 messages.append(TimelineMessage(
@@ -539,7 +551,6 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let client else { throw RelayError.notLoggedIn }
         return await client.getNotificationSettings()
     }
-
 
     private func sdkMode(from mode: DefaultNotificationMode) -> RoomNotificationMode {
         switch mode {
@@ -640,15 +651,24 @@ public final class MatrixService: MatrixServiceProtocol {
 
     // MARK: - Devices
 
+    // swiftlint:disable nesting
     private struct DevicesResponse: Decodable {
         struct Device: Decodable {
-            let device_id: String
-            let display_name: String?
-            let last_seen_ip: String?
-            let last_seen_ts: UInt64?
+            let deviceId: String
+            let displayName: String?
+            let lastSeenIP: String?
+            let lastSeenTS: UInt64?
+
+            enum CodingKeys: String, CodingKey {
+                case deviceId = "device_id"
+                case displayName = "display_name"
+                case lastSeenIP = "last_seen_ip"
+                case lastSeenTS = "last_seen_ts"
+            }
         }
         let devices: [Device]
     }
+    // swiftlint:enable nesting
 
     public func getDevices() async throws -> [DeviceInfo] {
         guard let client else { throw RelayError.notLoggedIn }
@@ -663,15 +683,15 @@ public final class MatrixService: MatrixServiceProtocol {
         let response = try JSONDecoder().decode(DevicesResponse.self, from: data)
 
         return response.devices.map { device in
-            let lastSeen: Date? = device.last_seen_ts.map {
+            let lastSeen: Date? = device.lastSeenTS.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000)
             }
             return DeviceInfo(
-                id: device.device_id,
-                displayName: device.display_name,
-                lastSeenIP: device.last_seen_ip,
+                id: device.deviceId,
+                displayName: device.displayName,
+                lastSeenIP: device.lastSeenIP,
                 lastSeenTimestamp: lastSeen,
-                isCurrentDevice: device.device_id == currentDeviceId
+                isCurrentDevice: device.deviceId == currentDeviceId
             )
         }
     }

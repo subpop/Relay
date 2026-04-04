@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,7 +31,7 @@ import SwiftSoup
 ///
 /// Tags outside this set are stripped (their text content is preserved).
 /// Attributes are sanitized per the spec's allow-list.
-enum MatrixHTMLParser {
+enum MatrixHTMLParser { // swiftlint:disable:this type_body_length
 
     // MARK: - Public API
 
@@ -65,18 +66,18 @@ enum MatrixHTMLParser {
         "font", // deprecated but still supported for reading
         // Block
         "p", "div", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6",
-        "hr", "ul", "ol", "li",
+        "hr", "ul", "ol", "li"
     ]
 
     /// Tags that introduce block-level breaks.
     private static let blockTags: Set<String> = [
         "p", "div", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6",
-        "hr", "ul", "ol", "li",
+        "hr", "ul", "ol", "li"
     ]
 
     /// Allowed URL schemes for `<a href>` links (per spec).
     private static let allowedLinkSchemes: Set<String> = [
-        "https", "http", "ftp", "mailto", "magnet",
+        "https", "http", "ftp", "mailto", "magnet"
     ]
 
     // MARK: - Render Context
@@ -109,7 +110,7 @@ enum MatrixHTMLParser {
         var blockquoteDepth: Int = 0
 
         /// List context stack: each entry is (ordered: Bool, counter: Int, startValue: Int).
-        var listStack: [(ordered: Bool, counter: Int, start: Int)] = []
+        var listStack: [(ordered: Bool, counter: Int, start: Int)] = [] // swiftlint:disable:this large_tuple
 
         /// Whether a spoiler is active (data-mx-spoiler).
         var isSpoiler = false
@@ -135,6 +136,7 @@ enum MatrixHTMLParser {
             )
         }
 
+        // swiftlint:disable:next identifier_name
         func restore(_ s: Snapshot) {
             bold = s.bold; italic = s.italic; isCode = s.isCode; isPreformatted = s.isPreformatted
             underline = s.underline; strikethrough = s.strikethrough
@@ -143,6 +145,7 @@ enum MatrixHTMLParser {
             linkURL = s.linkURL; isSpoiler = s.isSpoiler
         }
 
+        // swiftlint:disable:next nesting
         struct Snapshot {
             let bold: Bool, italic: Bool, isCode: Bool, isPreformatted: Bool
             let underline: Bool, strikethrough: Bool
@@ -196,6 +199,7 @@ enum MatrixHTMLParser {
         blockTags.contains(tag) || tag == "body"
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func renderElement(
         _ element: Element, into result: NSMutableAttributedString, context: RenderContext
     ) {
@@ -296,7 +300,7 @@ enum MatrixHTMLParser {
                 string: "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
                 attributes: [
                     .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                    .foregroundColor: NSColor.separatorColor,
+                    .foregroundColor: NSColor.separatorColor
                 ]
             )
             result.append(separator)
@@ -327,6 +331,7 @@ enum MatrixHTMLParser {
 
     // MARK: - Attribute Builders
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func currentAttributes(_ context: RenderContext) -> [NSAttributedString.Key: Any] {
         let baseSize = NSFont.systemFontSize
         var attrs: [NSAttributedString.Key: Any] = [:]
@@ -380,6 +385,7 @@ enum MatrixHTMLParser {
         }
 
         // Colors
+        // swiftlint:disable:next identifier_name
         if let fg = context.foregroundColor {
             attrs[.foregroundColor] = fg
         }
@@ -387,6 +393,7 @@ enum MatrixHTMLParser {
             // Inline code background.
             attrs[.backgroundColor] = NSColor.gray.withAlphaComponent(0.12)
         }
+        // swiftlint:disable:next identifier_name
         if let bg = context.backgroundColor {
             attrs[.backgroundColor] = bg
         }
@@ -483,7 +490,7 @@ enum MatrixHTMLParser {
         let barAttrs: [NSAttributedString.Key: Any] = [
             .font: baseFont,
             .blockquoteBar: true,
-            .paragraphStyle: style,
+            .paragraphStyle: style
         ]
         result.append(NSAttributedString(string: barString, attributes: barAttrs))
 
@@ -570,7 +577,7 @@ enum MatrixHTMLParser {
         // Append marker.
         let markerAttrs: [NSAttributedString.Key: Any] = [
             .font: baseFont,
-            .paragraphStyle: style,
+            .paragraphStyle: style
         ]
         result.append(NSAttributedString(string: marker, attributes: markerAttrs))
 
@@ -645,8 +652,11 @@ extension NSColor {
               let value = UInt64(cleaned, radix: 16)
         else { return nil }
 
+        // swiftlint:disable:next identifier_name
         let r = CGFloat((value >> 16) & 0xFF) / 255.0
+        // swiftlint:disable:next identifier_name
         let g = CGFloat((value >> 8) & 0xFF) / 255.0
+        // swiftlint:disable:next identifier_name
         let b = CGFloat(value & 0xFF) / 255.0
         self.init(srgbRed: r, green: g, blue: b, alpha: 1.0)
     }

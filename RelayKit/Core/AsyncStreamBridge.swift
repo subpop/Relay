@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Creates `AsyncStream` instances from Matrix SDK subscription methods.
 ///
 /// This utility encapsulates the pattern of creating an ``SDKListener``,

@@ -41,6 +41,7 @@ struct VideoMessageView: View {
     private var displaySize: CGSize {
         let maxWidth: CGFloat = 280
         let maxHeight: CGFloat = 320
+        // swiftlint:disable:next identifier_name
         if let w = mediaInfo.width, let h = mediaInfo.height, w > 0, h > 0 {
             let aspect = CGFloat(w) / CGFloat(h)
             let width = min(CGFloat(w), maxWidth)
@@ -168,7 +169,7 @@ struct VideoMessageView: View {
             if thumbnail == nil, let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) {
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(mediaInfo.filename)
-                if let _ = try? data.write(to: tempURL) {
+                if (try? data.write(to: tempURL)) != nil {
                     cachedVideoFileURL = tempURL
                     let asset = AVURLAsset(url: tempURL)
                     let generator = AVAssetImageGenerator(asset: asset)
@@ -215,7 +216,10 @@ struct VideoMessageView: View {
                 try data.write(to: url)
                 cachedVideoFileURL = url
             } catch {
-                errorReporter.report(.mediaPreviewFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+                errorReporter.report(.mediaPreviewFailed(
+                    filename: mediaInfo.filename,
+                    reason: error.localizedDescription
+                ))
                 return
             }
         }
@@ -224,8 +228,10 @@ struct VideoMessageView: View {
 
     private func saveMedia() async {
         let data: Data
+        // swiftlint:disable:next identifier_name
         if let cached = cachedVideoFileURL, let d = try? Data(contentsOf: cached) {
             data = d
+        // swiftlint:disable:next identifier_name
         } else if let d = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) {
             data = d
         } else {

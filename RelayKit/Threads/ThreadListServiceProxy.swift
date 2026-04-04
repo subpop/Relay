@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A proxy that wraps the Matrix SDK `ThreadListService`.
 ///
 /// Provides a paginated list of threads in a room. The ThreadListService

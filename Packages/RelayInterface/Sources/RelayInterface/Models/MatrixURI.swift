@@ -16,7 +16,8 @@ import Foundation
 
 /// A parsed Matrix URI representing a room, user, or event reference.
 ///
-/// Supports both the standard `matrix:` URI scheme ([MSC2312](https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2312-matrix-uri.md),
+/// Supports both the standard `matrix:` URI scheme
+/// ([MSC2312](https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2312-matrix-uri.md),
 /// Matrix spec v1.2+) and legacy `https://matrix.to` navigation links.
 ///
 /// ## `matrix:` URI Examples

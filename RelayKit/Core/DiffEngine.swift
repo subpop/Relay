@@ -45,6 +45,7 @@
 /// ### Operations
 /// - ``DiffOperation``
 public enum DiffEngine {
+    // swiftlint:disable cyclomatic_complexity
     /// Applies a single diff operation to an array, returning the updated array.
     ///
     /// - Parameters:
@@ -52,6 +53,7 @@ public enum DiffEngine {
     ///   - items: The current array of items.
     /// - Returns: The array after applying the operation.
     public static func apply<Element>(_ operation: DiffOperation<Element>, to items: [Element]) -> [Element] {
+    // swiftlint:enable cyclomatic_complexity
         var result = items
         switch operation {
         case .append(let newItems):

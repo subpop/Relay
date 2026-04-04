@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A proxy that wraps the Matrix SDK `SpaceService`.
 ///
 /// Provides access to Matrix space hierarchies and space membership.

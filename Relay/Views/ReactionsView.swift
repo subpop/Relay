@@ -75,6 +75,7 @@ struct FlowLayout: Layout {
         let rows = computeRows(proposal: proposal, subviews: subviews)
         var height: CGFloat = 0
         var maxRowWidth: CGFloat = 0
+        // swiftlint:disable:next identifier_name
         for (i, row) in rows.enumerated() {
             let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
             let rowWidth = row.reduce(CGFloat(0)) { $0 + $1.sizeThatFits(.unspecified).width }
@@ -87,9 +88,12 @@ struct FlowLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let rows = computeRows(proposal: proposal, subviews: subviews)
+        // swiftlint:disable:next identifier_name
         var y = bounds.minY
+        // swiftlint:disable:next identifier_name
         for (i, row) in rows.enumerated() {
             if i > 0 { y += spacing }
+            // swiftlint:disable:next identifier_name
             var x = bounds.minX
             let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
             for subview in row {

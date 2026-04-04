@@ -67,6 +67,7 @@ final class AuthenticationService {
     }
 
     static func resetLocalSessionData() {
+        // swiftlint:disable:next identifier_name
         let fm = FileManager.default
         try? fm.removeItem(at: dataDirectory)
         try? fm.removeItem(at: cacheDirectory)
@@ -104,6 +105,7 @@ final class AuthenticationService {
 
         do {
             let tokenPrefix = String(stored.accessToken.prefix(8))
+            // swiftlint:disable:next line_length
             logger.debug("Restoring session: userId=\(stored.userId), tokenPrefix=\(tokenPrefix)..., hasRefreshToken=\(stored.refreshToken != nil), hasOidcData=\(stored.oidcData != nil)")
 
             let client = try await makeBuilder()
@@ -236,6 +238,7 @@ final class AuthenticationService {
     // MARK: - Private
 
     private func saveSession(_ session: Session) {
+        // swiftlint:disable:next line_length
         logger.debug("Saving session: userId=\(session.userId), hasRefreshToken=\(session.refreshToken != nil), hasOidcData=\(session.oidcData != nil)")
         let stored = StoredSession(
             accessToken: session.accessToken,
@@ -270,6 +273,7 @@ final class KeychainSessionDelegate: ClientSessionDelegate, Sendable {
             Self.logger.error("Stored userId \(stored.userId) does not match requested \(userId)")
             throw KeychainSessionError.sessionNotFound
         }
+        // swiftlint:disable:next line_length
         Self.logger.debug("Session retrieved: hasRefreshToken=\(stored.refreshToken != nil), hasOidcData=\(stored.oidcData != nil)")
         return Session(
             accessToken: stored.accessToken,
@@ -284,6 +288,7 @@ final class KeychainSessionDelegate: ClientSessionDelegate, Sendable {
 
     func saveSessionInKeychain(session: Session) {
         let tokenPrefix = String(session.accessToken.prefix(8))
+        // swiftlint:disable:next line_length
         Self.logger.debug("saveSessionInKeychain called for user: \(session.userId), tokenPrefix=\(tokenPrefix)..., hasRefreshToken=\(session.refreshToken != nil), hasOidcData=\(session.oidcData != nil)")
         let stored = StoredSession(
             accessToken: session.accessToken,
@@ -305,5 +310,3 @@ final class KeychainSessionDelegate: ClientSessionDelegate, Sendable {
 enum KeychainSessionError: Error {
     case sessionNotFound
 }
-
-

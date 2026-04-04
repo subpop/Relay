@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// The state of an interactive session verification flow.
 ///
 /// Tracks the verification flow from idle through to completion,
@@ -86,7 +85,7 @@ public enum SessionVerificationFlowState: Sendable {
 /// - ``approveVerification()``
 /// - ``declineVerification()``
 /// - ``cancelVerification()``
-public protocol SessionVerificationControllerProxyProtocol: AnyObject, Sendable {
+public protocol SessionVerificationControllerProxyProtocol: AnyObject, Sendable { // swiftlint:disable:this type_name
     /// The current verification flow state.
     var flowState: SessionVerificationFlowState { get }
 

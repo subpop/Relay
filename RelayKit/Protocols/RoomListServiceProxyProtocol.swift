@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Manages sliding-sync-powered room lists with dynamic filtering and pagination.
 ///
 /// The room list service provides access to one or more ``RoomListProxyProtocol``

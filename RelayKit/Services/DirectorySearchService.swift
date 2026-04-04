@@ -66,6 +66,7 @@ final class DirectorySearchService {
 nonisolated private final class DirectorySearchCollector: Sendable {
     private let storage = Mutex<[RoomDescription]>([])
 
+    // swiftlint:disable:next cyclomatic_complexity
     nonisolated func apply(_ updates: [RoomDirectorySearchEntryUpdate]) {
         storage.withLock { results in
             for update in updates {

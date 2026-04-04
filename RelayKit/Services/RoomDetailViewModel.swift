@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +30,7 @@ private let logger = Logger(subsystem: "RelayKit", category: "RoomDetail")
 /// models, handles backward pagination via ``subscribeToBackPaginationStatus``, computes the
 /// unread marker position, and observes typing notifications.
 @Observable
+// swiftlint:disable:next type_body_length
 public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
     public private(set) var messages: [TimelineMessage] = []
     public private(set) var isLoading = true
@@ -102,6 +104,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 hasReachedEnd = true
             }
             observeTypingNotifications()
+            // swiftlint:disable:next identifier_name
             if let tl = sdkTimeline {
                 await paginateInitialHistory(tl)
             }
@@ -180,6 +183,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         do {
             try await setupTimeline(focus: .live(hideThreadedEvents: true))
             timelineFocus = .live
+            // swiftlint:disable:next identifier_name
             if let tl = sdkTimeline {
                 await paginateInitialHistory(tl)
             }
@@ -257,6 +261,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    // swiftlint:disable:next function_body_length
     public func sendAttachment(url: URL, caption: String? = nil) async {
         guard let sdkTimeline else { return }
 
@@ -272,8 +277,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
             if utType.conforms(to: .image),
                let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
-            {
+               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
                 let data: Data
                 do {
                     data = try Data(contentsOf: url)
@@ -303,7 +307,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                     )
                 )
             } else if utType.conforms(to: .movie) || utType.conforms(to: .video) {
-                let fileSize = UInt64((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                let fileSize = UInt64((attrs?[.size] as? UInt64) ?? 0)
 
                 let asset = AVURLAsset(url: url)
                 let videoWidth: UInt64
@@ -346,7 +351,8 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                     )
                 )
             } else if utType.conforms(to: .audio) {
-                let fileSize = UInt64((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                let fileSize = UInt64((attrs?[.size] as? UInt64) ?? 0)
 
                 let asset = AVURLAsset(url: url)
                 let cmDuration = try? await asset.load(.duration)
@@ -430,6 +436,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
             trackReadReceipts: .allEvents,
             reportUtds: false
         )
+        // swiftlint:disable:next identifier_name
         let tl = try await room.timelineWithConfiguration(configuration: config)
         sdkTimeline = tl
         observeTimeline(tl)
@@ -443,6 +450,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
     // MARK: - Private
 
+    // swiftlint:disable:next identifier_name
     private func paginateInitialHistory(_ tl: Timeline) async {
         do {
             _ = try await tl.paginateBackwards(numEvents: 40)
@@ -451,6 +459,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    // swiftlint:disable:next identifier_name
     private func observeTimeline(_ tl: Timeline) {
         let (stream, continuation) = AsyncStream<[TimelineDiff]>.makeStream()
         let listener = SDKListener<[TimelineDiff]> { diffs in
@@ -469,6 +478,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    // swiftlint:disable:next identifier_name
     private func observePaginationStatus(_ tl: Timeline) async throws {
         let (stream, continuation) = AsyncStream<PaginationStatus>.makeStream()
         let listener = SDKListener<PaginationStatus> { status in
@@ -521,6 +531,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func applyDiffs(_ diffs: [TimelineDiff]) {
         for diff in diffs {
             switch diff {
@@ -532,6 +543,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 timelineItems.append(value)
             case .pushFront(let value):
                 timelineItems.insert(value, at: 0)
+            // swiftlint:disable identifier_name
             case .insert(let index, let value):
                 let i = Int(index)
                 if i <= timelineItems.count {
@@ -547,6 +559,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
                 if i < timelineItems.count {
                     timelineItems.remove(at: i)
                 }
+            // swiftlint:enable identifier_name
             case .clear:
                 timelineItems.removeAll()
             case .popBack:
@@ -579,6 +592,7 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
 
     private func resolveUnfetchedReplies(_ pendingIds: Set<String>) {
         let newFetchIds = pendingIds.subtracting(fetchedReplyEventIds)
+        // swiftlint:disable:next identifier_name
         guard !newFetchIds.isEmpty, let tl = sdkTimeline else { return }
         fetchedReplyEventIds.formUnion(newFetchIds)
         Task {

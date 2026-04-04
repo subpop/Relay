@@ -73,6 +73,6 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol {
             body: "I've been using them in my networking layer. The error handling is much cleaner now.",
             timestamp: .now.addingTimeInterval(-3400),
             isOutgoing: false
-        ),
+        )
     ]
 }

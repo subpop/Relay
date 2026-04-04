@@ -74,7 +74,11 @@ struct SessionVerificationBanner: View {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundStyle(.blue)
                         .font(.body)
-                    Text(matrixService.pendingVerificationRequest.map { "Request from device \($0.deviceId)" } ?? "Verification Request")
+                    Text(
+                        matrixService.pendingVerificationRequest
+                            .map { "Request from device \($0.deviceId)" }
+                            ?? "Verification Request"
+                    )
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .lineLimit(1)
@@ -89,15 +93,16 @@ struct SessionVerificationBanner: View {
 
                 Button {
                     Task {
-                        if let vm = try? await matrixService.makeSessionVerificationViewModel() {
-                            matrixService.pendingVerificationRequest = nil
-                            verificationItem = VerificationItem(viewModel: vm)
-                        }
+                    // swiftlint:disable:next identifier_name
+                    if let vm = try? await matrixService.makeSessionVerificationViewModel() {
+                        matrixService.pendingVerificationRequest = nil
+                        verificationItem = VerificationItem(viewModel: vm)
                     }
-                } label: {
-                    Image(systemName: "checkmark")
                 }
-                .controlSize(.small)
+            } label: {
+                Image(systemName: "checkmark")
+            }
+            .controlSize(.small)
         }
     }
 
@@ -119,6 +124,7 @@ struct SessionVerificationBanner: View {
 
             Button("Verify") {
                 Task {
+                    // swiftlint:disable:next identifier_name
                     if let vm = try? await matrixService.makeSessionVerificationViewModel() {
                         verificationItem = VerificationItem(viewModel: vm)
                     }

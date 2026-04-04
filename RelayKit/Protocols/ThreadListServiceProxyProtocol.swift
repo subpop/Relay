@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Provides a paginated list of threads in a room.
 ///
 /// Wraps the SDK's `ThreadListService` for browsing and subscribing

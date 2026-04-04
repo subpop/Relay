@@ -141,7 +141,7 @@ final class ScrollInterceptorView: NSView {
         super.viewDidMoveToWindow()
         if window != nil, scrollMonitor == nil {
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self, let _ = self.window else { return event }
+                guard let self, self.window != nil else { return event }
                 let locationInWindow = event.locationInWindow
                 let locationInView = self.convert(locationInWindow, from: nil)
                 guard self.bounds.contains(locationInView) else { return event }
@@ -165,6 +165,7 @@ final class ScrollInterceptorView: NSView {
         super.removeFromSuperview()
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func handleScroll(with event: NSEvent) {
         switch event.phase {
         case .began:

@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,6 +58,7 @@ final class MessageTextContent: NSTextView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        // swiftlint:disable:next identifier_name
         if !suppressContainerSync, let tc = textContainer, newSize.width > 0 {
             tc.containerSize = NSSize(width: newSize.width, height: CGFloat.greatestFiniteMagnitude)
         }
@@ -241,6 +243,7 @@ struct MessageTextView: NSViewRepresentable {
         _ proposal: ProposedViewSize, nsView: MessageTextContent, context: Context
     ) -> CGSize? {
         guard let container = nsView.textContainer,
+              // swiftlint:disable:next identifier_name
               let lm = nsView.layoutManager,
               (nsView.textStorage?.length ?? 0) > 0
         else { return .zero }
@@ -257,8 +260,7 @@ struct MessageTextView: NSViewRepresentable {
         lm.ensureLayout(for: container)
         var naturalWidth: CGFloat = 0
         let storage = nsView.textStorage!
-        lm.enumerateLineFragments(forGlyphRange: lm.glyphRange(for: container)) {
-            _, usedRect, _, glyphRange, _ in
+        lm.enumerateLineFragments(forGlyphRange: lm.glyphRange(for: container)) { _, usedRect, _, glyphRange, _ in
             // Use maxX (origin.x + width) so that paragraph indents
             // (firstLineHeadIndent, headIndent) are included in the measurement.
             var lineWidth = usedRect.maxX
@@ -267,6 +269,7 @@ struct MessageTextView: NSViewRepresentable {
             // wide enough to avoid unnecessary wrapping.
             let charIndex = lm.characterIndexForGlyph(at: glyphRange.location)
             if charIndex < storage.length,
+               // swiftlint:disable:next identifier_name
                let ps = storage.attribute(.paragraphStyle, at: charIndex, effectiveRange: nil)
                     as? NSParagraphStyle,
                ps.tailIndent < 0 {
@@ -280,6 +283,7 @@ struct MessageTextView: NSViewRepresentable {
         let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
 
         // Text fits within the proposed width without extra wrapping — hug it.
+        // swiftlint:disable:next identifier_name
         guard let pw = proposedWidth, tightWidth > pw else {
             return CGSize(width: tightWidth, height: ceil(naturalHeight))
         }
@@ -316,8 +320,7 @@ struct MessageTextView: NSViewRepresentable {
             }
         }
 
-        result.enumerateAttribute(keys.inlinePresentationIntent, in: fullRange, options: []) {
-            value, range, _ in
+        result.enumerateAttribute(keys.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
             guard let raw = (value as? NSNumber)?.uintValue else { return }
             let intent = InlinePresentationIntent(rawValue: raw)
 
@@ -407,6 +410,7 @@ struct MessageTextView: NSViewRepresentable {
 
 private func previewParse(_ raw: String) -> AttributedString {
     var result: AttributedString
+    // swiftlint:disable:next identifier_name
     if let md = try? AttributedString(
         markdown: raw,
         options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -554,6 +558,7 @@ private struct HTMLBubblePreview: View {
                 isOutgoing: true
             )
             HTMLBubblePreview(
+                // swiftlint:disable:next line_length
                 html: "Text with <span data-mx-color=\"#ff0000\">red</span> and <span data-mx-color=\"#00aa00\">green</span> colors",
                 isOutgoing: false
             )
@@ -583,6 +588,7 @@ private struct HTMLBubblePreview: View {
                 isOutgoing: false
             )
             HTMLBubblePreview(
+                // swiftlint:disable:next line_length
                 html: "<blockquote>This is a longer blockquote that should wrap to multiple lines to test trailing edge alignment</blockquote>",
                 isOutgoing: false
             )
@@ -620,6 +626,7 @@ private struct HTMLBubblePreview: View {
                 isOutgoing: false
             )
             HTMLBubblePreview(
+                // swiftlint:disable:next line_length
                 html: "<ul><li>Outer item<ul><li>Nested item 1</li><li>Nested item 2</li></ul></li><li>Back to outer</li></ul>",
                 isOutgoing: false
             )
@@ -654,4 +661,3 @@ private struct HTMLBubblePreview: View {
         .frame(width: 500)
     }
 }
-

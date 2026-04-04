@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Controls the Matrix sliding sync lifecycle.
 ///
 /// The sync service manages the connection to the homeserver's sliding

@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Wraps a Matrix SDK `RoomList` with access to loading state and the entries controller.
 ///
 /// Provides methods for subscribing to room list entry diffs,
@@ -48,7 +47,10 @@ public protocol RoomListProxyProtocol: AnyObject, Sendable {
     ///   - pageSize: The number of rooms per page.
     ///   - listener: The listener to receive entry updates.
     /// - Returns: A result containing the entries controller.
-    func entriesWithDynamicAdapters(pageSize: UInt32, listener: RoomListEntriesListener) -> RoomListEntriesWithDynamicAdaptersResult
+    func entriesWithDynamicAdapters(
+        pageSize: UInt32,
+        listener: RoomListEntriesListener
+    ) -> RoomListEntriesWithDynamicAdaptersResult
 
     /// Returns a room by its Matrix room ID.
     ///

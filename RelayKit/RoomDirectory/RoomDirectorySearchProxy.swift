@@ -51,7 +51,7 @@ public final class RoomDirectorySearchProxy: RoomDirectorySearchProxyProtocol, @
     /// Subscribes to search result updates from the SDK.
     ///
     /// Call this once after initialization to begin receiving results.
-    public func startListening() async {
+    public func startListening() async { // swiftlint:disable:this cyclomatic_complexity
         let listener = SDKListener<[RoomDirectorySearchEntryUpdate]> { [weak self] updates in
             guard let self else { return }
             lock.lock()

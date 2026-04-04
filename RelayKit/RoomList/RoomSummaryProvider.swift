@@ -143,8 +143,10 @@ public final class RoomSummaryProvider: RoomSummaryProviderProtocol, @unchecked 
     }
 }
 
+// swiftlint:disable cyclomatic_complexity
 /// Converts a `RoomListEntriesUpdate` to a ``DiffOperation``.
 private func roomListEntryUpdateToOperation(_ update: RoomListEntriesUpdate) -> DiffOperation<Room> {
+// swiftlint:enable cyclomatic_complexity
     switch update {
     case .append(let values):
         return .append(values)

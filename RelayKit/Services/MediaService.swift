@@ -39,6 +39,7 @@ final class MediaService {
     /// - Returns: The thumbnail image, or `nil` if the download failed.
     func avatarThumbnail(mxcURL: String, size: CGFloat, client: any ClientProxyProtocol) async -> NSImage? {
         let scale = 2.0
+        // swiftlint:disable:next identifier_name
         let px = UInt64(size * scale)
         let cacheKey = "\(mxcURL)_\(px)" as NSString
 

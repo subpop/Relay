@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -397,7 +398,10 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func declinePendingVerificationRequest() async {}
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
-    func startOAuthLogin(homeserver: String, openURL: @escaping @concurrent @Sendable (URL) async throws -> URL) async throws {}
+    func startOAuthLogin(
+        homeserver: String,
+        openURL: @escaping @concurrent @Sendable (URL) async throws -> URL
+    ) async throws {}
     func logout() async {}
     func startSyncIfNeeded() {}
     func userId() -> String? { nil }
@@ -425,7 +429,9 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func isCurrentSessionVerified() async -> Bool { false }
     func encryptionState() async -> EncryptionStatus { EncryptionStatus() }
     func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)? { nil }
-    func getDefaultNotificationMode(isOneToOne: Bool) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }
+    func getDefaultNotificationMode(
+        isOneToOne: Bool
+    ) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws {}
     func isCallNotificationEnabled() async throws -> Bool { true }
     func setCallNotificationEnabled(_ enabled: Bool) async throws {}

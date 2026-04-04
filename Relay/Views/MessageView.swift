@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +32,7 @@ extension EnvironmentValues {
 
 /// Renders a single chat bubble for a timeline message, with support for text, images,
 /// emotes, special types (encrypted, redacted, etc.), reactions, and inline reply context.
-struct MessageView: View {
+struct MessageView: View { // swiftlint:disable:this type_body_length
     /// The timeline message to render.
     let message: TimelineMessage
 
@@ -243,9 +244,19 @@ struct MessageView: View {
                     inlineReply(reply, outgoing: message.isOutgoing)
                 }
                 if let resolved = htmlBody {
-                    MessageTextView(resolved: resolved, isOutgoing: message.isOutgoing, onUserTap: onUserTap, onRoomTap: onRoomTap)
+                    MessageTextView(
+                        resolved: resolved,
+                        isOutgoing: message.isOutgoing,
+                        onUserTap: onUserTap,
+                        onRoomTap: onRoomTap
+                    )
                 } else {
-                    MessageTextView(attributedString: markdownBody, isOutgoing: message.isOutgoing, onUserTap: onUserTap, onRoomTap: onRoomTap)
+                    MessageTextView(
+                        attributedString: markdownBody,
+                        isOutgoing: message.isOutgoing,
+                        onUserTap: onUserTap,
+                        onRoomTap: onRoomTap
+                    )
                 }
             }
             .padding(.horizontal, 12)
@@ -294,9 +305,19 @@ struct MessageView: View {
                 inlineReply(reply, outgoing: false)
             }
             if let resolved = emoteHtmlBody {
-                MessageTextView(resolved: resolved, isOutgoing: false, onUserTap: onUserTap, onRoomTap: onRoomTap)
+                MessageTextView(
+                    resolved: resolved,
+                    isOutgoing: false,
+                    onUserTap: onUserTap,
+                    onRoomTap: onRoomTap
+                )
             } else {
-                MessageTextView(attributedString: emoteBody, isOutgoing: false, onUserTap: onUserTap, onRoomTap: onRoomTap)
+                MessageTextView(
+                    attributedString: emoteBody,
+                    isOutgoing: false,
+                    onUserTap: onUserTap,
+                    onRoomTap: onRoomTap
+                )
             }
         }
         .padding(.horizontal, 12)
@@ -399,18 +420,27 @@ struct MessageView: View {
 
     private static func parseMarkdown(_ raw: String) -> AttributedString {
         var result: AttributedString
-        if let md = try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+        // swiftlint:disable:next identifier_name
+        if let md = try? AttributedString(
+            markdown: raw,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
             result = md
         } else {
             result = AttributedString(raw)
         }
 
         let plainString = String(result.characters)
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        ) else {
             return result
         }
 
-        let matches = detector.matches(in: plainString, range: NSRange(plainString.startIndex..., in: plainString))
+        let matches = detector.matches(
+            in: plainString,
+            range: NSRange(plainString.startIndex..., in: plainString)
+        )
         for match in matches {
             guard let urlRange = Range(match.range, in: plainString),
                   let attrRange = Range(urlRange, in: result) else { continue }
@@ -464,7 +494,13 @@ struct MessageView: View {
                 body: "It supports *italic*, **bold**, and `code`!",
                 timestamp: .now.addingTimeInterval(-110),
                 isOutgoing: false,
-                reactions: [.init(key: "\u{2764}\u{FE0F}", count: 1, senderIDs: ["@me:matrix.org"], highlightedByCurrentUser: true)]
+                reactions: [
+                    .init(
+                        key: "\u{2764}\u{FE0F}", count: 1,
+                        senderIDs: ["@me:matrix.org"],
+                        highlightedByCurrentUser: true
+                    )
+                ]
             )
         )
         MessageView(
@@ -475,11 +511,28 @@ struct MessageView: View {
                 timestamp: .now.addingTimeInterval(-60),
                 isOutgoing: true,
                 reactions: [
-                    .init(key: "\u{1F44D}", count: 2, senderIDs: ["@alice:matrix.org", "@bob:matrix.org"], highlightedByCurrentUser: false),
-                    .init(key: "\u{2764}\u{FE0F}", count: 1, senderIDs: ["@alice:matrix.org"], highlightedByCurrentUser: false),
-                    .init(key: "\u{1F389}", count: 1, senderIDs: ["@me:matrix.org"], highlightedByCurrentUser: true),
+                    .init(
+                        key: "\u{1F44D}", count: 2,
+                        senderIDs: ["@alice:matrix.org", "@bob:matrix.org"],
+                        highlightedByCurrentUser: false
+                    ),
+                    .init(
+                        key: "\u{2764}\u{FE0F}", count: 1,
+                        senderIDs: ["@alice:matrix.org"],
+                        highlightedByCurrentUser: false
+                    ),
+                    .init(
+                        key: "\u{1F389}", count: 1,
+                        senderIDs: ["@me:matrix.org"],
+                        highlightedByCurrentUser: true
+                    )
                 ],
-                replyDetail: .init(eventID: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice", body: "Hey, check out **this link**: https://matrix.org")
+                replyDetail: .init(
+                    eventID: "1",
+                    senderID: "@alice:matrix.org",
+                    senderDisplayName: "Alice",
+                    body: "Hey, check out **this link**: https://matrix.org"
+                )
             )
         )
         MessageView(
@@ -491,7 +544,12 @@ struct MessageView: View {
                 timestamp: .now.addingTimeInterval(-30),
                 isOutgoing: false,
                 isHighlighted: true,
-                replyDetail: .init(eventID: "2", senderID: "@me:matrix.org", senderDisplayName: "Me", body: "Nice — I'll take a look.")
+                replyDetail: .init(
+                    eventID: "2",
+                    senderID: "@me:matrix.org",
+                    senderDisplayName: "Me",
+                    body: "Nice — I'll take a look."
+                )
             ),
             showSenderName: true
         )

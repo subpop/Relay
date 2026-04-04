@@ -73,7 +73,9 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         // If an incoming request is already pending, accept it instead of
         // sending a competing outgoing request.
         if case .receivedRequest(let details) = controller.flowState {
-            logger.info("Incoming request already pending from \(details.deviceId), accepting instead of sending new request")
+            logger.info(
+                "Incoming request already pending from \(details.deviceId), accepting instead of sending new request"
+            )
             await handleIncomingRequest(details)
             return
         }
@@ -150,6 +152,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
 
     /// Maps a proxy flow state to UI state, performing any required follow-up actions.
     @MainActor
+    // swiftlint:disable:next cyclomatic_complexity
     private func handleFlowState(_ flowState: SessionVerificationFlowState) async {
         switch flowState {
         case .idle:

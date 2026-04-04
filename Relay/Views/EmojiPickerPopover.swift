@@ -26,11 +26,12 @@ struct EmojiPickerPopover: View {
     @State private var openCharacterPalette = false
 
     private static let emoji: [String] = [
-        "👍", "👎", "❤️", "😂", "😮", "🙏", "🔥", "🎉", "👀", "✨",
+        "👍", "👎", "❤️", "😂", "😮", "🙏", "🔥", "🎉", "👀", "✨"
     ]
 
     var body: some View {
         HStack(spacing: 0) {
+            // swiftlint:disable:next identifier_name
             ForEach(Self.emoji, id: \.self) { e in
                 EmojiCell(emoji: e) { onSelect(e) }
             }

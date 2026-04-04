@@ -36,7 +36,7 @@ struct GIFPickerView: View {
     private let pageSize = 25
 
     private let columns = [
-        GridItem(.adaptive(minimum: 120), spacing: 4),
+        GridItem(.adaptive(minimum: 120), spacing: 4)
     ]
 
     var body: some View {

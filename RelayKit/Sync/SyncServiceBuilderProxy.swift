@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A builder for constructing a ``SyncServiceProxy`` with configuration options.
 ///
 /// Wraps the SDK's `SyncServiceBuilder` with a Swift-friendly fluent API.

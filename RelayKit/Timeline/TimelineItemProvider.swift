@@ -79,11 +79,13 @@ public final class TimelineItemProvider: @unchecked Sendable {
     }
 }
 
+// swiftlint:disable cyclomatic_complexity
 /// Converts a `TimelineDiff` to a ``DiffOperation``.
 ///
 /// - Parameter diff: The SDK timeline diff.
 /// - Returns: The corresponding diff operation.
 private func timelineDiffToOperation(_ diff: TimelineDiff) -> DiffOperation<TimelineItem> {
+// swiftlint:enable cyclomatic_complexity
     switch diff {
     case .append(let values):
         return .append(values)

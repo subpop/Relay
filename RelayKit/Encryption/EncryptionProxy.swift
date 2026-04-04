@@ -72,7 +72,9 @@ public final class EncryptionProxy: EncryptionProxyProtocol, @unchecked Sendable
         self.recoveryStateUpdates = recoveryStream
         self.recoveryStateUpdatesContinuation = recoveryCont
 
-        let (verificationStream, verificationCont) = AsyncStream<VerificationState>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let (verificationStream, verificationCont) = AsyncStream<VerificationState>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.verificationStateUpdates = verificationStream
         self.verificationStateUpdatesContinuation = verificationCont
 
@@ -121,8 +123,16 @@ public final class EncryptionProxy: EncryptionProxyProtocol, @unchecked Sendable
 
     // MARK: - Recovery
 
-    public func enableRecovery(waitForBackupsToUpload: Bool, passphrase: String?, progressListener: EnableRecoveryProgressListener) async throws -> String {
-        try await encryption.enableRecovery(waitForBackupsToUpload: waitForBackupsToUpload, passphrase: passphrase, progressListener: progressListener)
+    public func enableRecovery(
+        waitForBackupsToUpload: Bool,
+        passphrase: String?,
+        progressListener: EnableRecoveryProgressListener
+    ) async throws -> String {
+        try await encryption.enableRecovery(
+            waitForBackupsToUpload: waitForBackupsToUpload,
+            passphrase: passphrase,
+            progressListener: progressListener
+        )
     }
 
     public func disableRecovery() async throws {

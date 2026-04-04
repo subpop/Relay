@@ -106,12 +106,28 @@ public final class TimelineProxy: TimelineProxyProtocol, @unchecked Sendable {
 
     // MARK: - Media
 
-    public func sendImage(params: UploadParameters, thumbnailSource: UploadSource?, imageInfo: ImageInfo) throws -> SendAttachmentJoinHandle {
-        try timeline.sendImage(params: params, thumbnailSource: thumbnailSource, imageInfo: imageInfo)
+    public func sendImage(
+        params: UploadParameters,
+        thumbnailSource: UploadSource?,
+        imageInfo: ImageInfo
+    ) throws -> SendAttachmentJoinHandle {
+        try timeline.sendImage(
+            params: params,
+            thumbnailSource: thumbnailSource,
+            imageInfo: imageInfo
+        )
     }
 
-    public func sendVideo(params: UploadParameters, thumbnailSource: UploadSource?, videoInfo: VideoInfo) throws -> SendAttachmentJoinHandle {
-        try timeline.sendVideo(params: params, thumbnailSource: thumbnailSource, videoInfo: videoInfo)
+    public func sendVideo(
+        params: UploadParameters,
+        thumbnailSource: UploadSource?,
+        videoInfo: VideoInfo
+    ) throws -> SendAttachmentJoinHandle {
+        try timeline.sendVideo(
+            params: params,
+            thumbnailSource: thumbnailSource,
+            videoInfo: videoInfo
+        )
     }
 
     public func sendAudio(params: UploadParameters, audioInfo: AudioInfo) throws -> SendAttachmentJoinHandle {
@@ -122,18 +138,51 @@ public final class TimelineProxy: TimelineProxyProtocol, @unchecked Sendable {
         try timeline.sendFile(params: params, fileInfo: fileInfo)
     }
 
-    public func sendVoiceMessage(params: UploadParameters, audioInfo: AudioInfo, waveform: [Float]) throws -> SendAttachmentJoinHandle {
-        try timeline.sendVoiceMessage(params: params, audioInfo: audioInfo, waveform: waveform)
+    public func sendVoiceMessage(
+        params: UploadParameters,
+        audioInfo: AudioInfo,
+        waveform: [Float]
+    ) throws -> SendAttachmentJoinHandle {
+        try timeline.sendVoiceMessage(
+            params: params,
+            audioInfo: audioInfo,
+            waveform: waveform
+        )
     }
 
-    public func sendLocation(body: String, geoUri: String, description: String?, zoomLevel: UInt8?, assetType: AssetType?, repliedToEventId: String?) async throws {
-        try await timeline.sendLocation(body: body, geoUri: geoUri, description: description, zoomLevel: zoomLevel, assetType: assetType, repliedToEventId: repliedToEventId)
+    // swiftlint:disable:next function_parameter_count
+    public func sendLocation(
+        body: String,
+        geoUri: String,
+        description: String?,
+        zoomLevel: UInt8?,
+        assetType: AssetType?,
+        repliedToEventId: String?
+    ) async throws {
+        try await timeline.sendLocation(
+            body: body,
+            geoUri: geoUri,
+            description: description,
+            zoomLevel: zoomLevel,
+            assetType: assetType,
+            repliedToEventId: repliedToEventId
+        )
     }
 
     // MARK: - Polls
 
-    public func createPoll(question: String, answers: [String], maxSelections: UInt8, pollKind: PollKind) async throws {
-        try await timeline.createPoll(question: question, answers: answers, maxSelections: maxSelections, pollKind: pollKind)
+    public func createPoll(
+        question: String,
+        answers: [String],
+        maxSelections: UInt8,
+        pollKind: PollKind
+    ) async throws {
+        try await timeline.createPoll(
+            question: question,
+            answers: answers,
+            maxSelections: maxSelections,
+            pollKind: pollKind
+        )
     }
 
     public func endPoll(pollStartEventId: String, text: String) async throws {

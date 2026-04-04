@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A generic adapter that bridges Matrix SDK callback-based listener
 /// protocols to a single Swift closure.
 ///

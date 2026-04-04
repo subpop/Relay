@@ -34,7 +34,10 @@ final class PreviewMatrixService: MatrixServiceProtocol {
 
     func restoreSession() async {}
     func login(username: String, password: String, homeserver: String) async {}
-    func startOAuthLogin(homeserver: String, openURL: @escaping @concurrent @Sendable (URL) async throws -> URL) async throws {}
+    func startOAuthLogin(
+        homeserver: String,
+        openURL: @escaping @concurrent @Sendable (URL) async throws -> URL
+    ) async throws {}
     func logout() async {}
     func startSyncIfNeeded() {}
     func userId() -> String? { "@preview:matrix.org" }
@@ -47,7 +50,9 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func createRoom(options: CreateRoomOptions) async throws -> String { "!new:matrix.org" }
     func createDirectMessage(userId: String) async throws -> String { "!dm:matrix.org" }
     func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? { PreviewRoomDirectoryViewModel() }
-    func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? { PreviewRoomPreviewViewModel(roomId: roomId) }
+    func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? {
+        PreviewRoomPreviewViewModel(roomId: roomId)
+    }
     func leaveRoom(id: String) async throws {
         rooms.removeAll { $0.id == id }
     }
@@ -76,7 +81,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
                 RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
                 RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis", role: .user),
                 RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans", role: .user),
-                RoomMemberDetails(userId: "@preview:matrix.org", displayName: "You", role: .user),
+                RoomMemberDetails(userId: "@preview:matrix.org", displayName: "You", role: .user)
             ],
             pinnedEventIds: summary.pinnedEventIds
         )
@@ -101,7 +106,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
                 body: "Next team meeting is **Wednesday at 3 PM UTC**. Don't forget!",
                 timestamp: .now.addingTimeInterval(-86400 * 2),
                 isOutgoing: false
-            ),
+            )
         ]
     }
 
@@ -137,22 +142,60 @@ final class PreviewMatrixService: MatrixServiceProtocol {
 
     func getDevices() async throws -> [DeviceInfo] {
         [
-            DeviceInfo(id: "ABCDEF1234", displayName: "Relay (macOS)", lastSeenIP: "203.0.113.42", lastSeenTimestamp: .now.addingTimeInterval(-60), isCurrentDevice: true),
-            DeviceInfo(id: "GHIJKL5678", displayName: "Element (iOS)", lastSeenIP: "198.51.100.7", lastSeenTimestamp: .now.addingTimeInterval(-3600)),
-            DeviceInfo(id: "MNOPQR9012", displayName: "Element Web", lastSeenIP: "192.0.2.1", lastSeenTimestamp: .now.addingTimeInterval(-86400 * 3)),
-            DeviceInfo(id: "STUVWX3456", displayName: nil, lastSeenIP: nil, lastSeenTimestamp: .now.addingTimeInterval(-86400 * 30)),
+            DeviceInfo(
+                id: "ABCDEF1234", displayName: "Relay (macOS)",
+                lastSeenIP: "203.0.113.42",
+                lastSeenTimestamp: .now.addingTimeInterval(-60),
+                isCurrentDevice: true
+            ),
+            DeviceInfo(
+                id: "GHIJKL5678", displayName: "Element (iOS)",
+                lastSeenIP: "198.51.100.7",
+                lastSeenTimestamp: .now.addingTimeInterval(-3600)
+            ),
+            DeviceInfo(
+                id: "MNOPQR9012", displayName: "Element Web",
+                lastSeenIP: "192.0.2.1",
+                lastSeenTimestamp: .now.addingTimeInterval(-86400 * 3)
+            ),
+            DeviceInfo(
+                id: "STUVWX3456", displayName: nil,
+                lastSeenIP: nil,
+                lastSeenTimestamp: .now.addingTimeInterval(-86400 * 30)
+            )
         ]
     }
 
     func searchDirectory(query: String) async throws -> [DirectoryRoom] {
         let all = [
-            DirectoryRoom(roomId: "!design:matrix.org", name: "Design Team", topic: "UI/UX design discussion", alias: "#design:matrix.org", memberCount: 42),
-            DirectoryRoom(roomId: "!swift:matrix.org", name: "Swift Developers", topic: "All things Swift", alias: "#swift:matrix.org", memberCount: 1200, isWorldReadable: true),
-            DirectoryRoom(roomId: "!hq:matrix.org", name: "Matrix HQ", topic: "General Matrix chat", alias: "#matrix-hq:matrix.org", memberCount: 8500, isWorldReadable: true),
-            DirectoryRoom(roomId: "!rust:matrix.org", name: "Rust Programming", topic: "Rust language discussion", alias: "#rust:matrix.org", memberCount: 650),
+            DirectoryRoom(
+                roomId: "!design:matrix.org", name: "Design Team",
+                topic: "UI/UX design discussion",
+                alias: "#design:matrix.org", memberCount: 42
+            ),
+            DirectoryRoom(
+                roomId: "!swift:matrix.org", name: "Swift Developers",
+                topic: "All things Swift",
+                alias: "#swift:matrix.org", memberCount: 1200,
+                isWorldReadable: true
+            ),
+            DirectoryRoom(
+                roomId: "!hq:matrix.org", name: "Matrix HQ",
+                topic: "General Matrix chat",
+                alias: "#matrix-hq:matrix.org", memberCount: 8500,
+                isWorldReadable: true
+            ),
+            DirectoryRoom(
+                roomId: "!rust:matrix.org", name: "Rust Programming",
+                topic: "Rust language discussion",
+                alias: "#rust:matrix.org", memberCount: 650
+            )
         ]
         guard !query.isEmpty else { return all }
-        return all.filter { ($0.name ?? "").localizedCaseInsensitiveContains(query) || ($0.alias ?? "").localizedCaseInsensitiveContains(query) }
+        return all.filter {
+            ($0.name ?? "").localizedCaseInsensitiveContains(query)
+                || ($0.alias ?? "").localizedCaseInsensitiveContains(query)
+        }
     }
 
     /// Sample room data used to populate the room list in previews.
@@ -202,6 +245,6 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             lastMessageTimestamp: .now.addingTimeInterval(-86400 * 2),
             unreadCount: 12,
             isDirect: true
-        ),
+        )
     ]
 }

@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +25,7 @@ private let logger = Logger(subsystem: "Relay", category: "RoomDetail")
 /// ``RoomDetailView`` loads the room timeline, supports backward pagination, manages
 /// scroll anchoring, handles typing notifications, and provides context menus and
 /// emoji reaction popovers for individual messages.
-struct RoomDetailView: View {
+struct RoomDetailView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.gifSearchService) private var gifSearchService
@@ -154,9 +155,18 @@ struct RoomDetailView: View {
                         .padding(.bottom, 4)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    ComposeView(text: $draftMessage, replyingTo: $replyingTo, attachments: $stagedAttachments, members: roomMembers, mentions: $draftMentions,  onSend: sendMessage, onAttach: stageAttachments, onGIFSelected: sendGIF)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
+                    ComposeView(
+                        text: $draftMessage,
+                        replyingTo: $replyingTo,
+                        attachments: $stagedAttachments,
+                        members: roomMembers,
+                        mentions: $draftMentions,
+                        onSend: sendMessage,
+                        onAttach: stageAttachments,
+                        onGIFSelected: sendGIF
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
                 }
             }
             .navigationTitle("")
@@ -292,8 +302,7 @@ struct RoomDetailView: View {
 
                     if index > 0 && !messages[index - 1].isSystemEvent && !message.isSystemEvent
                         && messages[index - 1].senderID != message.senderID
-                        && !shouldShowDateHeader(at: index, in: messages)
-                    {
+                        && !shouldShowDateHeader(at: index, in: messages) {
                         Spacer().frame(height: 8)
                     }
 
@@ -726,7 +735,9 @@ struct RoomDetailView: View {
                 try FileManager.default.copyItem(at: url, to: dest)
             } catch {
                 logger.error("Failed to copy file \(url.lastPathComponent): \(error)")
-                errorReporter.report(.fileCopyFailed(filename: url.lastPathComponent, reason: error.localizedDescription))
+                errorReporter.report(
+                    .fileCopyFailed(filename: url.lastPathComponent, reason: error.localizedDescription)
+                )
                 continue
             }
 
@@ -817,6 +828,7 @@ private struct TypingBubble: View {
     private func dotPhase(elapsed: TimeInterval, index: Int) -> Double {
         let period = 1.8 // full cycle duration in seconds
         let delay = Double(index) * 0.15
+        // swiftlint:disable:next identifier_name
         let t = (elapsed + delay).truncatingRemainder(dividingBy: period) / period
         return sin(t * .pi)
     }

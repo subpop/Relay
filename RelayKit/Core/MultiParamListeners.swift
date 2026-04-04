@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Adapter for the `SendQueueRoomUpdateListener` protocol which has
 /// two parameters (`roomId` and `update`) and cannot be handled by
 /// the generic ``SDKListener``.

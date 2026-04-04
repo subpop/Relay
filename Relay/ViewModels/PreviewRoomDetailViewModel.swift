@@ -67,16 +67,28 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
               body: "Just pushed a fix for the sync issue. Check https://matrix.org for details!",
               timestamp: .now.addingTimeInterval(-300), isOutgoing: true,
               reactions: [
-                .init(key: "🎉", count: 2, senderIDs: ["@alice:matrix.org", "@bob:matrix.org"], highlightedByCurrentUser: false),
-                .init(key: "🚀", count: 1, senderIDs: ["@alice:matrix.org"], highlightedByCurrentUser: false),
+                .init(
+                    key: "🎉", count: 2,
+                    senderIDs: ["@alice:matrix.org", "@bob:matrix.org"],
+                    highlightedByCurrentUser: false
+                ),
+                .init(
+                    key: "🚀", count: 1,
+                    senderIDs: ["@alice:matrix.org"],
+                    highlightedByCurrentUser: false
+                )
               ]),
         .init(id: "4", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
               body: "Nice, rooms are loading *way* faster now.",
               timestamp: .now.addingTimeInterval(-120), isOutgoing: false,
               reactions: [
-                .init(key: "👍", count: 1, senderIDs: ["@me:matrix.org"], highlightedByCurrentUser: true),
+                .init(key: "👍", count: 1, senderIDs: ["@me:matrix.org"], highlightedByCurrentUser: true)
               ],
-              replyDetail: .init(eventID: "3", senderID: "@me:matrix.org", senderDisplayName: "Me", body: "Just pushed a fix for the sync issue.")),
+              replyDetail: .init(
+                eventID: "3", senderID: "@me:matrix.org",
+                senderDisplayName: "Me",
+                body: "Just pushed a fix for the sync issue."
+              )),
         .init(id: "4b", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
               body: "Image", timestamp: .now.addingTimeInterval(-90), isOutgoing: false, kind: .image),
         .init(id: "5", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
@@ -85,6 +97,6 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
               isHighlighted: true),
         .init(id: "6", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
               body: "This message was deleted",
-              timestamp: .now.addingTimeInterval(-30), isOutgoing: false, kind: .redacted),
+              timestamp: .now.addingTimeInterval(-30), isOutgoing: false, kind: .redacted)
     ]
 }

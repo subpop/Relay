@@ -14,6 +14,7 @@
 
 import CoreGraphics
 
+// swiftlint:disable function_body_length
 /// Encodes a `CGImage` as a [BlurHash](https://blurha.sh) string.
 ///
 /// BlurHash is a compact representation of an image placeholder, encoding the image's
@@ -30,6 +31,7 @@ import CoreGraphics
 ///     Defaults to `(4, 3)`.
 /// - Returns: The BlurHash string, or `nil` if the image has zero dimensions or cannot be rasterized.
 func blurHash(from cgImage: CGImage, numberOfComponents components: (Int, Int) = (4, 3)) -> String? {
+// swiftlint:enable function_body_length
     let width = cgImage.width
     let height = cgImage.height
 
@@ -51,13 +53,17 @@ func blurHash(from cgImage: CGImage, numberOfComponents components: (Int, Int) =
     guard let data = context.data else { return nil }
     let pixels = data.assumingMemoryBound(to: UInt8.self)
 
+    // swiftlint:disable:next large_tuple
     var factors: [(Float, Float, Float)] = []
+    // swiftlint:disable:next identifier_name
     for j in 0 ..< components.1 {
+        // swiftlint:disable:next identifier_name
         for i in 0 ..< components.0 {
             let normalisation: Float = (i == 0 && j == 0) ? 1 : 2
             let factor = multiplyBasisFunction(
                 pixels: pixels, width: width, height: height,
                 bytesPerRow: bytesPerRow
+            // swiftlint:disable:next identifier_name
             ) { x, y in
                 normalisation
                     * cos(Float.pi * Float(i) * x / Float(width))
@@ -67,7 +73,9 @@ func blurHash(from cgImage: CGImage, numberOfComponents components: (Int, Int) =
         }
     }
 
+    // swiftlint:disable:next identifier_name
     let dc = factors.first!
+    // swiftlint:disable:next identifier_name
     let ac = factors.dropFirst()
 
     var hash = ""
@@ -106,13 +114,19 @@ private func multiplyBasisFunction(
     pixels: UnsafePointer<UInt8>,
     width: Int, height: Int, bytesPerRow: Int,
     basisFunction: (Float, Float) -> Float
+// swiftlint:disable:next large_tuple
 ) -> (Float, Float, Float) {
+    // swiftlint:disable:next identifier_name
     var r: Float = 0
+    // swiftlint:disable:next identifier_name
     var g: Float = 0
+    // swiftlint:disable:next identifier_name
     var b: Float = 0
 
+    // swiftlint:disable:next identifier_name
     for y in 0 ..< height {
         let row = y * bytesPerRow
+        // swiftlint:disable:next identifier_name
         for x in 0 ..< width {
             let offset = row + x * 4
             let basis = basisFunction(Float(x), Float(y))
@@ -127,12 +141,14 @@ private func multiplyBasisFunction(
 }
 
 /// Encodes the DC (average color) component as a single packed integer.
-private func encodeDC(_ value: (Float, Float, Float)) -> Int {
+private func encodeDC(_ value: (Float, Float, Float)) -> Int { // swiftlint:disable:this large_tuple
     (linearToSRGB(value.0) << 16) + (linearToSRGB(value.1) << 8) + linearToSRGB(value.2)
 }
 
+// swiftlint:disable large_tuple
 /// Encodes an AC (detail) component, quantizing each channel relative to the maximum AC value.
 private func encodeAC(_ value: (Float, Float, Float), maximumValue: Float) -> Int {
+// swiftlint:enable large_tuple
     let quantR = Int(max(0, min(18, floor(signPow(value.0 / maximumValue, 0.5) * 9 + 9.5))))
     let quantG = Int(max(0, min(18, floor(signPow(value.1 / maximumValue, 0.5) * 9 + 9.5))))
     let quantB = Int(max(0, min(18, floor(signPow(value.2 / maximumValue, 0.5) * 9 + 9.5))))
@@ -146,6 +162,7 @@ private func signPow(_ value: Float, _ exp: Float) -> Float {
 
 /// Converts a linear-space color component (0...1) to an sRGB byte value (0...255).
 private func linearToSRGB(_ value: Float) -> Int {
+    // swiftlint:disable:next identifier_name
     let v = max(0, min(1, value))
     if v <= 0.0031308 { return Int(v * 12.92 * 255 + 0.5) }
     return Int((1.055 * pow(v, 1 / 2.4) - 0.055) * 255 + 0.5)
@@ -153,6 +170,7 @@ private func linearToSRGB(_ value: Float) -> Int {
 
 /// Converts an sRGB byte value (0...255) to a linear-space color component (0...1).
 private func sRGBToLinear(_ value: UInt8) -> Float {
+    // swiftlint:disable:next identifier_name
     let v = Float(value) / 255
     if v <= 0.04045 { return v / 12.92 }
     return pow((v + 0.055) / 1.055, 2.4)
@@ -168,6 +186,7 @@ private extension Int {
     /// Encodes this integer as a base-83 string of the given fixed length.
     func encode83(length: Int) -> String {
         var result = ""
+        // swiftlint:disable:next identifier_name
         for i in 1...length {
             let divisor = intPow(83, length - i)
             let digit = (self / divisor) % 83

@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,7 +45,7 @@ extension NSAttributedString.Key {
 /// This replaces the plain SwiftUI `TextField` to enable `NSAttributedString` editing
 /// with rich mention rendering. It preserves the same UX: multi-line input, Return to
 /// send, Shift+Return for newlines, and focus management.
-struct ComposeTextView: NSViewRepresentable {
+struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_body_length
     /// The plain-text draft, kept in sync for message sending.
     @Binding var text: String
 
@@ -116,14 +117,13 @@ struct ComposeTextView: NSViewRepresentable {
             context.coordinator.isUpdating = true
             textView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: [
                 .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: NSColor.labelColor
             ]))
             // Re-apply mention styling if mentions exist
-            for mention in mentions {
-                if mention.range.location + mention.range.length <= (textView.textStorage?.length ?? 0) {
-                    context.coordinator.applyMentionStyle(to: mention.range, in: textView)
-                    textView.textStorage?.addAttribute(.mentionUserId, value: mention.userId, range: mention.range)
-                }
+            for mention in mentions
+                where mention.range.location + mention.range.length <= (textView.textStorage?.length ?? 0) {
+                context.coordinator.applyMentionStyle(to: mention.range, in: textView)
+                textView.textStorage?.addAttribute(.mentionUserId, value: mention.userId, range: mention.range)
             }
             context.coordinator.isUpdating = false
             textView.needsDisplay = true
@@ -200,18 +200,19 @@ struct ComposeTextView: NSViewRepresentable {
             var updatedMentions: [Mention] = []
             guard let storage = textView.textStorage else { return }
 
-            for mention in parent.mentions {
-                // Check if the mention's attributed range still exists and has the marker
-                if mention.range.location + mention.range.length <= storage.length {
-                    var effectiveRange = NSRange(location: 0, length: 0)
-                    let attr = storage.attribute(.mentionUserId, at: mention.range.location, effectiveRange: &effectiveRange)
-                    if let userId = attr as? String, userId == mention.userId,
-                       effectiveRange == mention.range {
-                        updatedMentions.append(mention)
-                        continue
-                    }
+            for mention in parent.mentions
+                where mention.range.location + mention.range.length <= storage.length {
+                // Check if the mention's attributed range still has the marker
+                var effectiveRange = NSRange(location: 0, length: 0)
+                let attr = storage.attribute(
+                    .mentionUserId,
+                    at: mention.range.location,
+                    effectiveRange: &effectiveRange
+                )
+                if let userId = attr as? String, userId == mention.userId,
+                   effectiveRange == mention.range {
+                    updatedMentions.append(mention)
                 }
-                // Mention was broken/deleted — don't keep it
             }
             parent.mentions = updatedMentions
 
@@ -219,18 +220,21 @@ struct ComposeTextView: NSViewRepresentable {
             detectMentionQuery(in: textView)
         }
 
-        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
             // If the edit touches a mention pill, remove the entire mention
             guard let storage = textView.textStorage else { return true }
 
             var mentionsToRemove: [Mention] = []
-            for mention in parent.mentions {
-                if mention.range.location + mention.range.length <= storage.length {
-                    let intersection = NSIntersectionRange(affectedCharRange, mention.range)
-                    if intersection.length > 0 && affectedCharRange != mention.range {
-                        // Partial edit into a mention — expand to delete the whole pill
-                        mentionsToRemove.append(mention)
-                    }
+            for mention in parent.mentions
+                where mention.range.location + mention.range.length <= storage.length {
+                let intersection = NSIntersectionRange(affectedCharRange, mention.range)
+                if intersection.length > 0 && affectedCharRange != mention.range {
+                    // Partial edit into a mention — expand to delete the whole pill
+                    mentionsToRemove.append(mention)
                 }
             }
 
@@ -243,10 +247,10 @@ struct ComposeTextView: NSViewRepresentable {
                 // Adjust remaining mention ranges
                 let deletedLength = mentionToRemove.range.length
                 let deletedLocation = mentionToRemove.range.location
-                for i in parent.mentions.indices {
-                    if parent.mentions[i].range.location > deletedLocation {
-                        parent.mentions[i].range.location -= deletedLength
-                    }
+                // swiftlint:disable:next identifier_name
+                for i in parent.mentions.indices
+                    where parent.mentions[i].range.location > deletedLocation {
+                    parent.mentions[i].range.location -= deletedLength
                 }
                 parent.text = textView.textStorage?.string ?? ""
                 isUpdating = false
@@ -275,18 +279,26 @@ struct ComposeTextView: NSViewRepresentable {
 
             // Walk backward from cursor to find an unmatched '@'
             let nsText = text as NSString
+            // swiftlint:disable:next identifier_name
             var i = cursorLocation - 1
             while i >= 0 {
                 let char = nsText.character(at: i)
 
                 if char == Self.atCharCode {
                     // Check that '@' is preceded by whitespace, newline, or is at position 0
-                    if i == 0 || CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(nsText.character(at: i - 1))!) {
+                    let precededByWhitespace = i == 0
+                        || CharacterSet.whitespacesAndNewlines
+                            .contains(Unicode.Scalar(nsText.character(at: i - 1))!)
+                    if precededByWhitespace {
                         // Make sure the cursor isn't inside an existing mention
                         let isInMention = parent.mentions.contains { NSLocationInRange(i, $0.range) }
                         if !isInMention {
                             let queryStart = i + 1
-                            let query = nsText.substring(with: NSRange(location: queryStart, length: cursorLocation - queryStart))
+                            let queryRange = NSRange(
+                                location: queryStart,
+                                length: cursorLocation - queryStart
+                            )
+                            let query = nsText.substring(with: queryRange)
                             // Don't trigger if query contains whitespace (already completed or not a mention)
                             if !query.contains(" ") && !query.contains("\n") {
                                 parent.mentionQuery = query
@@ -345,10 +357,13 @@ struct ComposeTextView: NSViewRepresentable {
 
             // Add a trailing space after the pill if there isn't one
             let afterPill = pillRange.location + pillRange.length
-            if afterPill >= storage.length || (storage.string as NSString).character(at: afterPill) != Self.spaceCharCode {
+            let afterPillChar = (storage.string as NSString)
+                .character(at: afterPill)
+            if afterPill >= storage.length
+                || afterPillChar != Self.spaceCharCode {
                 let spaceAttrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                    .foregroundColor: NSColor.labelColor,
+                    .foregroundColor: NSColor.labelColor
                 ]
                 storage.insert(NSAttributedString(string: " ", attributes: spaceAttrs), at: afterPill)
             }
@@ -358,10 +373,10 @@ struct ComposeTextView: NSViewRepresentable {
             let mention = Mention(userId: userId, displayName: displayName, range: pillRange)
 
             // Adjust existing mentions that come after the insertion point
-            for i in parent.mentions.indices {
-                if parent.mentions[i].range.location >= atIndex {
-                    parent.mentions[i].range.location += lengthDelta
-                }
+            // swiftlint:disable:next identifier_name
+            for i in parent.mentions.indices
+                where parent.mentions[i].range.location >= atIndex {
+                parent.mentions[i].range.location += lengthDelta
             }
             parent.mentions.append(mention)
 
@@ -382,7 +397,7 @@ struct ComposeTextView: NSViewRepresentable {
                 .backgroundColor: pillColor,
                 .foregroundColor: NSColor.controlAccentColor,
                 .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium),
-                .mentionUserId: "", // placeholder, overwritten by caller
+                .mentionUserId: "" // placeholder, overwritten by caller
             ], range: range)
         }
     }
@@ -432,7 +447,7 @@ final class MentionTextView: NSTextView {
         if string.isEmpty, let placeholder = placeholderString {
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: font ?? .systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: NSColor.placeholderTextColor,
+                .foregroundColor: NSColor.placeholderTextColor
             ]
             let inset = textContainerInset
             let padding = textContainer?.lineFragmentPadding ?? 0
@@ -496,6 +511,7 @@ final class MentionTextView: NSTextView {
 
 #Preview("Multiline") {
     ComposeTextView(
+        // swiftlint:disable:next line_length
         text: .constant("Line one\nLine two\nLine three — the text view should grow vertically to fit multiple lines of content."),
         mentions: .constant([]),
         mentionQuery: .constant(nil),
@@ -509,7 +525,7 @@ final class MentionTextView: NSTextView {
     ComposeTextView(
         text: .constant("Hey @Alice Smith check this out"),
         mentions: .constant([
-            Mention(userId: "@alice:matrix.org", displayName: "Alice Smith", range: NSRange(location: 4, length: 12)),
+            Mention(userId: "@alice:matrix.org", displayName: "Alice Smith", range: NSRange(location: 4, length: 12))
         ]),
         mentionQuery: .constant(nil),
         onSubmit: {}
@@ -528,4 +544,3 @@ final class MentionTextView: NSTextView {
     .frame(width: 360)
     .padding()
 }
-

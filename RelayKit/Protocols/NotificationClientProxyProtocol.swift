@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Fetches notification content for processing push notifications.
 ///
 /// Used in Notification Service Extensions to fetch the full event

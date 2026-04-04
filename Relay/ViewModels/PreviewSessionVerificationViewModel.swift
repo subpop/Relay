@@ -60,6 +60,6 @@ final class PreviewSessionVerificationViewModel: SessionVerificationViewModelPro
         .init(id: 3, symbol: "🎩", label: "Hat"),
         .init(id: 4, symbol: "🏁", label: "Flag"),
         .init(id: 5, symbol: "🚀", label: "Rocket"),
-        .init(id: 6, symbol: "🎵", label: "Music"),
+        .init(id: 6, symbol: "🎵", label: "Music")
     ]
 }

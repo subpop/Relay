@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A user's end-to-end encryption identity.
 ///
 /// Provides methods to pin, verify, or inspect a user's cross-signing keys.
@@ -66,5 +65,5 @@ public protocol UserIdentityProxyProtocol: AnyObject, Sendable {
     /// Returns the user's master cross-signing key.
     ///
     /// - Returns: The master key string, or `nil`.
-    func masterKey() -> String?
+    func masterKey() -> String? // swiftlint:disable:this inclusive_language
 }

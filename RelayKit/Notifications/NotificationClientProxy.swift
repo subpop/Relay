@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A proxy that wraps the Matrix SDK `NotificationClient`.
 ///
 /// Used in Notification Service Extensions to fetch event content

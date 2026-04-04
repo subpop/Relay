@@ -51,6 +51,7 @@ struct RoomListView: View {
             switch sortOrder {
             case .lastMessage:
                 switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
+                // swiftlint:disable:next identifier_name
                 case (.some(let l), .some(let r)):
                     result = l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
                 case (.some, .none):
@@ -95,6 +96,7 @@ struct RoomListView: View {
 
                             Spacer()
 
+                            // swiftlint:disable:next identifier_name
                             if let ts = room.lastMessageTimestamp {
                                 Text(Self.formatTimestamp(ts))
                                     .font(.caption2)
@@ -217,7 +219,7 @@ extension RoomListView {
 // MARK: - Previews
 
 #Preview("Room Rows") {
-    @Previewable @State var sel: String? = nil
+    @Previewable @State var sel: String?
     @Previewable @State var search = ""
     RoomListView(
         selectedRoomId: $sel,

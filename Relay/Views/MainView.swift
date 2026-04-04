@@ -20,7 +20,7 @@ import SwiftUI
 /// ``MainView`` uses a `NavigationSplitView` with the room list in the sidebar and the
 /// selected room's detail view (or compose view) in the detail area. An optional inspector
 /// panel on the trailing edge shows room info or a selected user's profile.
-struct MainView: View {
+struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
     @State private var selectedRoomId: String?
@@ -34,7 +34,6 @@ struct MainView: View {
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
     @State private var isJoiningLinkedRoom = false
-
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -142,7 +141,6 @@ struct MainView: View {
                                         }
                                     }
 
-
                                     VStack(alignment: .trailing, spacing: 1) {
                                         Text(summary.name)
                                             .fontWeight(.semibold)
@@ -194,7 +192,8 @@ struct MainView: View {
             guard shouldPresent else { return }
             matrixService.shouldPresentVerificationSheet = false
             Task {
-                if let vm = try? await matrixService.makeSessionVerificationViewModel() {
+                // swiftlint:disable:next identifier_name
+            if let vm = try? await matrixService.makeSessionVerificationViewModel() {
                     matrixService.pendingVerificationRequest = nil
                     incomingVerificationItem = VerificationItem(viewModel: vm)
                 }

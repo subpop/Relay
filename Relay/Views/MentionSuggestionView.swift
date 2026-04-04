@@ -145,7 +145,7 @@ private struct MentionRowButtonStyle: ButtonStyle {
                 RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
                 RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
                 RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis"),
-                RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans"),
+                RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans")
             ],
             query: "",
             onSelect: { _ in },
@@ -164,7 +164,7 @@ private struct MentionRowButtonStyle: ButtonStyle {
             members: [
                 RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
                 RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
-                RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis"),
+                RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis")
             ],
             query: "ali",
             onSelect: { _ in },

@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Searches the homeserver's public room directory.
 ///
 /// Provides paginated search results. Call ``search(filter:batchSize:)``

@@ -19,13 +19,13 @@
 
 import Foundation
 
-/// Extensions for converting between Matrix SDK FFI types and
-/// idiomatic Swift types.
-///
-/// These conversions are used throughout the proxy layer to present
-/// SDK data in Swift-native forms:
-/// - `String` URL fields become `URL?`
-/// - `UInt64` millisecond timestamps become `Date`
+// Extensions for converting between Matrix SDK FFI types and
+// idiomatic Swift types.
+//
+// These conversions are used throughout the proxy layer to present
+// SDK data in Swift-native forms:
+// - `String` URL fields become `URL?`
+// - `UInt64` millisecond timestamps become `Date`
 
 // MARK: - URL Conversions
 

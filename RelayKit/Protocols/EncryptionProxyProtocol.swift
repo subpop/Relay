@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Manages end-to-end encryption state, key backup, and recovery.
 ///
 /// Provides observable properties for backup, recovery, and verification
@@ -120,7 +119,11 @@ public protocol EncryptionProxyProtocol: AnyObject, Sendable {
     ///   - progressListener: A listener for progress updates.
     /// - Returns: The generated recovery key string.
     /// - Throws: ``RecoveryError`` if enabling fails.
-    func enableRecovery(waitForBackupsToUpload: Bool, passphrase: String?, progressListener: EnableRecoveryProgressListener) async throws -> String
+    func enableRecovery(
+        waitForBackupsToUpload: Bool,
+        passphrase: String?,
+        progressListener: EnableRecoveryProgressListener
+    ) async throws -> String
 
     /// Disables recovery.
     ///

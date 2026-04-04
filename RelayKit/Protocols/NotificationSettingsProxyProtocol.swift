@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Manages push notification rules and per-room notification settings.
 ///
 /// Provides methods to read and write notification modes (all messages,
@@ -57,7 +56,11 @@ public protocol NotificationSettingsProxyProtocol: AnyObject, Sendable {
     ///   - isOneToOne: Whether the room is a direct message.
     /// - Returns: The room notification settings.
     /// - Throws: If fetching fails.
-    func getRoomNotificationSettings(roomId: String, isEncrypted: Bool, isOneToOne: Bool) async throws -> RoomNotificationSettings
+    func getRoomNotificationSettings(
+        roomId: String,
+        isEncrypted: Bool,
+        isOneToOne: Bool
+    ) async throws -> RoomNotificationSettings
 
     /// Sets the notification mode for a specific room.
     ///

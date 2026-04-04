@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +25,7 @@ import RelayInterface
 ///
 /// Separating this mapping from the view model makes the conversion logic independently
 /// testable and keeps the view model focused on state management and coordination.
-struct TimelineMessageMapper {
+struct TimelineMessageMapper { // swiftlint:disable:this type_body_length
     /// The Matrix user ID of the signed-in user, used for highlight and reaction detection.
     let currentUserId: String?
 
@@ -36,6 +37,7 @@ struct TimelineMessageMapper {
         let unresolvedReplyEventIds: Set<String>
     }
 
+    // swiftlint:disable function_body_length cyclomatic_complexity
     /// Maps an array of raw SDK timeline items into ``TimelineMessage`` models.
     ///
     /// Handles message-like events, membership changes, profile changes, and room
@@ -46,6 +48,7 @@ struct TimelineMessageMapper {
     /// - Parameter items: The raw timeline items from the SDK.
     /// - Returns: A ``MappingResult`` containing the mapped messages and any unresolved reply IDs.
     func mapItems(_ items: [TimelineItem]) -> MappingResult {
+    // swiftlint:enable function_body_length cyclomatic_complexity
         var result: [TimelineMessage] = []
         var pendingReplyFetchIds: Set<String> = []
 
@@ -178,6 +181,7 @@ struct TimelineMessageMapper {
             var isHighlighted = false
             var msgReplyDetail: TimelineMessage.ReplyDetail?
             var hasUnresolvedReply = false
+            // swiftlint:disable:next identifier_name
             if case .msgLike(let ml) = event.content {
                 msgReactions = ml.reactions.map { reaction in
                     TimelineMessage.ReactionGroup(
@@ -189,6 +193,7 @@ struct TimelineMessageMapper {
                 }
 
                 if !event.isOwn, let userId = currentUserId {
+                    // swiftlint:disable:next identifier_name
                     if case .message(let mc) = ml.kind, let mentions = mc.mentions {
                         isHighlighted = mentions.userIds.contains(userId) || mentions.room
                     }
@@ -201,7 +206,8 @@ struct TimelineMessageMapper {
                     let replyEventId = replyTo.eventId()
                     switch replyTo.event() {
                     case .ready(let content, let sender, let senderProfile, _, _):
-                        let replyDisplayName: String? = if case .ready(let name, _, _) = senderProfile { name } else { nil }
+                        let replyDisplayName: String? =
+                            if case .ready(let name, _, _) = senderProfile { name } else { nil }
                         let replyBody: String
                         if case .msgLike(let replyMl) = content,
                            case .message(let replyMsg) = replyMl.kind {
@@ -209,7 +215,10 @@ struct TimelineMessageMapper {
                         } else {
                             replyBody = "Message"
                         }
-                        msgReplyDetail = .init(eventID: replyEventId, senderID: sender, senderDisplayName: replyDisplayName, body: replyBody)
+                        msgReplyDetail = .init(
+                            eventID: replyEventId, senderID: sender,
+                            senderDisplayName: replyDisplayName, body: replyBody
+                        )
                     case .pending:
                         msgReplyDetail = .init(eventID: replyEventId, senderID: "", senderDisplayName: nil, body: "")
                         hasUnresolvedReply = true
@@ -230,6 +239,7 @@ struct TimelineMessageMapper {
                     (nil, nil)
                 }
 
+            // swiftlint:disable:next identifier_name
             let ts = Date(timeIntervalSince1970: TimeInterval(event.timestamp) / 1000)
 
             let eventId: String
@@ -265,10 +275,12 @@ struct TimelineMessageMapper {
         return MappingResult(messages: result, unresolvedReplyEventIds: pendingReplyFetchIds)
     }
 
+    // swiftlint:disable function_body_length cyclomatic_complexity
     /// Maps a single `EventTimelineItem` into a ``TimelineMessage``, if it is a supported event.
     ///
     /// Returns `nil` for unsupported content types (e.g. call invites).
     func mapEventItem(_ event: EventTimelineItem) -> TimelineMessage? {
+    // swiftlint:enable function_body_length cyclomatic_complexity
         // Re-use the batch mapper with a synthetic wrapper — the logic is identical.
         // EventTimelineItem doesn't conform to TimelineItem, so we duplicate the
         // core extraction inline. This keeps the single-event path simple.
@@ -403,6 +415,7 @@ struct TimelineMessageMapper {
                 (nil, nil)
             }
 
+        // swiftlint:disable:next identifier_name
         let ts = Date(timeIntervalSince1970: TimeInterval(event.timestamp) / 1000)
 
         let eventId: String
@@ -430,8 +443,10 @@ struct TimelineMessageMapper {
 
     // MARK: - System Event Descriptions
 
+    // swiftlint:disable cyclomatic_complexity
     /// Returns a human-readable description for a membership change event.
     static func membershipDescription(name: String, change: MembershipChange?) -> String {
+    // swiftlint:enable cyclomatic_complexity
         guard let change else { return "\(name) membership changed" }
         switch change {
         case .joined:
@@ -501,8 +516,10 @@ struct TimelineMessageMapper {
         return "\(name) updated their profile"
     }
 
+    // swiftlint:disable cyclomatic_complexity
     /// Returns a human-readable description for a room state change event.
     static func stateEventDescription(_ state: OtherState) -> String {
+    // swiftlint:enable cyclomatic_complexity
         switch state {
         case .roomName(let name):
             if let name, !name.isEmpty {

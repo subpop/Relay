@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -148,7 +149,7 @@ final class PasteHandler {
         (NSPasteboard.PasteboardType("com.compuserve.gif"), ".gif"),
         (NSPasteboard.PasteboardType("org.webmproject.webp"), ".webp"),
         (NSPasteboard.PasteboardType("public.heic"), ".heic"),
-        (.tiff, ".png"),
+        (.tiff, ".png")
     ]
 
     private func extractRawImage(from pasteboard: NSPasteboard) -> URL? {
@@ -182,7 +183,7 @@ final class PasteHandler {
     private static let videoTypes: [(type: NSPasteboard.PasteboardType, ext: String)] = [
         (NSPasteboard.PasteboardType("public.mpeg-4"), ".mp4"),
         (NSPasteboard.PasteboardType("com.apple.quicktime-movie"), ".mov"),
-        (NSPasteboard.PasteboardType("public.avi"), ".avi"),
+        (NSPasteboard.PasteboardType("public.avi"), ".avi")
     ]
 
     private func extractRawVideo(from pasteboard: NSPasteboard) -> URL? {
@@ -381,7 +382,7 @@ struct ComposeView: View {
             object: nil,
             userInfo: [
                 "userId": member.userId,
-                "displayName": member.displayName ?? member.userId,
+                "displayName": member.displayName ?? member.userId
             ]
         )
     }
@@ -484,7 +485,6 @@ struct ComposeView: View {
         return "doc"
     }
 
-
 }
 
 // MARK: - Preview Data
@@ -493,25 +493,54 @@ private let previewMembers: [RoomMemberDetails] = [
     RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
     RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
     RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis"),
-    RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans"),
+    RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans")
 ]
 
 #Preview("Empty") {
-    ComposeView(text: .constant(""), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in }, onGIFSelected: { _ in })
-        .frame(width: 400)
-        .environment(\.matrixService, PreviewMatrixService())
+    ComposeView(
+        text: .constant(""),
+        replyingTo: .constant(nil),
+        attachments: .constant([]),
+        members: previewMembers,
+        mentions: .constant([]),
+        onSend: {},
+        onAttach: { _ in },
+        onGIFSelected: { _ in }
+    )
+    .frame(width: 400)
+    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Text") {
-    ComposeView(text: .constant("Hello, world!"), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in }, onGIFSelected: { _ in })
-        .frame(width: 400)
-        .environment(\.matrixService, PreviewMatrixService())
+    ComposeView(
+        text: .constant("Hello, world!"),
+        replyingTo: .constant(nil),
+        attachments: .constant([]),
+        members: previewMembers,
+        mentions: .constant([]),
+        onSend: {},
+        onAttach: { _ in },
+        onGIFSelected: { _ in }
+    )
+    .frame(width: 400)
+    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Long Text") {
-    ComposeView(text: .constant("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum."), replyingTo: .constant(nil), attachments: .constant([]), members: previewMembers, mentions: .constant([]), onSend: {}, onAttach: { _ in }, onGIFSelected: { _ in })
-        .frame(width: 400)
-        .environment(\.matrixService, PreviewMatrixService())
+    // swiftlint:disable:next line_length
+    let text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et efficitur leo. Donec eu nunc massa. Morbi at nulla sit amet ipsum vulputate ultricies id sit amet erat. Fusce faucibus dignissim ex eget tincidunt. Donec vitae elit a tortor ultrices condimentum."
+    ComposeView(
+        text: .constant(text),
+        replyingTo: .constant(nil),
+        attachments: .constant([]),
+        members: previewMembers,
+        mentions: .constant([]),
+        onSend: {},
+        onAttach: { _ in },
+        onGIFSelected: { _ in }
+    )
+    .frame(width: 400)
+    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("Replying") {
@@ -538,8 +567,17 @@ private let previewMembers: [RoomMemberDetails] = [
         text: .constant("Check these out"),
         replyingTo: .constant(nil),
         attachments: .constant([
-            StagedAttachment(url: URL(fileURLWithPath: "/tmp/photo.jpg"), filename: "photo.jpg", thumbnail: nil),
-            StagedAttachment(url: URL(fileURLWithPath: "/tmp/document.pdf"), filename: "document.pdf", thumbnail: nil, caption: "Project brief"),
+            StagedAttachment(
+                url: URL(fileURLWithPath: "/tmp/photo.jpg"),
+                filename: "photo.jpg",
+                thumbnail: nil
+            ),
+            StagedAttachment(
+                url: URL(fileURLWithPath: "/tmp/document.pdf"),
+                filename: "document.pdf",
+                thumbnail: nil,
+                caption: "Project brief"
+            )
         ]),
         members: previewMembers,
         mentions: .constant([]),
@@ -550,4 +588,3 @@ private let previewMembers: [RoomMemberDetails] = [
     .frame(width: 500)
     .environment(\.matrixService, PreviewMatrixService())
 }
-

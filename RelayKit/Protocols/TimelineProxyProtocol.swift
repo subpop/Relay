@@ -126,7 +126,11 @@ public protocol TimelineProxyProtocol: AnyObject, Sendable {
     ///   - imageInfo: Metadata about the image.
     /// - Returns: A handle to join or cancel the upload.
     /// - Throws: If sending fails.
-    func sendImage(params: UploadParameters, thumbnailSource: UploadSource?, imageInfo: ImageInfo) throws -> SendAttachmentJoinHandle
+    func sendImage(
+        params: UploadParameters,
+        thumbnailSource: UploadSource?,
+        imageInfo: ImageInfo
+    ) throws -> SendAttachmentJoinHandle
 
     /// Sends a video attachment.
     ///
@@ -136,7 +140,11 @@ public protocol TimelineProxyProtocol: AnyObject, Sendable {
     ///   - videoInfo: Metadata about the video.
     /// - Returns: A handle to join or cancel the upload.
     /// - Throws: If sending fails.
-    func sendVideo(params: UploadParameters, thumbnailSource: UploadSource?, videoInfo: VideoInfo) throws -> SendAttachmentJoinHandle
+    func sendVideo(
+        params: UploadParameters,
+        thumbnailSource: UploadSource?,
+        videoInfo: VideoInfo
+    ) throws -> SendAttachmentJoinHandle
 
     /// Sends an audio attachment.
     ///
@@ -164,7 +172,11 @@ public protocol TimelineProxyProtocol: AnyObject, Sendable {
     ///   - waveform: The audio waveform samples.
     /// - Returns: A handle to join or cancel the upload.
     /// - Throws: If sending fails.
-    func sendVoiceMessage(params: UploadParameters, audioInfo: AudioInfo, waveform: [Float]) throws -> SendAttachmentJoinHandle
+    func sendVoiceMessage(
+        params: UploadParameters,
+        audioInfo: AudioInfo,
+        waveform: [Float]
+    ) throws -> SendAttachmentJoinHandle
 
     /// Sends a location message.
     ///
@@ -176,7 +188,14 @@ public protocol TimelineProxyProtocol: AnyObject, Sendable {
     ///   - assetType: An optional asset type.
     ///   - repliedToEventId: An optional event ID to reply to.
     /// - Throws: If sending fails.
-    func sendLocation(body: String, geoUri: String, description: String?, zoomLevel: UInt8?, assetType: AssetType?, repliedToEventId: String?) async throws
+    func sendLocation( // swiftlint:disable:this function_parameter_count
+        body: String,
+        geoUri: String,
+        description: String?,
+        zoomLevel: UInt8?,
+        assetType: AssetType?,
+        repliedToEventId: String?
+    ) async throws
 
     // MARK: - Polls
 

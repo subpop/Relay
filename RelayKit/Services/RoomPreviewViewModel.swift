@@ -153,6 +153,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func applyDiffs(_ diffs: [TimelineDiff]) {
         for diff in diffs {
             switch diff {
@@ -165,6 +166,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
             case .pushFront(let value):
                 timelineItems.insert(value, at: 0)
             case .insert(let index, let value):
+                // swiftlint:disable identifier_name
                 let i = Int(index)
                 if i <= timelineItems.count {
                     timelineItems.insert(value, at: i)
@@ -176,6 +178,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
                 }
             case .remove(let index):
                 let i = Int(index)
+                // swiftlint:enable identifier_name
                 if i < timelineItems.count {
                     timelineItems.remove(at: i)
                 }

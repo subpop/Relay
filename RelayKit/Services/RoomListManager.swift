@@ -128,6 +128,7 @@ final class RoomListManager {
         RoomEntry(room: room, onInfoUpdated: { [weak self] in self?.scheduleResort() })
     }
 
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
     private func applyEntryUpdates(_ updates: [RoomListEntriesUpdate]) {
         for update in updates {
             switch update {
@@ -145,11 +146,13 @@ final class RoomListManager {
             case .popBack:
                 if !roomEntries.isEmpty { roomEntries.removeLast() }
             case .insert(let index, let value):
+                // swiftlint:disable:next identifier_name
                 let i = Int(index)
                 if i <= roomEntries.count {
                     roomEntries.insert(makeEntry(room: value), at: i)
                 }
             case .set(let index, let value):
+                // swiftlint:disable:next identifier_name
                 let i = Int(index)
                 if i < roomEntries.count {
                     let existing = roomEntries[i]
@@ -160,6 +163,7 @@ final class RoomListManager {
                     }
                 }
             case .remove(let index):
+                // swiftlint:disable:next identifier_name
                 let i = Int(index)
                 if i < roomEntries.count {
                     roomEntries.remove(at: i)
@@ -188,6 +192,7 @@ final class RoomListManager {
     private func rebuildRoomSummaries() {
         rooms = roomEntries.map(\.summary).sorted { lhs, rhs in
             switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
+            // swiftlint:disable:next identifier_name
             case (.some(let l), .some(let r)):
                 return l > r
             case (.some, .none):
@@ -198,7 +203,6 @@ final class RoomListManager {
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
-
 
     }
 }
@@ -285,6 +289,7 @@ private final class RoomEntry: Identifiable {
         // Extract latest message preview and notify the manager to re-sort
         Task { [weak self] in
             guard let self else { return }
+            // swiftlint:disable:next identifier_name
             let (msg, ts) = await self.latestMessagePreview()
             self.summary.lastMessage = msg
             self.summary.lastMessageTimestamp = ts
@@ -292,6 +297,7 @@ private final class RoomEntry: Identifiable {
         }
     }
 
+    // swiftlint:disable identifier_name
     private func latestMessagePreview() async -> (AttributedString?, Date?) {
         let latest = await room.latestEvent()
 
@@ -316,8 +322,11 @@ private final class RoomEntry: Identifiable {
         let preview = contentPreview(content)
         return (preview, date)
     }
+    // swiftlint:enable identifier_name
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func contentPreview(_ content: TimelineItemContent) -> AttributedString? {
+        // swiftlint:disable identifier_name
         switch content {
         case .msgLike(let msgLike):
             switch msgLike.kind {
@@ -355,10 +364,12 @@ private final class RoomEntry: Identifiable {
             return AttributedString(TimelineMessageMapper.stateEventDescription(content))
         default: return nil
         }
+        // swiftlint:enable identifier_name
     }
 
     /// Parses a raw message body as inline Markdown, falling back to plain text on failure.
     private static func parseMarkdown(_ body: String) -> AttributedString {
+        // swiftlint:disable:next identifier_name
         if let md = try? AttributedString(
             markdown: body,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)

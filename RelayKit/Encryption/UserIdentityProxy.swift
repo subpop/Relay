@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// A proxy that wraps a Matrix SDK `UserIdentity`.
 ///
 /// Provides methods to inspect and manage a user's cross-signing
@@ -52,6 +51,7 @@ public final class UserIdentityProxy: UserIdentityProxyProtocol, @unchecked Send
         try await identity.withdrawVerification()
     }
 
+    // swiftlint:disable:next inclusive_language
     public func masterKey() -> String? {
         identity.masterKey()
     }

@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Provides access to Matrix space hierarchies.
 ///
 /// Wraps the SDK's `SpaceService` for browsing the tree of rooms

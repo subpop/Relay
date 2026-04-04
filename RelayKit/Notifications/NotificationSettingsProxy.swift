@@ -54,8 +54,16 @@ public final class NotificationSettingsProxy: NotificationSettingsProxyProtocol,
 
     // MARK: - Room Settings
 
-    public func getRoomNotificationSettings(roomId: String, isEncrypted: Bool, isOneToOne: Bool) async throws -> RoomNotificationSettings {
-        try await settings.getRoomNotificationSettings(roomId: roomId, isEncrypted: isEncrypted, isOneToOne: isOneToOne)
+    public func getRoomNotificationSettings(
+        roomId: String,
+        isEncrypted: Bool,
+        isOneToOne: Bool
+    ) async throws -> RoomNotificationSettings {
+        try await settings.getRoomNotificationSettings(
+            roomId: roomId,
+            isEncrypted: isEncrypted,
+            isOneToOne: isOneToOne
+        )
     }
 
     public func setRoomNotificationMode(roomId: String, mode: RoomNotificationMode) async throws {
@@ -72,8 +80,16 @@ public final class NotificationSettingsProxy: NotificationSettingsProxyProtocol,
         await settings.getDefaultRoomNotificationMode(isEncrypted: isEncrypted, isOneToOne: isOneToOne)
     }
 
-    public func setDefaultRoomNotificationMode(isEncrypted: Bool, isOneToOne: Bool, mode: RoomNotificationMode) async throws {
-        try await settings.setDefaultRoomNotificationMode(isEncrypted: isEncrypted, isOneToOne: isOneToOne, mode: mode)
+    public func setDefaultRoomNotificationMode(
+        isEncrypted: Bool,
+        isOneToOne: Bool,
+        mode: RoomNotificationMode
+    ) async throws {
+        try await settings.setDefaultRoomNotificationMode(
+            isEncrypted: isEncrypted,
+            isOneToOne: isOneToOne,
+            mode: mode
+        )
     }
 
     // MARK: - Toggles

@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Provides a reactive, filtered, paginated list of ``RoomSummary`` values.
 ///
 /// The provider maintains an observable array of room summaries that

@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -230,7 +231,14 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
     ///   - profileTag: An optional profile tag.
     ///   - lang: The language code.
     /// - Throws: `ClientError` if registration fails.
-    func setPusher(identifiers: PusherIdentifiers, kind: PusherKind, appDisplayName: String, deviceDisplayName: String, profileTag: String?, lang: String) async throws
+    func setPusher( // swiftlint:disable:this function_parameter_count
+        identifiers: PusherIdentifiers,
+        kind: PusherKind,
+        appDisplayName: String,
+        deviceDisplayName: String,
+        profileTag: String?,
+        lang: String
+    ) async throws
 
     /// Removes a push notification endpoint.
     ///
@@ -400,7 +408,11 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
     ///   - listener: The listener to receive events.
     /// - Returns: A task handle that keeps the observation alive.
     /// - Throws: `ClientError` if observation setup fails.
-    func observeRoomAccountDataEvent(roomId: String, eventType: RoomAccountDataEventType, listener: RoomAccountDataListener) throws -> TaskHandle
+    func observeRoomAccountDataEvent(
+        roomId: String,
+        eventType: RoomAccountDataEventType,
+        listener: RoomAccountDataListener
+    ) throws -> TaskHandle
 
     // MARK: - QR Code Login
 

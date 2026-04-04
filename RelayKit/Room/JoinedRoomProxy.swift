@@ -95,7 +95,9 @@ public final class JoinedRoomProxy: JoinedRoomProxyProtocol, @unchecked Sendable
         self.typingNotifications = typingStream
         self.typingNotificationsContinuation = typingCont
 
-        let (identityStream, identityCont) = AsyncStream<[IdentityStatusChange]>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let (identityStream, identityCont) = AsyncStream<[IdentityStatusChange]>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.identityStatusChanges = identityStream
         self.identityStatusChangesContinuation = identityCont
 

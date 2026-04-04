@@ -17,7 +17,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 /// Handles QR code-based login for signing in on a new device.
 ///
 /// Wraps the SDK's QR code login handlers for both granting and
@@ -46,7 +45,10 @@ public final class QRCodeLoginProxy: @unchecked Sendable {
     ///   - client: The client proxy (may not be authenticated).
     ///   - oidcConfiguration: The OIDC configuration.
     /// - Returns: The login handler.
-    public func createLoginHandler(client: any ClientProxyProtocol, oidcConfiguration: OidcConfiguration) -> LoginWithQrCodeHandler {
+    public func createLoginHandler(
+        client: any ClientProxyProtocol,
+        oidcConfiguration: OidcConfiguration
+    ) -> LoginWithQrCodeHandler {
         client.newLoginWithQrCodeHandler(oidcConfiguration: oidcConfiguration)
     }
 }

@@ -61,7 +61,7 @@ public final class GiphyService: GIFSearchServiceProtocol {
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset)),
             URLQueryItem(name: "rating", value: rating),
-            URLQueryItem(name: "lang", value: Locale.current.language.languageCode?.identifier ?? "en"),
+            URLQueryItem(name: "lang", value: Locale.current.language.languageCode?.identifier ?? "en")
         ]
 
         guard let url = components.url else {
@@ -77,7 +77,7 @@ public final class GiphyService: GIFSearchServiceProtocol {
             URLQueryItem(name: "api_key", value: apiKey),
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset)),
-            URLQueryItem(name: "rating", value: rating),
+            URLQueryItem(name: "rating", value: rating)
         ]
 
         guard let url = components.url else {

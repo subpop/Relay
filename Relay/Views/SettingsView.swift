@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -180,6 +181,7 @@ private struct BehaviorSettingsTab: View {
                 Toggle("Show Room State Changes", isOn: $showStateEvents)
             } header: {
                 Text("Timeline Events")
+                // swiftlint:disable:next line_length
                 Text("Control which system events appear in the timeline, such as users joining or leaving, and room setting changes.")
             }
 
@@ -428,6 +430,7 @@ private final class SessionsSettingsViewModel {
     nonisolated static func deviceOrder(_ lhs: DeviceInfo, _ rhs: DeviceInfo) -> Bool {
         if lhs.isCurrentDevice { return true }
         if rhs.isCurrentDevice { return false }
+        // swiftlint:disable:next identifier_name
         if let l = lhs.lastSeenTimestamp, let r = rhs.lastSeenTimestamp { return l > r }
         if lhs.lastSeenTimestamp != nil { return true }
         if rhs.lastSeenTimestamp != nil { return false }
@@ -477,6 +480,7 @@ private struct SessionsSettingsTab: View {
                         Button {
                             Task {
                                 do {
+                                    // swiftlint:disable:next identifier_name
                                     if let vm = try await matrixService.makeSessionVerificationViewModel() {
                                         verificationItem = VerificationItem(viewModel: vm)
                                     }
@@ -518,6 +522,7 @@ private struct DeviceRow: View {
     var isVerified: Bool?
 
     private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        // swiftlint:disable:next identifier_name
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .full
         return f
@@ -564,6 +569,7 @@ private struct DeviceRow: View {
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
 
+                    // swiftlint:disable:next identifier_name
                     if let ts = device.lastSeenTimestamp {
                         Text("·")
                             .foregroundStyle(.tertiary)
@@ -573,6 +579,7 @@ private struct DeviceRow: View {
                     }
                 }
 
+                // swiftlint:disable:next identifier_name
                 if let ip = device.lastSeenIP {
                     Text(ip)
                         .font(.caption)
@@ -610,6 +617,7 @@ private struct EncryptionSettingsTab: View {
 
             Section {
                 statusRow(
+                    // swiftlint:disable:next line_length
                     icon: isBackupEnabled ? "arrow.triangle.2.circlepath" : "exclamationmark.arrow.triangle.2.circlepath",
                     color: isBackupEnabled ? .green : .orange,
                     title: isBackupEnabled ? "Key Backup Enabled" : "Key Backup Not Active",
@@ -718,4 +726,3 @@ private struct EncryptionSettingsTab: View {
     .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 480)
 }
-
