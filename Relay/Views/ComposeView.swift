@@ -263,30 +263,6 @@ struct ComposeView: View {
 
             GlassEffectContainer {
                 HStack(alignment: .bottom, spacing: 8) {
-                    Button { isShowingFilePicker = true } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 15, weight: .regular))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                            .glassEffect(in: .circle)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button { isShowingGIFPicker = true } label: {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 15, weight: .regular))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                            .glassEffect(in: .circle)
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $isShowingGIFPicker, arrowEdge: .top) {
-                        GIFPickerView { gif in
-                            isShowingGIFPicker = false
-                            onGIFSelected(gif)
-                        }
-                    }
-
                     VStack(alignment: .leading, spacing: 0) {
                         if !attachments.isEmpty {
                             attachmentCapsules
@@ -301,6 +277,30 @@ struct ComposeView: View {
                             .padding(-4)
                             .opacity(isDropTargeted ? 1 : 0)
                     )
+
+                    Button { isShowingFilePicker = true } label: {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 15, weight: .regular))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                            .glassEffect(in: .circle)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { isShowingGIFPicker = true } label: {
+                        Image(systemName: "number")
+                            .font(.system(size: 15, weight: .regular))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                            .glassEffect(in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $isShowingGIFPicker, arrowEdge: .top) {
+                        GIFPickerView { gif in
+                            isShowingGIFPicker = false
+                            onGIFSelected(gif)
+                        }
+                    }
                 }
             }
         }
