@@ -142,4 +142,20 @@ public protocol RoomDetailViewModelProtocol: AnyObject, Observable {
     ///   - messageId: The event or transaction ID of the message to redact.
     ///   - reason: An optional human-readable reason for the redaction.
     func redact(messageId: String, reason: String?) async
+
+    /// Pins a message in the room.
+    ///
+    /// Sends a state event to the homeserver to add the given event to the room's
+    /// pinned events list. Requires sufficient power level in the room.
+    ///
+    /// - Parameter eventId: The Matrix event ID of the message to pin.
+    func pin(eventId: String) async
+
+    /// Unpins a message from the room.
+    ///
+    /// Sends a state event to the homeserver to remove the given event from the room's
+    /// pinned events list.
+    ///
+    /// - Parameter eventId: The Matrix event ID of the message to unpin.
+    func unpin(eventId: String) async
 }

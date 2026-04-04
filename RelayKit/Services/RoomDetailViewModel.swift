@@ -261,6 +261,26 @@ public final class RoomDetailViewModel: RoomDetailViewModelProtocol {
         }
     }
 
+    public func pin(eventId: String) async {
+        guard let sdkTimeline else { return }
+        do {
+            _ = try await sdkTimeline.pinEvent(eventId: eventId)
+        } catch {
+            logger.error("Failed to pin message: \(error)")
+            errorReporter.report(.pinFailed(error.localizedDescription))
+        }
+    }
+
+    public func unpin(eventId: String) async {
+        guard let sdkTimeline else { return }
+        do {
+            _ = try await sdkTimeline.unpinEvent(eventId: eventId)
+        } catch {
+            logger.error("Failed to unpin message: \(error)")
+            errorReporter.report(.pinFailed(error.localizedDescription))
+        }
+    }
+
     // swiftlint:disable:next function_body_length
     public func sendAttachment(url: URL, caption: String? = nil) async {
         guard let sdkTimeline else { return }

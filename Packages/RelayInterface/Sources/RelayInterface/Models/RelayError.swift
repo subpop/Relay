@@ -72,6 +72,9 @@ public enum RelayError: LocalizedError, Sendable {
     /// A message could not be deleted (redacted).
     case redactFailed(String)
 
+    /// A message could not be pinned or unpinned.
+    case pinFailed(String)
+
     // MARK: Media
 
     /// A media file could not be previewed.
@@ -137,6 +140,8 @@ public enum RelayError: LocalizedError, Sendable {
             "Could Not Edit Message"
         case .redactFailed:
             "Could Not Delete Message"
+        case .pinFailed:
+            "Could Not Update Pin"
         case .mediaPreviewFailed:
             "Could Not Preview File"
         case .mediaSaveFailed:
@@ -187,6 +192,8 @@ public enum RelayError: LocalizedError, Sendable {
         case .editFailed(let reason):
             reason
         case .redactFailed(let reason):
+            reason
+        case .pinFailed(let reason):
             reason
         case .mediaPreviewFailed(let filename, let reason):
             "Could not preview \(filename): \(reason)"

@@ -555,6 +555,24 @@ struct RoomDetailView: View { // swiftlint:disable:this type_body_length
             Label("Copy", systemImage: "doc.on.doc")
         }
 
+        if message.id.hasPrefix("$") {
+            let isPinned = matrixService.rooms
+                .first(where: { $0.id == roomId })?
+                .pinnedEventIds.contains(message.id) ?? false
+
+            Button {
+                Task {
+                    if isPinned {
+                        await viewModel.unpin(eventId: message.id)
+                    } else {
+                        await viewModel.pin(eventId: message.id)
+                    }
+                }
+            } label: {
+                Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin")
+            }
+        }
+
         if message.isOutgoing && message.kind == .text {
             Button {
                 replyingTo = nil

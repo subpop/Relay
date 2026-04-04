@@ -55,6 +55,8 @@ final class PreviewRoomDetailViewModel: RoomDetailViewModelProtocol {
     func edit(messageId: String, newText: String, mentionedUserIds: [String]) async {}
     func toggleReaction(messageId: String, key: String) async {}
     func redact(messageId: String, reason: String?) async {}
+    func pin(eventId: String) async {}
+    func unpin(eventId: String) async {}
 
     nonisolated static let sampleMessages: [TimelineMessage] = [
         .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
