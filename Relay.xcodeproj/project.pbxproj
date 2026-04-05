@@ -12,6 +12,7 @@
 		3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */ = {isa = PBXBuildFile; productRef = 3BRI00042FC10004001F0EA1 /* RelayInterface */; };
 		3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; };
 		3BRK00022FC00002001F0EA1 /* RelayKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DF41154C2F82F7A30028241B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BLK00022FD10002001F0EA1 /* LiveKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -104,6 +105,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DF41154C2F82F7A30028241B /* LiveKit in Frameworks */,
 				3BMRST012FB10001001F0EA1 /* MatrixRustSDK in Frameworks */,
 				3BRI00012FC10001001F0EA1 /* RelayInterface in Frameworks */,
 			);
