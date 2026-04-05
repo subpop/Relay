@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AppKit
 import Foundation
 import LiveKit
 import RelayInterface
@@ -37,7 +38,7 @@ public final class CallViewModel: CallViewModelProtocol {
     public private(set) var isLocalMicrophoneEnabled: Bool = false
     public private(set) var localParticipantID: String?
 
-    private let room = Room()
+    private let room = LiveKit.Room()
     private var delegate: Delegate?
 
     public init() {
@@ -95,7 +96,7 @@ public final class CallViewModel: CallViewModelProtocol {
             })
         }
         guard let participant,
-              let publication = participant.videoTracks.first?.value,
+              let publication = participant.videoTracks.first,
               let track = publication.track as? VideoTrack else {
             return nil
         }
@@ -131,7 +132,7 @@ public final class CallViewModel: CallViewModelProtocol {
             self.viewModel = viewModel
         }
 
-        func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldValue: ConnectionState) {
+        func room(_ room: LiveKit.Room, didUpdateConnectionState connectionState: LiveKit.ConnectionState, from oldValue: LiveKit.ConnectionState) {
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
                 switch connectionState {
@@ -151,25 +152,25 @@ public final class CallViewModel: CallViewModelProtocol {
             }
         }
 
-        func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
+        func room(_ room: LiveKit.Room, participantDidConnect participant: RemoteParticipant) {
             Task { @MainActor [weak viewModel] in
                 viewModel?.syncParticipants()
             }
         }
 
-        func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
+        func room(_ room: LiveKit.Room, participantDidDisconnect participant: RemoteParticipant) {
             Task { @MainActor [weak viewModel] in
                 viewModel?.syncParticipants()
             }
         }
 
-        func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
+        func room(_ room: LiveKit.Room, didUpdateSpeakingParticipants participants: [Participant]) {
             Task { @MainActor [weak viewModel] in
                 viewModel?.syncParticipants()
             }
         }
 
-        func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+        func room(_ room: LiveKit.Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
             Task { @MainActor [weak viewModel] in
                 viewModel?.syncParticipants()
             }
