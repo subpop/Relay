@@ -29,6 +29,7 @@ final class PreviewCallViewModel: CallViewModelProtocol {
     var isLocalCameraEnabled: Bool = false
     var isLocalMicrophoneEnabled: Bool = false
     var localParticipantID: String? = nil
+    var videoTrackRevision: UInt = 0
 
     func connect(url: String, token: String) async throws {
         state = .connecting

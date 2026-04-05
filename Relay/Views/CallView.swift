@@ -220,7 +220,7 @@ struct CallView: View {
     @ViewBuilder
     private func participantTile(_ participant: CallParticipant) -> some View {
         ZStack(alignment: .bottom) {
-            VideoViewRepresentable(viewModel: viewModel, participantID: participant.id)
+            VideoViewRepresentable(viewModel: viewModel, participantID: participant.id, trackRevision: viewModel.videoTrackRevision)
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
@@ -258,7 +258,7 @@ struct CallView: View {
     @ViewBuilder
     private func localParticipantTile(id: String) -> some View {
         ZStack(alignment: .bottom) {
-            VideoViewRepresentable(viewModel: viewModel, participantID: id)
+            VideoViewRepresentable(viewModel: viewModel, participantID: id, trackRevision: viewModel.videoTrackRevision)
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
@@ -347,6 +347,10 @@ struct CallView: View {
 private struct VideoViewRepresentable: NSViewRepresentable {
     let viewModel: any CallViewModelProtocol
     let participantID: String
+    /// Reading this value in the parent SwiftUI view ensures that when the view model
+    /// bumps it (e.g. after a track is published), SwiftUI re-evaluates this representable
+    /// and calls ``updateNSView``.
+    let trackRevision: UInt
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
