@@ -459,6 +459,13 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     ///   verification controller is not available.
     func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)?
 
+    /// Creates a view model for joining or managing a LiveKit audio/video call in a Matrix room.
+    ///
+    /// - Parameter roomId: The Matrix room identifier for the call.
+    /// - Returns: A ``CallViewModelProtocol`` instance ready to be connected with a LiveKit
+    ///   URL and token, or `nil` if calling is not supported.
+    func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)?
+
     // MARK: Notification Settings (synced via push rules)
 
     /// Returns the default notification mode for rooms of the given type.
@@ -778,6 +785,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func isCurrentSessionVerified() async -> Bool { false }
     func encryptionState() async -> EncryptionStatus { EncryptionStatus() }
     func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)? { nil }
+    func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)? { nil }
     func getDefaultNotificationMode(
         isOneToOne: Bool
     ) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }

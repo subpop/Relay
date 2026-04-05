@@ -46,6 +46,8 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @State private var isJoiningLinkedRoom = false
     @State private var inspectorSelectedProfile: UserProfile?
     @State private var inspectorInitialTab: InspectorTab?
+    @State private var activeCallViewModel: (any CallViewModelProtocol)?
+    @State private var isShowingCall = false
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -236,6 +238,14 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         .sheet(item: $leaveSpaceItem) { item in
             LeaveSpaceSheet(spaceName: item.name, spaceId: item.id, children: item.children)
         }
+        .sheet(isPresented: $isShowingCall) {
+            if let callViewModel = activeCallViewModel {
+                CallView(viewModel: callViewModel) {
+                    isShowingCall = false
+                    activeCallViewModel = nil
+                }
+            }
+        }
         .onChange(of: matrixService.spaces.map(\.id)) {
             if let selectedSpaceId, !matrixService.spaces.contains(where: { $0.id == selectedSpaceId }) {
                 self.selectedSpaceId = nil
@@ -389,6 +399,14 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
         .help(showingInspector ? "Hide Inspector" : "Show Inspector")
         .disabled(selectedRoomId == nil && selectedSpaceId == nil)
+    }
+
+    // MARK: - Call Handling
+
+    private func startCall(roomId: String) {
+        guard let viewModel = matrixService.makeCallViewModel(roomId: roomId) else { return }
+        activeCallViewModel = viewModel
+        isShowingCall = true
     }
 
     // MARK: - Deep Link Handling
