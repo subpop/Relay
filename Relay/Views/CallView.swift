@@ -338,24 +338,44 @@ struct CallView: View {
 // MARK: - NSView Bridge for Video
 
 /// Embeds the opaque `NSView` returned by ``CallViewModelProtocol/makeVideoView(for:)``.
-/// Shows a dark placeholder when the participant has no active video track.
+///
+/// A stable container `NSView` is created in `makeNSView`. On each SwiftUI
+/// re-render (driven by `viewModel` state changes) `updateNSView` asks the
+/// view model for the current video view and swaps it into the container.
+/// This handles the common timing issue where the video track isn't published
+/// yet on the first render but becomes available shortly after.
 private struct VideoViewRepresentable: NSViewRepresentable {
     let viewModel: any CallViewModelProtocol
     let participantID: String
 
     func makeNSView(context: Context) -> NSView {
-        if let videoView = viewModel.makeVideoView(for: participantID) {
-            return videoView
-        }
-        let placeholder = NSView()
-        placeholder.wantsLayer = true
-        placeholder.layer?.backgroundColor = NSColor.darkGray.cgColor
-        placeholder.layer?.cornerRadius = 10
-        return placeholder
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.darkGray.cgColor
+        container.layer?.cornerRadius = 10
+        attachVideoView(to: container)
+        return container
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // LiveKit's VideoView manages track updates internally.
+    func updateNSView(_ container: NSView, context: Context) {
+        attachVideoView(to: container)
+    }
+
+    private func attachVideoView(to container: NSView) {
+        guard let videoView = viewModel.makeVideoView(for: participantID) else { return }
+
+        // Already the current subview — nothing to do.
+        if container.subviews.first === videoView { return }
+
+        container.subviews.forEach { $0.removeFromSuperview() }
+        videoView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(videoView)
+        NSLayoutConstraint.activate([
+            videoView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            videoView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            videoView.topAnchor.constraint(equalTo: container.topAnchor),
+            videoView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
     }
 }
 
