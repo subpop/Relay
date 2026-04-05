@@ -1440,6 +1440,10 @@ public final class MatrixService: MatrixServiceProtocol {
         return viewModel
     }
 
+    public func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)? {
+        CallViewModel()
+    }
+
     public func declinePendingVerificationRequest() async {
         pendingVerificationRequest = nil
         try? await verificationController?.cancelVerification()
