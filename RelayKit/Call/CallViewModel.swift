@@ -37,9 +37,17 @@ public final class CallViewModel: CallViewModelProtocol {
     public private(set) var isLocalCameraEnabled: Bool = false
     public private(set) var isLocalMicrophoneEnabled: Bool = false
     public private(set) var localParticipantID: String?
+    /// Incremented whenever video tracks change, triggering SwiftUI to
+    /// re-call `updateNSView` on any `VideoViewRepresentable`.
+    public private(set) var videoTrackRevision: UInt = 0
 
     private let room = LiveKit.Room()
     private var delegate: Delegate?
+    /// Cached `VideoView` instances keyed by participant identity.
+    /// Re-used across `makeVideoView(for:)` calls so the view stays stable
+    /// even as SwiftUI re-renders, and the `.track` is updated in place
+    /// when tracks change.
+    private var videoViews: [String: VideoView] = [:]
 
     public init() {
         let delegate = Delegate(viewModel: self)
@@ -58,6 +66,7 @@ public final class CallViewModel: CallViewModelProtocol {
             try await room.localParticipant.setMicrophone(enabled: true)
             isLocalCameraEnabled = true
             isLocalMicrophoneEnabled = true
+            videoTrackRevision += 1
             state = .connected
         } catch {
             state = .failed(error.localizedDescription)
@@ -72,12 +81,14 @@ public final class CallViewModel: CallViewModelProtocol {
         isLocalCameraEnabled = false
         isLocalMicrophoneEnabled = false
         localParticipantID = nil
+        videoViews.removeAll()
     }
 
     public func toggleCamera() async throws {
         let enabled = !isLocalCameraEnabled
         try await room.localParticipant.setCamera(enabled: enabled)
         isLocalCameraEnabled = enabled
+        videoTrackRevision += 1
     }
 
     public func toggleMicrophone() async throws {
@@ -95,19 +106,28 @@ public final class CallViewModel: CallViewModelProtocol {
                 $0.identity?.stringValue == participantID
             })
         }
-        guard let participant,
-              let publication = participant.videoTracks.first,
-              let track = publication.track as? VideoTrack else {
-            return nil
+
+        // Look up the current video track (may be nil if not yet published).
+        let track = participant?.videoTracks.first?.track as? VideoTrack
+
+        // Return or create a cached VideoView. Its `.track` is updated in
+        // place every call so the rendered content stays current even when
+        // the underlying track changes (e.g. camera toggled on/off).
+        if let existing = videoViews[participantID] {
+            existing.track = track
+            return existing
         }
+
         let videoView = VideoView()
         videoView.track = track
+        videoViews[participantID] = videoView
         return videoView
     }
 
     // MARK: - Participant Sync
 
     fileprivate func syncParticipants() {
+        videoTrackRevision += 1
         participants = room.remoteParticipants.values.map { participant in
             CallParticipant(
                 id: participant.identity?.stringValue ?? participant.sid?.stringValue ?? UUID().uuidString,
