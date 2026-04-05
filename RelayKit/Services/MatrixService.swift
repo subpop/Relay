@@ -1280,7 +1280,8 @@ public final class MatrixService: MatrixServiceProtocol {
             userID: client.userID,
             deviceID: client.deviceID
         )
-        return try await service.credentials(for: roomId)
+        let result = try await service.credentials(for: roomId)
+        return (livekitURL: result.url, token: result.token)
     }
 
     public func declinePendingVerificationRequest() async {
