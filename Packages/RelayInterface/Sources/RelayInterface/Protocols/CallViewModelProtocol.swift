@@ -83,6 +83,12 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
     /// The identity of the local participant, set after connection.
     var localParticipantID: String? { get }
 
+    /// A monotonically increasing counter that is bumped whenever video tracks change
+    /// (publish, unpublish, camera toggle, etc.). SwiftUI views should read this value
+    /// to ensure ``NSViewRepresentable`` bridges receive `updateNSView` calls when the
+    /// underlying video track becomes available.
+    var videoTrackRevision: UInt { get }
+
     /// Connects to the call using the provided LiveKit server URL and JWT token.
     ///
     /// - Parameters:

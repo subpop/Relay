@@ -61,14 +61,46 @@ public final class CallViewModel: CallViewModelProtocol {
         state = .connecting
         do {
             try await room.connect(url: url, token: token)
-            localParticipantID = room.localParticipant.identity?.stringValue
+            let identity = room.localParticipant.identity?.stringValue
+            localParticipantID = identity
+            logger.info("[CallVM] Connected. localParticipantID=\(identity ?? "nil")")
+
             try await room.localParticipant.setCamera(enabled: true)
+            logger.info("[CallVM] setCamera(enabled: true) returned")
+
+            // Log local video tracks immediately after setCamera
+            let localPubs = room.localParticipant.videoTracks
+            logger.info("[CallVM] localParticipant.videoTracks.count=\(localPubs.count)")
+            for pub in localPubs {
+                let hasTrack = pub.track != nil
+                let trackType = pub.track.map { String(describing: type(of: $0)) } ?? "nil"
+                logger.info("[CallVM]   pub sid=\(pub.sid.stringValue), hasTrack=\(hasTrack), trackType=\(trackType), source=\(String(describing: pub.source))")
+            }
+
             try await room.localParticipant.setMicrophone(enabled: true)
+            logger.info("[CallVM] setMicrophone(enabled: true) returned")
+
             isLocalCameraEnabled = true
             isLocalMicrophoneEnabled = true
-            videoTrackRevision += 1
             state = .connected
+            videoTrackRevision += 1
+
+            // Delayed re-check: log track state after 1 second
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                let pubs = self.room.localParticipant.videoTracks
+                logger.info("[CallVM] Delayed check: videoTracks.count=\(pubs.count)")
+                for pub in pubs {
+                    let hasTrack = pub.track != nil
+                    let isVideoTrack = pub.track is VideoTrack
+                    logger.info("[CallVM]   Delayed: pub sid=\(pub.sid.stringValue), hasTrack=\(hasTrack), isVideoTrack=\(isVideoTrack)")
+                }
+                self.videoTrackRevision += 1
+                logger.info("[CallVM] Delayed videoTrackRevision bump to \(self.videoTrackRevision)")
+            }
         } catch {
+            logger.error("[CallVM] Connect failed: \(error.localizedDescription)")
             state = .failed(error.localizedDescription)
             throw error
         }
@@ -89,6 +121,13 @@ public final class CallViewModel: CallViewModelProtocol {
         try await room.localParticipant.setCamera(enabled: enabled)
         isLocalCameraEnabled = enabled
         videoTrackRevision += 1
+        // Same delayed retry as connect — the track may not be attached yet.
+        if enabled {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.videoTrackRevision += 1
+            }
+        }
     }
 
     public func toggleMicrophone() async throws {
@@ -99,7 +138,8 @@ public final class CallViewModel: CallViewModelProtocol {
 
     public func makeVideoView(for participantID: String) -> NSView? {
         let participant: Participant?
-        if room.localParticipant.identity?.stringValue == participantID {
+        let isLocal = room.localParticipant.identity?.stringValue == participantID
+        if isLocal {
             participant = room.localParticipant
         } else {
             participant = room.remoteParticipants.values.first(where: {
@@ -107,20 +147,31 @@ public final class CallViewModel: CallViewModelProtocol {
             })
         }
 
+        let foundParticipant = participant != nil
+        let allPubCount = participant?.trackPublications.count ?? 0
+        let videoPubCount = participant?.videoTracks.count ?? 0
+        logger.info("[CallVM] makeVideoView(for: \(participantID)) isLocal=\(isLocal), found=\(foundParticipant), allPubs=\(allPubCount), videoPubs=\(videoPubCount)")
+
         // Look up the current video track (may be nil if not yet published).
-        let track = participant?.videoTracks.first?.track as? VideoTrack
+        let firstPub = participant?.videoTracks.first
+        let rawTrack = firstPub?.track
+        let track = rawTrack as? VideoTrack
+
+        logger.info("[CallVM]   firstPub=\(firstPub != nil), rawTrack=\(rawTrack != nil), rawTrackType=\(rawTrack.map { String(describing: type(of: $0)) } ?? "nil"), castOK=\(track != nil)")
 
         // Return or create a cached VideoView. Its `.track` is updated in
         // place every call so the rendered content stays current even when
         // the underlying track changes (e.g. camera toggled on/off).
         if let existing = videoViews[participantID] {
             existing.track = track
+            logger.info("[CallVM]   Reusing cached VideoView, track set to \(track != nil ? "non-nil" : "nil")")
             return existing
         }
 
         let videoView = VideoView()
         videoView.track = track
         videoViews[participantID] = videoView
+        logger.info("[CallVM]   Created new VideoView, track set to \(track != nil ? "non-nil" : "nil")")
         return videoView
     }
 
@@ -191,6 +242,19 @@ public final class CallViewModel: CallViewModelProtocol {
         }
 
         func room(_ room: LiveKit.Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.syncParticipants()
+            }
+        }
+
+        func room(_ room: LiveKit.Room, localParticipant: LocalParticipant, didPublishTrack publication: LocalTrackPublication) {
+            Task { @MainActor [weak viewModel] in
+                logger.info("Local track published: \(String(describing: publication.kind))")
+                viewModel?.videoTrackRevision += 1
+            }
+        }
+
+        func room(_ room: LiveKit.Room, participant: RemoteParticipant, didPublishTrack publication: RemoteTrackPublication) {
             Task { @MainActor [weak viewModel] in
                 viewModel?.syncParticipants()
             }
