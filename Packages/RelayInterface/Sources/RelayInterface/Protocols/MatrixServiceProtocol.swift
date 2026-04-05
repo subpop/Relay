@@ -466,6 +466,18 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     ///   URL and token, or `nil` if calling is not supported.
     func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)?
 
+    /// Fetches LiveKit credentials for a Matrix room using the MatrixRTC flow (MSC4143).
+    ///
+    /// Discovers the SFU URL from the homeserver, obtains an OpenID token, and
+    /// exchanges it with the SFU's JWT service. The returned URL and token can be
+    /// passed directly to ``CallViewModelProtocol/connect(url:token:)``.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    /// - Returns: A tuple of `(livekitURL, token)` where `livekitURL` is the LiveKit
+    ///   WebSocket URL and `token` is the JWT access token.
+    /// - Throws: If the homeserver doesn't support MatrixRTC or credential exchange fails.
+    func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String)
+
     // MARK: Notification Settings (synced via push rules)
 
     /// Returns the default notification mode for rooms of the given type.
@@ -728,6 +740,8 @@ public extension EnvironmentValues {
     }
 }
 
+private struct PlaceholderError: Error {}
+
 @Observable
 private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var authState: AuthState = .unknown
@@ -786,6 +800,9 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func encryptionState() async -> EncryptionStatus { EncryptionStatus() }
     func makeSessionVerificationViewModel() async throws -> (any SessionVerificationViewModelProtocol)? { nil }
     func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)? { nil }
+    func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String) {
+        throw PlaceholderError()
+    }
     func getDefaultNotificationMode(
         isOneToOne: Bool
     ) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }

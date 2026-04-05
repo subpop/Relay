@@ -48,6 +48,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @State private var inspectorInitialTab: InspectorTab?
     @State private var activeCallViewModel: (any CallViewModelProtocol)?
     @State private var isShowingCall = false
+    @State private var isPreparingCall = false
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -240,8 +241,12 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
         .sheet(isPresented: $isShowingCall) {
             if let callViewModel = activeCallViewModel {
-                CallView(viewModel: callViewModel) {
+                CallView(
+                    viewModel: callViewModel,
+                    isPreparingCredentials: isPreparingCall
+                ) {
                     isShowingCall = false
+                    isPreparingCall = false
                     activeCallViewModel = nil
                 }
             }
@@ -404,9 +409,22 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     // MARK: - Call Handling
 
     private func startCall(roomId: String) {
+        guard !isPreparingCall else { return }
         guard let viewModel = matrixService.makeCallViewModel(roomId: roomId) else { return }
         activeCallViewModel = viewModel
+        isPreparingCall = true
         isShowingCall = true
+
+        Task {
+            do {
+                let (url, token) = try await matrixService.callCredentials(for: roomId)
+                try await viewModel.connect(url: url, token: token)
+            } catch {
+                // Credential fetch or connect failed — viewModel stays in .idle so
+                // CallView shows the manual-entry join form as a fallback.
+            }
+            isPreparingCall = false
+        }
     }
 
     // MARK: - Deep Link Handling

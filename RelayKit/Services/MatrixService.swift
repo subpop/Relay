@@ -1269,6 +1269,20 @@ public final class MatrixService: MatrixServiceProtocol {
         CallViewModel()
     }
 
+    public func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String) {
+        guard let client else {
+            throw LiveKitCredentialError.serverError
+        }
+        let session = try client.session()
+        let service = LiveKitCredentialService(
+            homeserver: client.homeserver,
+            accessToken: session.accessToken,
+            userID: client.userID,
+            deviceID: client.deviceID
+        )
+        return try await service.credentials(for: roomId)
+    }
+
     public func declinePendingVerificationRequest() async {
         pendingVerificationRequest = nil
         try? await verificationController?.cancelVerification()
