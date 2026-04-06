@@ -104,21 +104,17 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 hasReachedEnd = true
             }
             observeTypingNotifications()
-            // swiftlint:disable:next identifier_name
-            if let tl = sdkTimeline {
-                await paginateInitialHistory(tl)
-            }
         } catch {
             logger.error("Failed to load timeline: \(error)")
             errorReporter.report(.messageLoadFailed(error.localizedDescription))
+            isLoading = false
         }
-        isLoading = false
     }
 
     public func loadMoreHistory() async {
         guard let sdkTimeline, !isLoadingMore, !hasReachedStart else { return }
         do {
-            _ = try await sdkTimeline.paginateBackwards(numEvents: 40)
+            _ = try await sdkTimeline.paginateBackwards(numEvents: 100)
         } catch {
             logger.error("Failed to load earlier messages: \(error)")
             errorReporter.report(.messageLoadFailed(error.localizedDescription))
@@ -183,15 +179,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         do {
             try await setupTimeline(focus: .live(hideThreadedEvents: true))
             timelineFocus = .live
-            // swiftlint:disable:next identifier_name
-            if let tl = sdkTimeline {
-                await paginateInitialHistory(tl)
-            }
         } catch {
             logger.error("Failed to return to live timeline: \(error)")
             errorReporter.report(.messageLoadFailed(error.localizedDescription))
+            isLoading = false
         }
-        isLoading = false
     }
 
     public func send(text: String, inReplyTo eventId: String? = nil, mentionedUserIds: [String] = []) async {
@@ -470,14 +462,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
     // MARK: - Private
 
-    // swiftlint:disable:next identifier_name
-    private func paginateInitialHistory(_ tl: Timeline) async {
-        do {
-            _ = try await tl.paginateBackwards(numEvents: 40)
-        } catch {
-            logger.error("Failed to paginate initial history: \(error)")
-        }
-    }
+    /// How long to accumulate diffs before applying them. This prevents
+    /// `rebuildMessages()` from running on every individual SDK callback
+    /// during rapid bursts (initial load, back-pagination, reset diffs).
+    /// Matches the 500ms throttle used by Mactrix.
+    private static let diffThrottleInterval: Duration = .milliseconds(500)
 
     // swiftlint:disable:next identifier_name
     private func observeTimeline(_ tl: Timeline) {
@@ -491,8 +480,43 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
             self.timelineHandle = await tl.addListener(listener: listener)
 
+            // Throttled diff processing: diffs are applied to `timelineItems`
+            // immediately (cheap array mutations), but `rebuildMessages()` is
+            // called at most once per throttle interval to avoid mapping all
+            // items to TimelineMessage on every SDK callback.
+            //
+            // While `isLoading` is true the scroll view is hidden behind the
+            // loading overlay, so rebuilds are skipped entirely — the single
+            // rebuild happens when `isLoading` is cleared by the pagination
+            // status observer.
+            var needsRebuild = false
+            var throttleTask: Task<Void, Never>?
+
             for await diffs in stream {
                 self.applyDiffs(diffs)
+
+                // Skip rebuilds while the loading overlay is up.
+                guard !self.isLoading else { continue }
+
+                needsRebuild = true
+
+                // If no throttle timer is running, start one. When it fires,
+                // it flushes accumulated diffs into a single rebuild.
+                if throttleTask == nil {
+                    throttleTask = Task { [weak self] in
+                        try? await Task.sleep(for: Self.diffThrottleInterval)
+                        guard !Task.isCancelled, let self else { return }
+                        if needsRebuild {
+                            needsRebuild = false
+                            self.rebuildMessages()
+                        }
+                        throttleTask = nil
+                    }
+                }
+            }
+
+            // Flush any remaining diffs when the stream ends.
+            if needsRebuild {
                 self.rebuildMessages()
             }
         }
@@ -518,9 +542,17 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     // Auto-paginate if we have few items and haven't hit start,
                     // ensuring enough content to fill the viewport so the user
                     // doesn't immediately see the pagination trigger.
-                    if !hitStart && self.timelineItems.count < 30 {
+                    if !hitStart && self.timelineItems.count < 20 {
                         try? await Task.sleep(for: .milliseconds(500))
-                        _ = try? await tl.paginateBackwards(numEvents: 40)
+                        _ = try? await tl.paginateBackwards(numEvents: 100)
+                    } else if self.isLoading {
+                        // The initial auto-pagination loop has settled — either
+                        // we have enough items or hit the room start. Rebuild
+                        // messages once with the full content, then clear the
+                        // loading overlay so the scroll view renders in a
+                        // single pass with no scroll jumps.
+                        self.rebuildMessages()
+                        self.isLoading = false
                     }
                 case .paginating:
                     self.isLoadingMore = true
