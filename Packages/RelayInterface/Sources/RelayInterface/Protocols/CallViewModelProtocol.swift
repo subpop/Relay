@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import AppKit
 import Foundation
+import SwiftUI
 
 /// The connection state of a call.
 public enum CallState: Sendable, Equatable {
@@ -105,12 +105,9 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
     /// Toggles the local microphone on or off.
     func toggleMicrophone() async throws
 
-    /// Returns an ``NSView`` that renders the video track of the given participant, or `nil`
-    /// if the participant has no active video track or is not found.
-    ///
-    /// The returned view is owned by the call view model and must only be embedded — do not
-    /// deallocate it. A new view is returned on each call.
+    /// Returns a SwiftUI view that renders the video track of the given participant,
+    /// or `nil` if the participant has no active video track or is not found.
     ///
     /// - Parameter participantID: The ``CallParticipant/id`` of the participant to render.
-    func makeVideoView(for participantID: String) -> NSView?
+    func makeVideoView(for participantID: String) -> AnyView?
 }

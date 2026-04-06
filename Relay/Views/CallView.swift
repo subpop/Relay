@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import AppKit
 import RelayInterface
 import SwiftUI
 
@@ -198,6 +197,11 @@ struct CallView: View {
     }
 
     // MARK: - Participants Grid
+    //
+    // NOTE: For a richer integration, consider adopting LiveKitComponents
+    // (ForEachParticipant / ForEachTrack / VideoTrackView) which handle
+    // participant lifecycle, adaptive streaming, and reconnection automatically.
+    // See: https://github.com/livekit/components-swift
 
     @ViewBuilder
     private var participantsGrid: some View {
@@ -206,9 +210,11 @@ struct CallView: View {
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(viewModel.participants) { participant in
                     participantTile(participant)
+                        .id(participant.id)
                 }
                 if let localID = viewModel.localParticipantID {
                     localParticipantTile(id: localID)
+                        .id(localID)
                 }
             }
             .padding(8)
@@ -220,12 +226,12 @@ struct CallView: View {
     @ViewBuilder
     private func participantTile(_ participant: CallParticipant) -> some View {
         ZStack(alignment: .bottom) {
-            VideoViewRepresentable(viewModel: viewModel, participantID: participant.id, trackRevision: viewModel.videoTrackRevision)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            Color(nsColor: .darkGray)
+
+            videoContent(for: participant.id)
 
             if participant.isSpeaking {
-                RoundedRectangle(cornerRadius: 10)
+                Rectangle()
                     .strokeBorder(.green, lineWidth: 3)
             }
 
@@ -246,11 +252,8 @@ struct CallView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(.black.opacity(0.55))
-            .clipShape(.rect(
-                topLeadingRadius: 0, bottomLeadingRadius: 10,
-                bottomTrailingRadius: 10, topTrailingRadius: 0
-            ))
         }
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
     }
 
     // MARK: - Local Participant Tile
@@ -258,9 +261,9 @@ struct CallView: View {
     @ViewBuilder
     private func localParticipantTile(id: String) -> some View {
         ZStack(alignment: .bottom) {
-            VideoViewRepresentable(viewModel: viewModel, participantID: id, trackRevision: viewModel.videoTrackRevision)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            Color(nsColor: .darkGray)
+
+            videoContent(for: id)
 
             HStack(spacing: 6) {
                 Text("You").font(.caption).foregroundStyle(.white)
@@ -275,11 +278,8 @@ struct CallView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(.black.opacity(0.55))
-            .clipShape(.rect(
-                topLeadingRadius: 0, bottomLeadingRadius: 10,
-                bottomTrailingRadius: 10, topTrailingRadius: 0
-            ))
         }
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
     }
 
     // MARK: - Control Bar
@@ -335,51 +335,26 @@ struct CallView: View {
     }
 }
 
-// MARK: - NSView Bridge for Video
+// MARK: - Video Content
 
-/// Embeds the opaque `NSView` returned by ``CallViewModelProtocol/makeVideoView(for:)``.
-///
-/// A stable container `NSView` is created in `makeNSView`. On each SwiftUI
-/// re-render (driven by `viewModel` state changes) `updateNSView` asks the
-/// view model for the current video view and swaps it into the container.
-/// This handles the common timing issue where the video track isn't published
-/// yet on the first render but becomes available shortly after.
-private struct VideoViewRepresentable: NSViewRepresentable {
-    let viewModel: any CallViewModelProtocol
-    let participantID: String
-    /// Reading this value in the parent SwiftUI view ensures that when the view model
-    /// bumps it (e.g. after a track is published), SwiftUI re-evaluates this representable
-    /// and calls ``updateNSView``.
-    let trackRevision: UInt
-
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.darkGray.cgColor
-        container.layer?.cornerRadius = 10
-        attachVideoView(to: container)
-        return container
-    }
-
-    func updateNSView(_ container: NSView, context: Context) {
-        attachVideoView(to: container)
-    }
-
-    private func attachVideoView(to container: NSView) {
-        guard let videoView = viewModel.makeVideoView(for: participantID) else { return }
-
-        // Already the current subview — nothing to do.
-        if container.subviews.first === videoView { return }
-
-        container.subviews.forEach { $0.removeFromSuperview() }
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(videoView)
-        NSLayoutConstraint.activate([
-            videoView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            videoView.topAnchor.constraint(equalTo: container.topAnchor),
-            videoView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+extension CallView {
+    /// Returns the LiveKit `SwiftUIVideoView` (via `AnyView`) for the given participant,
+    /// or a dark grey placeholder if no video track is available yet.
+    ///
+    /// > Important: Do **not** apply `.clipShape()` or `.mask()` to the returned
+    /// > video view.  `SwiftUIVideoView` renders via Metal and SwiftUI shape
+    /// > clipping interferes with the GPU-backed surface, causing visual artefacts.
+    @ViewBuilder
+    fileprivate func videoContent(for participantID: String) -> some View {
+        // Reading videoTrackRevision ensures SwiftUI re-evaluates this
+        // when tracks change (publish, subscribe, toggle).
+        let _ = viewModel.videoTrackRevision
+        if let videoView = viewModel.makeVideoView(for: participantID) {
+            videoView
+        } else {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .darkGray))
+        }
     }
 }
 
