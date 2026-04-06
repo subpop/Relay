@@ -204,6 +204,13 @@ struct MessageTextView: NSViewRepresentable {
         var lastResolvedAttributedString: NSAttributedString?
         var lastIsOutgoing: Bool?
         var cachedResolved: NSAttributedString?
+
+        /// Cached result from `sizeThatFits` to avoid redundant
+        /// `NSLayoutManager.ensureLayout` calls when SwiftUI re-measures
+        /// with the same proposal and text content.
+        var cachedSizeProposedWidth: CGFloat?
+        var cachedSizeResult: CGSize?
+        var cachedSizeTextLength: Int?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -277,6 +284,9 @@ struct MessageTextView: NSViewRepresentable {
 
             view.linkTextAttributes = [.foregroundColor: linkColor]
             view.textStorage?.setAttributedString(resolved)
+
+            // Invalidate the size cache — the text content changed.
+            coordinator.cachedSizeResult = nil
         }
     }
 
@@ -286,8 +296,18 @@ struct MessageTextView: NSViewRepresentable {
         guard let container = nsView.textContainer,
               // swiftlint:disable:next identifier_name
               let lm = nsView.layoutManager,
-              (nsView.textStorage?.length ?? 0) > 0
+              let textLength = nsView.textStorage?.length,
+              textLength > 0
         else { return .zero }
+
+        // Return the cached size if the proposal and text haven't changed.
+        let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let coordinator = context.coordinator
+        if let cached = coordinator.cachedSizeResult,
+           coordinator.cachedSizeTextLength == textLength,
+           coordinator.cachedSizeProposedWidth == proposedWidth {
+            return cached
+        }
 
         // Prevent setFrameSize from constraining the container while we measure.
         nsView.suppressContainerSync = true
@@ -321,21 +341,25 @@ struct MessageTextView: NSViewRepresentable {
         let naturalHeight = lm.usedRect(for: container).height
         let tightWidth = ceil(naturalWidth)
 
-        let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let result: CGSize
 
         // Text fits within the proposed width without extra wrapping — hug it.
         // swiftlint:disable:next identifier_name
-        guard let pw = proposedWidth, tightWidth > pw else {
-            return CGSize(width: tightWidth, height: ceil(naturalHeight))
+        if let pw = proposedWidth, tightWidth > pw {
+            // Text must wrap to fit the proposed width. Use the full proposed width
+            // so SwiftUI doesn't re-propose a narrower value (feedback loop).
+            container.containerSize = NSSize(width: pw, height: CGFloat.greatestFiniteMagnitude)
+            lm.ensureLayout(for: container)
+            let constrainedHeight = lm.usedRect(for: container).height
+            result = CGSize(width: pw, height: ceil(constrainedHeight))
+        } else {
+            result = CGSize(width: tightWidth, height: ceil(naturalHeight))
         }
 
-        // Text must wrap to fit the proposed width. Use the full proposed width
-        // so SwiftUI doesn't re-propose a narrower value (feedback loop).
-        container.containerSize = NSSize(width: pw, height: CGFloat.greatestFiniteMagnitude)
-        lm.ensureLayout(for: container)
-        let constrainedHeight = lm.usedRect(for: container).height
-
-        return CGSize(width: pw, height: ceil(constrainedHeight))
+        coordinator.cachedSizeProposedWidth = proposedWidth
+        coordinator.cachedSizeResult = result
+        coordinator.cachedSizeTextLength = textLength
+        return result
     }
 
     // MARK: - Attribute Resolution

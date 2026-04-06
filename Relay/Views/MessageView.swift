@@ -105,10 +105,14 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                         }
 
                         messageContent
-                            .overlay {
+                            .overlay(alignment: .topTrailing) {
                                 if message.isHighlighted {
-                                    RoundedRectangle(cornerRadius: 17, style: .continuous)
-                                        .strokeBorder(Color.orange, lineWidth: 1)
+                                    Image(systemName: "at")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 16, height: 16)
+                                        .background(.red, in: Circle())
+                                        .offset(x: 4, y: -4)
                                 }
                             }
                             .padding(message.replyDetail != nil ? 2 : 0)
@@ -461,10 +465,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
     // MARK: - Bubble Color
 
     private var bubbleColor: Color {
-        if message.isHighlighted {
-            return Color(red: 0.35, green: 0.22, blue: 0.10)
-        }
-        return message.isOutgoing ? .accentColor : Color(.unemphasizedSelectedContentBackgroundColor)
+        message.isOutgoing ? .accentColor : Color(.unemphasizedSelectedContentBackgroundColor)
     }
 }
 

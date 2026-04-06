@@ -60,7 +60,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     @State private var draftMentions: [Mention] = []
     @State private var messageToDelete: TimelineMessage?
 
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var isNearBottom = true
     @State private var pendingScrollToBottom = false
     @State private var showUnreadMarker = true
@@ -274,116 +274,64 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// The message list always renders the `ScrollView` to preserve SwiftUI view identity.
     /// Loading and empty states are overlaid on top rather than replacing the scroll view,
     /// which prevents `LazyVStack` layout issues during rapid timeline diff cycles.
+    /// The number of messages from the top at which backward pagination is triggered.
+    /// Pagination fires when the Nth message from the top becomes visible, giving
+    /// enough runway for new content to load before the user reaches the top.
+    private static let paginationTriggerIndex = 5
+
     private var messageList: some View {
         ScrollView {
             LazyVStack(spacing: 2) {
-                if viewModel.isLoadingMore {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 4)
-                }
-
-                if !viewModel.hasReachedStart {
-                    Color.clear
-                        .frame(height: 1)
-                        .onAppear {
-                            guard !viewModel.isLoadingMore else { return }
-                            Task { await viewModel.loadMoreHistory() }
-                        }
-                }
-
-                let messages = filteredMessages
-                let groupInfo = Self.buildGroupInfo(for: messages)
-                ForEach(messages) { message in
-                    let info = groupInfo[message.id, default: .default]
-
-                    if showUnreadMarker && message.id == viewModel.firstUnreadMessageId {
-                            unreadMarker
-                        }
-
-                    if info.showDateHeader {
-                        Text(dateSectionLabel(for: message.timestamp))
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, info.isFirst ? 4 : 12)
-                            .padding(.bottom, 4)
-                    }
-
-                    if info.showGroupSpacer {
-                        Spacer().frame(height: 8)
-                    }
-
-                    if message.isSystemEvent {
-                        SystemEventView(message: message)
-                            .id(message.id)
-                            .help(message.formattedTime)
-                            .onAppear { advanceFullyReadMarker(to: message.id) }
-                            .messageHighlight(highlightedMessageId == message.id) {
-                                highlightedMessageId = nil
+                let rows = Self.buildRows(for: filteredMessages, hasReachedStart: viewModel.hasReachedStart)
+                ForEach(rows) { row in
+                    TimelineRowView(
+                        row: row,
+                        showUnreadMarker: showUnreadMarker,
+                        firstUnreadMessageId: viewModel.firstUnreadMessageId,
+                        highlightedMessageId: highlightedMessageId,
+                        showURLPreviews: showURLPreviews,
+                        currentUserID: matrixService.userId(),
+                        onToggleReaction: { messageId, key in
+                            Task { await viewModel.toggleReaction(messageId: messageId, key: key) }
+                        },
+                        onTapReply: { eventID in
+                            if viewModel.messages.contains(where: { $0.id == eventID }) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    scrollPosition.scrollTo(id: eventID, anchor: .center)
+                                }
+                                highlightedMessageId = eventID
+                            } else {
+                                focusedMessageId = eventID
                             }
-                    } else {
-                        MessageSwipeActions {
-                            MessageView(
-                                message: message,
-                                isLastInGroup: info.isLastInGroup,
-                                showSenderName: info.showSenderName,
-                                onToggleReaction: { key in
-                                    Task { await viewModel.toggleReaction(messageId: message.id, key: key) }
-                                },
-                                onTapReply: { eventID in
-                                    if viewModel.messages.contains(where: { $0.id == eventID }) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            scrollPosition.scrollTo(id: eventID, anchor: .center)
-                                        }
-                                        highlightedMessageId = eventID
-                                    } else {
-                                        // Replied-to message isn't loaded — route through
-                                        // the focusedMessageId handler to load a focused timeline
-                                        focusedMessageId = eventID
-                                    }
-                                },
-                                onAvatarDoubleTap: {
-                                    onUserTap?(UserProfile(message: message))
-                                },
-                                onUserTap: { userId in
-                                    let member = roomMembers.first(where: { $0.userId == userId })
-                                    let profile = member.map { UserProfile(member: $0) }
-                                        ?? UserProfile(userId: userId)
-                                    onUserTap?(profile)
-                                },
-                                onRoomTap: onRoomTap,
-                                currentUserID: matrixService.userId()
-                            )
-                        } onReply: {
+                        },
+                        onReply: { message in
                             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                                 replyingTo = message
                             }
-                        }
-                        .id(message.id)
-                        .help(message.formattedTime)
-                        .onAppear { advanceFullyReadMarker(to: message.id) }
-                        .contextMenu {
-                            messageContextMenu(for: message)
-                        }
-                        .messageHighlight(highlightedMessageId == message.id) {
+                        },
+                        onAvatarDoubleTap: { message in
+                            onUserTap?(UserProfile(message: message))
+                        },
+                        onUserTap: { userId in
+                            let member = roomMembers.first(where: { $0.userId == userId })
+                            let profile = member.map { UserProfile(member: $0) }
+                                ?? UserProfile(userId: userId)
+                            onUserTap?(profile)
+                        },
+                        onRoomTap: onRoomTap,
+                        onAppear: { row in
+                            advanceFullyReadMarker(to: row.message.id)
+                            if row.isPaginationTrigger {
+                                triggerBackwardPagination()
+                            }
+                        },
+                        onContextAction: { action in
+                            handleContextAction(action)
+                        },
+                        onHighlightDismissed: {
                             highlightedMessageId = nil
                         }
-
-                        if showURLPreviews, message.kind == .text,
-                           let url = Self.firstPreviewURL(in: message.body) {
-                            LinkPreviewView(url: url, isOutgoing: message.isOutgoing)
-                                .frame(maxWidth: 260)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color(.systemGray).opacity(0.1))
-                                )
-                                .padding(.leading, message.isOutgoing ? 0 : 34)
-                                .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
-                        }
-                    }
+                    )
                 }
 
                 // Forward pagination sentinel: loads newer messages when scrolling
@@ -423,9 +371,21 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         }
         .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition)
+        .overlay(alignment: .top) {
+            if viewModel.isLoadingMore {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+            }
+        }
         .onChange(of: viewModel.messages.last?.id) {
             // Don't auto-scroll when viewing a focused event context
             guard viewModel.timelineFocus == .live else { return }
+            // Don't auto-scroll while backward pagination is in progress — content
+            // is being prepended, so the last-id may change via a .reset diff.
+            guard !viewModel.isLoadingMore else { return }
 
             if isNearBottom || pendingScrollToBottom {
                 pendingScrollToBottom = false
@@ -513,21 +473,6 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Unread Marker
-
-    private var unreadMarker: some View {
-        HStack(spacing: 8) {
-            VStack { Divider() }
-            Text("New")
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundStyle(.red)
-            VStack { Divider() }
-        }
-        .padding(.vertical, 4)
-        .transition(.opacity)
-    }
-
     // MARK: - Fully-Read Marker
 
     /// Debounces fully-read receipt advancement as messages appear on screen.
@@ -556,72 +501,61 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Context Menu
+    // MARK: - Context Action Handler
 
-    @ViewBuilder
-    private func messageContextMenu(for message: TimelineMessage) -> some View {
-        Button {
+    private func handleContextAction(_ action: TimelineRowContextAction) {
+        switch action {
+        case .reply(let message):
             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                 replyingTo = message
             }
-        } label: {
-            Label("Reply", systemImage: "arrowshape.turn.up.left")
-        }
-
-        Button {
+        case .copy(let text):
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.body, forType: .string)
-        } label: {
-            Label("Copy", systemImage: "doc.on.doc")
-        }
-
-        if message.id.hasPrefix("$") {
+            NSPasteboard.general.setString(text, forType: .string)
+        case .togglePin(let eventId):
             let isPinned = matrixService.rooms
                 .first(where: { $0.id == roomId })?
-                .pinnedEventIds.contains(message.id) ?? false
-
-            Button {
-                Task {
-                    if isPinned {
-                        await viewModel.unpin(eventId: message.id)
-                    } else {
-                        await viewModel.pin(eventId: message.id)
-                    }
+                .pinnedEventIds.contains(eventId) ?? false
+            Task {
+                if isPinned {
+                    await viewModel.unpin(eventId: eventId)
+                } else {
+                    await viewModel.pin(eventId: eventId)
                 }
-            } label: {
-                Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin")
             }
+        case .edit(let message):
+            replyingTo = nil
+            editingMessage = message
+            draftMessage = message.body
+        case .delete(let message):
+            messageToDelete = message
         }
+    }
 
-        if message.isOutgoing && message.kind == .text {
-            Button {
-                replyingTo = nil
-                editingMessage = message
-                draftMessage = message.body
-            } label: {
-                Label("Edit Message", systemImage: "pencil")
-            }
-        }
+    // MARK: - Backward Pagination Trigger
 
-        if message.isOutgoing && message.kind != .redacted {
-            Divider()
+    /// Returns the ID of the message that should trigger backward pagination
+    /// when it becomes visible, or `nil` if no trigger is needed.
+    private static func paginationTriggerID(in messages: [TimelineMessage], hasReachedStart: Bool) -> String? {
+        guard !hasReachedStart, !messages.isEmpty else { return nil }
+        let index = min(paginationTriggerIndex, messages.count - 1)
+        return messages[index].id
+    }
 
-            Button(role: .destructive) {
-                messageToDelete = message
-            } label: {
-                Label("Delete Message", systemImage: "trash")
-            }
-        }
+    /// Fires backward pagination if not already in progress.
+    private func triggerBackwardPagination() {
+        guard !viewModel.isLoadingMore else { return }
+        Task { await viewModel.loadMoreHistory() }
     }
 
     // MARK: - URL Extraction
 
     /// Cache for `firstPreviewURL` results to avoid running `NSDataDetector` on
     /// every SwiftUI body evaluation.
-    private static let urlCache = ParseCache<String, URL?>(capacity: 256)
+    static let urlCache = ParseCache<String, URL?>(capacity: 256)
 
     /// Returns the first HTTP(S) URL found in the given string, excluding `matrix.to` links.
-    private static func firstPreviewURL(in body: String) -> URL? {
+    static func firstPreviewURL(in body: String) -> URL? {
         urlCache.value(forKey: body) {
             guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
                 return nil
@@ -659,24 +593,47 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// Precomputed layout metadata for a single message within the timeline.
     /// Built once per body evaluation by ``buildGroupInfo(for:)`` so the
     /// `ForEach` body doesn't need index-based lookups.
-    struct MessageGroupInfo {
+    struct MessageGroupInfo: Equatable, Sendable {
         var isFirst = false
         var showDateHeader = false
         var showGroupSpacer = false
         var isLastInGroup = true
         var showSenderName = false
 
+        nonisolated static func == (lhs: MessageGroupInfo, rhs: MessageGroupInfo) -> Bool {
+            lhs.isFirst == rhs.isFirst
+                && lhs.showDateHeader == rhs.showDateHeader
+                && lhs.showGroupSpacer == rhs.showGroupSpacer
+                && lhs.isLastInGroup == rhs.isLastInGroup
+                && lhs.showSenderName == rhs.showSenderName
+        }
+
         static let `default` = MessageGroupInfo()
     }
 
-    /// Builds a dictionary mapping message IDs to their precomputed grouping
-    /// metadata. This replaces per-item index lookups inside the `ForEach`,
-    /// which required `Array(messages.enumerated())` — a new allocation on
-    /// every body evaluation that forced SwiftUI to re-diff from scratch.
-    private static func buildGroupInfo(for messages: [TimelineMessage]) -> [String: MessageGroupInfo] {
-        guard !messages.isEmpty else { return [:] }
+    /// A message bundled with its precomputed layout metadata, used as the
+    /// element type for the `ForEach` to avoid capturing the full groupInfo
+    /// dictionary or messages array in each row's closure.
+    struct MessageRow: Identifiable {
+        let message: TimelineMessage
+        let info: MessageGroupInfo
+        let isPaginationTrigger: Bool
+
+        var id: String { message.id }
+    }
+
+    /// Builds an array of ``MessageRow`` values, pairing each message with its
+    /// precomputed grouping metadata and pagination trigger flag. The result is
+    /// used directly by the `ForEach`, so each row closure captures only its own
+    /// lightweight `MessageRow` — not the full dictionary or messages array.
+    private static func buildRows(
+        for messages: [TimelineMessage],
+        hasReachedStart: Bool
+    ) -> [MessageRow] {
+        guard !messages.isEmpty else { return [] }
         let calendar = Calendar.current
-        var result = [String: MessageGroupInfo]()
+        let triggerID = paginationTriggerID(in: messages, hasReachedStart: hasReachedStart)
+        var result = [MessageRow]()
         result.reserveCapacity(messages.count)
 
         for index in messages.indices {
@@ -735,26 +692,13 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 }
             }
 
-            result[message.id] = info
+            result.append(MessageRow(
+                message: message,
+                info: info,
+                isPaginationTrigger: message.id == triggerID
+            ))
         }
         return result
-    }
-
-    private func dateSectionLabel(for date: Date) -> String {
-        let calendar = Calendar.current
-        let now = Date.now
-
-        if calendar.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
-        } else if calendar.isDateInYesterday(date) {
-            return "Yesterday \(date.formatted(date: .omitted, time: .shortened))"
-        } else if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
-            return date.formatted(.dateTime.weekday(.wide).hour().minute())
-        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
-            return date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
-        } else {
-            return date.formatted(.dateTime.year().month(.abbreviated).day().hour().minute())
-        }
     }
 
     // MARK: - Send
