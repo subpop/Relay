@@ -1266,7 +1266,23 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)? {
-        CallViewModel()
+        guard let client else { return nil }
+        do {
+            let session = try client.session()
+            let sdkRoom = room(id: roomId)
+            let context = CallViewModel.EncryptionContext(
+                homeserver: client.homeserver,
+                accessToken: session.accessToken,
+                userID: client.userID,
+                deviceID: client.deviceID,
+                roomID: roomId,
+                matrixRoom: sdkRoom
+            )
+            return CallViewModel(encryptionContext: context)
+        } catch {
+            logger.warning("Could not create encryption context, falling back to unencrypted call: \(error.localizedDescription)")
+            return CallViewModel()
+        }
     }
 
     public func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String) {
