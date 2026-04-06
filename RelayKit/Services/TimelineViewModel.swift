@@ -515,8 +515,10 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     self.isLoadingMore = false
                     self.hasReachedStart = hitStart
 
-                    // Auto-paginate if we have very few items and haven't hit start
-                    if !hitStart && self.timelineItems.count < 20 {
+                    // Auto-paginate if we have few items and haven't hit start,
+                    // ensuring enough content to fill the viewport so the user
+                    // doesn't immediately see the pagination trigger.
+                    if !hitStart && self.timelineItems.count < 30 {
                         try? await Task.sleep(for: .milliseconds(500))
                         _ = try? await tl.paginateBackwards(numEvents: 40)
                     }

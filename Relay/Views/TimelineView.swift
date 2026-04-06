@@ -60,7 +60,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     @State private var draftMentions: [Mention] = []
     @State private var messageToDelete: TimelineMessage?
 
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var isNearBottom = true
     @State private var pendingScrollToBottom = false
     @State private var showUnreadMarker = true
@@ -274,27 +274,19 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// The message list always renders the `ScrollView` to preserve SwiftUI view identity.
     /// Loading and empty states are overlaid on top rather than replacing the scroll view,
     /// which prevents `LazyVStack` layout issues during rapid timeline diff cycles.
+    /// The number of messages from the top at which backward pagination is triggered.
+    /// Pagination fires when the Nth message from the top becomes visible, giving
+    /// enough runway for new content to load before the user reaches the top.
+    private static let paginationTriggerIndex = 5
+
     private var messageList: some View {
         ScrollView {
             LazyVStack(spacing: 2) {
-                if viewModel.isLoadingMore {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 4)
-                }
-
-                if !viewModel.hasReachedStart {
-                    Color.clear
-                        .frame(height: 1)
-                        .onAppear {
-                            guard !viewModel.isLoadingMore else { return }
-                            Task { await viewModel.loadMoreHistory() }
-                        }
-                }
-
                 let messages = filteredMessages
                 let groupInfo = Self.buildGroupInfo(for: messages)
+                // Precompute the single message ID that should trigger backward
+                // pagination so each row only needs a cheap equality check.
+                let paginationTriggerID = Self.paginationTriggerID(in: messages, hasReachedStart: viewModel.hasReachedStart)
                 ForEach(messages) { message in
                     let info = groupInfo[message.id, default: .default]
 
@@ -319,7 +311,12 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                         SystemEventView(message: message)
                             .id(message.id)
                             .help(message.formattedTime)
-                            .onAppear { advanceFullyReadMarker(to: message.id) }
+                            .onAppear {
+                                advanceFullyReadMarker(to: message.id)
+                                if message.id == paginationTriggerID {
+                                    triggerBackwardPagination()
+                                }
+                            }
                             .messageHighlight(highlightedMessageId == message.id) {
                                 highlightedMessageId = nil
                             }
@@ -363,7 +360,12 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                         }
                         .id(message.id)
                         .help(message.formattedTime)
-                        .onAppear { advanceFullyReadMarker(to: message.id) }
+                        .onAppear {
+                            advanceFullyReadMarker(to: message.id)
+                            if message.id == paginationTriggerID {
+                                triggerBackwardPagination()
+                            }
+                        }
                         .contextMenu {
                             messageContextMenu(for: message)
                         }
@@ -423,9 +425,21 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         }
         .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition)
+        .overlay(alignment: .top) {
+            if viewModel.isLoadingMore {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+            }
+        }
         .onChange(of: viewModel.messages.last?.id) {
             // Don't auto-scroll when viewing a focused event context
             guard viewModel.timelineFocus == .live else { return }
+            // Don't auto-scroll while backward pagination is in progress — content
+            // is being prepended, so the last-id may change via a .reset diff.
+            guard !viewModel.isLoadingMore else { return }
 
             if isNearBottom || pendingScrollToBottom {
                 pendingScrollToBottom = false
@@ -554,6 +568,22 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             guard !Task.isCancelled else { return }
             await viewModel.sendFullyReadReceipt(upTo: eventId)
         }
+    }
+
+    // MARK: - Backward Pagination Trigger
+
+    /// Returns the ID of the message that should trigger backward pagination
+    /// when it becomes visible, or `nil` if no trigger is needed.
+    private static func paginationTriggerID(in messages: [TimelineMessage], hasReachedStart: Bool) -> String? {
+        guard !hasReachedStart, !messages.isEmpty else { return nil }
+        let index = min(paginationTriggerIndex, messages.count - 1)
+        return messages[index].id
+    }
+
+    /// Fires backward pagination if not already in progress.
+    private func triggerBackwardPagination() {
+        guard !viewModel.isLoadingMore else { return }
+        Task { await viewModel.loadMoreHistory() }
     }
 
     // MARK: - Context Menu
