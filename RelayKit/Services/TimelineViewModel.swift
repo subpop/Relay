@@ -464,10 +464,15 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         sdkTimeline = tl
         observeTimeline(tl)
 
-        do {
-            try await observePaginationStatus(tl)
-        } catch {
-            logger.error("Failed to subscribe to pagination status: \(error)")
+        // Back-pagination status subscriptions are only supported on live
+        // timelines. The SDK throws on focused (event-based) timelines, so
+        // skip the subscription in that case.
+        if case .live = focus {
+            do {
+                try await observePaginationStatus(tl)
+            } catch {
+                logger.error("Failed to subscribe to pagination status: \(error)")
+            }
         }
     }
 
