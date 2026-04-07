@@ -54,6 +54,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     private let messageMapper: TimelineMessageMapper
     private let errorReporter: ErrorReporter
     private var hasComputedUnreadMarker = false
+    private var isSendingFullyReadReceipt = false
     private var fetchedReplyEventIds: Set<String> = []
 
     @ObservationIgnored private var timelineHandle: TaskHandle?
@@ -139,6 +140,16 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
     public func sendFullyReadReceipt(upTo eventId: String) async {
         guard let sdkTimeline else { return }
+        // Transaction IDs (pending local echoes) don't have the leading "$"
+        // sigil that the server requires for event IDs. Skip them; the receipt
+        // will be sent once the echo is confirmed and the row re-appears with
+        // a real event ID.
+        guard eventId.hasPrefix("$") else { return }
+        // Serialize calls so we don't fire concurrent requests to the same
+        // endpoint, which the SDK rejects with ConcurrentRequestFailed.
+        guard !isSendingFullyReadReceipt else { return }
+        isSendingFullyReadReceipt = true
+        defer { isSendingFullyReadReceipt = false }
         do {
             try await sdkTimeline.sendReadReceipt(receiptType: .fullyRead, eventId: eventId)
         } catch {
