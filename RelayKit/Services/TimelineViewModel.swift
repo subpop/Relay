@@ -495,19 +495,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             // immediately (cheap array mutations), but `rebuildMessages()` is
             // called at most once per throttle interval to avoid mapping all
             // items to TimelineMessage on every SDK callback.
-            //
-            // While `isLoading` is true the scroll view is hidden behind the
-            // loading overlay, so rebuilds are skipped entirely — the single
-            // rebuild happens when `isLoading` is cleared by the pagination
-            // status observer.
             var needsRebuild = false
             var throttleTask: Task<Void, Never>?
 
             for await diffs in stream {
                 self.applyDiffs(diffs)
-
-                // Skip rebuilds while the loading overlay is up.
-                guard !self.isLoading else { continue }
 
                 needsRebuild = true
 
@@ -558,11 +550,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                         _ = try? await tl.paginateBackwards(numEvents: 100)
                     } else if self.isLoading {
                         // The initial auto-pagination loop has settled — either
-                        // we have enough items or hit the room start. Rebuild
-                        // messages once with the full content, then clear the
-                        // loading overlay so the scroll view renders in a
-                        // single pass with no scroll jumps.
-                        self.rebuildMessages()
+                        // we have enough items or hit the room start. Clear the
+                        // loading flag so the empty-room placeholder can appear
+                        // if needed. Message rebuilds happen continuously via
+                        // the throttled diff observer, so no explicit rebuild
+                        // is required here.
                         self.isLoading = false
                     }
                 case .paginating:

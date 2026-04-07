@@ -424,11 +424,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
     @ViewBuilder
     private var loadingOrEmptyOverlay: some View {
-        if viewModel.isLoading && viewModel.messages.isEmpty {
-            ProgressView("Loading messages…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.background)
-        } else if !viewModel.isLoading && viewModel.messages.isEmpty {
+        if !viewModel.isLoading && viewModel.messages.isEmpty {
             ContentUnavailableView(
                 "No Messages Yet",
                 systemImage: "text.bubble",
@@ -906,11 +902,7 @@ private struct PreviewTimeline: View {
             .padding(.bottom, 8)
         }
         .overlay {
-            if viewModel.isLoading && viewModel.messages.isEmpty {
-                ProgressView("Loading messages…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.background)
-            } else if !viewModel.isLoading && viewModel.messages.isEmpty {
+            if !viewModel.isLoading && viewModel.messages.isEmpty {
                 ContentUnavailableView(
                     "No Messages Yet",
                     systemImage: "text.bubble",
@@ -932,11 +924,6 @@ private struct PreviewTimeline: View {
         showUnreadMarker: true
     )
     .frame(width: 500, height: 600)
-}
-
-#Preview("Loading") {
-    PreviewTimeline(PreviewTimelineViewModel(messages: [], isLoading: true))
-        .frame(width: 500, height: 450)
 }
 
 #Preview("Typing Indicator") {
