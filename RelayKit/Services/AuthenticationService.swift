@@ -199,7 +199,7 @@ final class AuthenticationService {
         let oidcConfig = OidcConfiguration(
             clientName: "Relay",
             redirectUri: Self.oauthRedirectURI,
-            clientUri: "https://github.com/subpop/Relay",
+            clientUri: "https://subpop.github.io/Relay",
             logoUri: "https://subpop.github.io/Relay/logo-256.png",
             tosUri: nil,
             policyUri: nil,
