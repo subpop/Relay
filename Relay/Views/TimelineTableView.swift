@@ -340,7 +340,17 @@ final class TimelineTableViewController: NSViewController {
         rows = reversed
         let newIDs = rows.map(\.id)
 
-        if oldIDs == newIDs {
+        // Check whether the data source already has a populated snapshot.
+        // When a cached view model provides rows immediately,
+        // `makeNSViewController` calls `updateRows` before `loadView` has
+        // run (dataSource is nil), so the snapshot is never applied.  The
+        // follow-up call from `updateNSViewController` then sees
+        // oldIDs == newIDs and takes the content-only fast path — but no
+        // rows are visible because the snapshot is still empty.  Detecting
+        // an empty snapshot here forces a full structural update.
+        let snapshotIsEmpty = (dataSource?.snapshot().numberOfItems ?? 0) == 0
+
+        if oldIDs == newIDs && !snapshotIsEmpty {
             // Content-only update (reactions, read receipts, edits).
             // Invalidate cached heights for visible rows since content
             // changes (e.g. added reactions) can affect row height.
