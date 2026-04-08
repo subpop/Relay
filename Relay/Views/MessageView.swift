@@ -443,6 +443,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                 result[attrRange].link = match.url
             }
         }
+        MatrixIdentifierLinker.linkify(&result)
         return result
     }
 

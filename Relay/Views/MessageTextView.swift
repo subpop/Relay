@@ -546,6 +546,7 @@ private func previewParse(_ raw: String) -> AttributedString {
             result[attrRange].link = match.url
         }
     }
+    MatrixIdentifierLinker.linkify(&result)
     return result
 }
 
