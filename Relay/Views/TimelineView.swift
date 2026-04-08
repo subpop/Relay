@@ -217,7 +217,6 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) { loadingMoreOverlay }
-            .overlay(alignment: .bottom) { typingOverlay }
             .onChange(of: viewModel.messages.last?.id) {
                 guard viewModel.timelineFocus == .live else { return }
                 guard !viewModel.isLoadingMore else { return }
@@ -311,15 +310,6 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    @ViewBuilder
-    private var typingOverlay: some View {
-        if !viewModel.typingUserDisplayNames.isEmpty {
-            typingIndicator
-                .padding(.bottom, 48)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-        }
-    }
-
     // MARK: - Scroll to bottom button
 
     @ViewBuilder
@@ -349,6 +339,12 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
     private var composeBar: some View {
         VStack(spacing: 0) {
+            if !viewModel.typingUserDisplayNames.isEmpty {
+                typingIndicator
+                    .padding(.top, 4)
+                    .padding(.bottom, 4)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             if let reply = replyingTo {
                 HStack {
                     Label("Replying to \(reply.displayName)", systemImage: "arrowshape.turn.up.left")
