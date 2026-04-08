@@ -30,7 +30,9 @@ struct RoomInfoView: View {
     var onPinnedMessageTap: ((String) -> Void)?
 
     @State private var details: RoomDetails?
-    @State private var members: [RoomMemberDetails] = []
+
+    /// Maximum number of member rows shown in the info panel.
+    private let maxVisibleMembers = 20
 
     var body: some View {
         Group {
@@ -44,7 +46,6 @@ struct RoomInfoView: View {
         .frame(maxWidth: .infinity)
         .task {
             details = await matrixService.roomDetails(roomId: roomId)
-            members = await matrixService.roomMembers(roomId: roomId)
         }
     }
 
@@ -180,13 +181,25 @@ struct RoomInfoView: View {
     // MARK: - Members
 
     private func membersSection(_ details: RoomDetails) -> some View {
-        GroupBox {
+        let visibleMembers = Array(details.members.prefix(maxVisibleMembers))
+        let remainingCount = Int(details.memberCount) - visibleMembers.count
+
+        return GroupBox {
             VStack(spacing: 0) {
-                ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                ForEach(Array(visibleMembers.enumerated()), id: \.element.id) { index, member in
                     if index > 0 {
                         Divider().padding(.vertical, 4)
                     }
                     memberRow(member)
+                }
+
+                if remainingCount > 0 {
+                    Divider().padding(.vertical, 4)
+                    Text("\(remainingCount) more")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 4)
                 }
             }
             .padding(.vertical, 2)
