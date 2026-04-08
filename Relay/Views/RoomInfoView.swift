@@ -30,6 +30,7 @@ struct RoomInfoView: View {
     var onPinnedMessageTap: ((String) -> Void)?
 
     @State private var details: RoomDetails?
+    @State private var members: [RoomMemberDetails] = []
 
     var body: some View {
         Group {
@@ -43,6 +44,7 @@ struct RoomInfoView: View {
         .frame(maxWidth: .infinity)
         .task {
             details = await matrixService.roomDetails(roomId: roomId)
+            members = await matrixService.roomMembers(roomId: roomId)
         }
     }
 
@@ -180,7 +182,7 @@ struct RoomInfoView: View {
     private func membersSection(_ details: RoomDetails) -> some View {
         GroupBox {
             VStack(spacing: 0) {
-                ForEach(Array(details.members.enumerated()), id: \.element.id) { index, member in
+                ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
                     if index > 0 {
                         Divider().padding(.vertical, 4)
                     }
