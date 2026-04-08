@@ -30,6 +30,7 @@ struct RelayApp: App {
     @State private var matrixService = MatrixService()
     @State private var gifSearchService = GiphyService()
     @State private var notificationDelegate = NotificationDelegate()
+    @State private var appActions = AppActions()
 
     @Environment(\.openWindow) private var openWindow
 
@@ -39,6 +40,7 @@ struct RelayApp: App {
                 .environment(\.matrixService, matrixService)
                 .environment(\.gifSearchService, gifSearchService)
                 .environment(\.errorReporter, matrixService.errorReporter)
+                .environment(appActions)
                 .onChange(of: matrixService.rooms.map(\.id)) {
                     updateDockBadge(rooms: matrixService.rooms)
                 }
@@ -59,6 +61,8 @@ struct RelayApp: App {
         }
         .defaultSize(width: 880, height: 560)
         .commands {
+            FileMenuCommands(appActions: appActions)
+
             CommandGroup(after: .windowArrangement) {
                 Button("Relay") {
                     NSApp.activate()
@@ -140,6 +144,48 @@ struct RelayApp: App {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(notificationRequest)
+    }
+}
+
+// MARK: - App Actions
+
+/// Shared observable state that bridges menu commands with the main view hierarchy.
+///
+/// ``AppActions`` is created at the app level and injected into both the SwiftUI
+/// environment (for views) and the ``FileMenuCommands`` struct. ``MainView``
+/// observes these flags and presents the corresponding UI.
+@Observable
+final class AppActions {
+    var showCreateRoom = false
+    var showJoinRoom = false
+    var showRoomDirectory = false
+}
+
+// MARK: - File Menu Commands
+
+/// Replaces the default File menu items with room-related commands.
+///
+/// The standard "New Window" item is removed since Relay supports only a single window.
+struct FileMenuCommands: Commands {
+    let appActions: AppActions
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Create Room…") {
+                appActions.showCreateRoom = true
+            }
+            .keyboardShortcut("n", modifiers: .command)
+
+            Button("Join Room…") {
+                appActions.showJoinRoom = true
+            }
+            .keyboardShortcut("j", modifiers: .command)
+
+            Button("Room Directory") {
+                appActions.showRoomDirectory = true
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+        }
     }
 }
 

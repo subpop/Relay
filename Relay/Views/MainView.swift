@@ -23,9 +23,9 @@ import SwiftUI
 struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
+    @Environment(AppActions.self) private var appActions
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @State private var searchText = ""
-    @State private var showingCreateRoom = false
     @State private var isBrowsingDirectory = false
     @State private var showingInspector = false
     @State private var inspectorProfile: UserProfile?
@@ -93,7 +93,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
-                    showingCreateRoom = true
+                    appActions.showCreateRoom = true
                 } label: {
                     Image(systemName: "plus.bubble")
                 }
@@ -101,8 +101,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             }
             ToolbarItem(placement: .navigation) {
                 Button {
-                    selectedRoomId = nil
-                    isBrowsingDirectory = true
+                    appActions.showRoomDirectory = true
                 } label: {
                     Image(systemName: "building.2")
                 }
@@ -188,8 +187,11 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         .sheet(item: $incomingVerificationItem) { item in
             VerificationSheet(viewModel: item.viewModel)
         }
-        .sheet(isPresented: $showingCreateRoom) {
+        .sheet(isPresented: Bindable(appActions).showCreateRoom) {
             CreateRoomSheet(selectedRoomId: $selectedRoomId)
+        }
+        .sheet(isPresented: Bindable(appActions).showJoinRoom) {
+            JoinRoomSheet(selectedRoomId: $selectedRoomId)
         }
         .sheet(item: $previewingLinkedRoom) { room in
             RoomPreviewView(
@@ -206,6 +208,13 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         .onAppear {
             if let deepLink = matrixService.pendingDeepLink {
                 handleDeepLink(deepLink)
+            }
+        }
+        .onChange(of: appActions.showRoomDirectory) { _, show in
+            if show {
+                appActions.showRoomDirectory = false
+                selectedRoomId = nil
+                isBrowsingDirectory = true
             }
         }
     }
@@ -332,5 +341,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 #Preview {
     MainView()
         .environment(\.matrixService, PreviewMatrixService())
+        .environment(AppActions())
         .frame(width: 900, height: 600)
 }
