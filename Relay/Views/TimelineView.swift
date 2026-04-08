@@ -70,6 +70,13 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     @State private var lastFullyReadEventId: String?
     @State private var isDirectRoom = false
     @State private var highlightedMessageId: String?
+    @State private var memberRefreshTask: Task<Void, Never>?
+
+    /// Number of membership events observed in the timeline, used to trigger
+    /// a member list refresh when new joins/leaves arrive.
+    private var membershipEventCount: Int {
+        viewModel.messages.lazy.filter { $0.kind == .membership }.count
+    }
 
     @AppStorage("safety.sendReadReceipts") private var sendReadReceipts = true
     @AppStorage("safety.sendTypingNotifications") private var sendTypingNotifications = true
@@ -134,9 +141,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
 
             // Fetch room members for mention autocomplete
-            if let details = await matrixService.roomDetails(roomId: roomId) {
-                roomMembers = details.members
-            }
+            roomMembers = await matrixService.roomMembers(roomId: roomId)
 
             // Auto-dismiss the "New" marker after 5 seconds, then clear it
             if viewModel.firstUnreadMessageId != nil {
@@ -157,6 +162,18 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         .onDisappear {
             if sendTypingNotifications {
                 Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: false) }
+            }
+            memberRefreshTask?.cancel()
+        }
+        .onChange(of: membershipEventCount) {
+            // A membership event appeared in the timeline (join, leave, etc.).
+            // Debounce slightly so rapid-fire events (e.g. a server burst) only
+            // trigger one refresh.
+            memberRefreshTask?.cancel()
+            memberRefreshTask = Task {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                roomMembers = await matrixService.roomMembers(roomId: roomId)
             }
         }
         .onChange(of: draftMessage) { oldValue, newValue in

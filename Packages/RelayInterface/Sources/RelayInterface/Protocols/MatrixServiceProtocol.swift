@@ -249,6 +249,17 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Returns: A ``RoomDetails`` snapshot, or `nil` if the room is not found.
     func roomDetails(roomId: String) async -> RoomDetails?
 
+    /// Fetches the joined members of a room.
+    ///
+    /// Unlike ``roomDetails(roomId:)``, this method iterates through all chunks
+    /// returned by the SDK's member iterator so rooms with more than 200 members
+    /// are fully covered.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    /// - Returns: The list of joined room members, or an empty array if the room
+    ///   is not found.
+    func roomMembers(roomId: String) async -> [RoomMemberDetails]
+
     /// Fetches the pinned messages for a room.
     ///
     /// Creates a pinned-events-focused timeline, loads the pinned events, and returns
@@ -419,6 +430,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func fullyReadEventId(roomId: String) async -> String? { nil }
     func sendTypingNotice(roomId: String, isTyping: Bool) async {}
     func roomDetails(roomId: String) async -> RoomDetails? { nil }
+    func roomMembers(roomId: String) async -> [RoomMemberDetails] { [] }
     func pinnedMessages(roomId: String) async -> [TimelineMessage] { [] }
     func mediaContent(mxcURL: String) async -> Data? { nil }
     func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data? { nil }

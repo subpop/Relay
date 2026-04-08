@@ -451,6 +451,35 @@ public final class MatrixService: MatrixServiceProtocol {
         )
     }
 
+    // MARK: - Room Members
+
+    public func roomMembers(roomId: String) async -> [RoomMemberDetails] {
+        guard let room = room(id: roomId) else { return [] }
+
+        var memberDetails: [RoomMemberDetails] = []
+        guard let membersIterator = try? await room.members() else { return [] }
+
+        while let chunk = membersIterator.nextChunk(chunkSize: 500) {
+            for member in chunk where member.membership == .join {
+                let role: RoomMemberDetails.Role = switch member.suggestedRoleForPowerLevel {
+                case .administrator: .administrator
+                case .moderator: .moderator
+                default: .user
+                }
+                memberDetails.append(
+                    RoomMemberDetails(
+                        userId: member.userId,
+                        displayName: member.displayName,
+                        avatarURL: member.avatarUrl,
+                        role: role
+                    )
+                )
+            }
+        }
+
+        return memberDetails
+    }
+
     // MARK: - Pinned Messages
 
     // swiftlint:disable:next cyclomatic_complexity

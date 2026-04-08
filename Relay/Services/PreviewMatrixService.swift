@@ -87,6 +87,10 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         )
     }
 
+    func roomMembers(roomId: String) async -> [RoomMemberDetails] {
+        await roomDetails(roomId: roomId)?.members ?? []
+    }
+
     func pinnedMessages(roomId: String) async -> [TimelineMessage] {
         guard let summary = rooms.first(where: { $0.id == roomId }),
               summary.hasPinnedMessages else { return [] }
