@@ -57,6 +57,13 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     private var isSendingFullyReadReceipt = false
     private var fetchedReplyEventIds: Set<String> = []
 
+    /// Continuation that is resumed once the first batch of timeline diffs has
+    /// been received and applied.  Both the pagination-status observer (live
+    /// timelines) and ``focusOnEvent`` (focused timelines) await this before
+    /// clearing ``isLoading`` so the view never transiently shows an empty state.
+    private var initialDiffsContinuation: AsyncStream<Void>.Continuation?
+    private var initialDiffsStream: AsyncStream<Void>?
+
     @ObservationIgnored private var timelineHandle: TaskHandle?
     @ObservationIgnored private var paginationHandle: TaskHandle?
     @ObservationIgnored private var typingHandle: TaskHandle?
@@ -180,6 +187,15 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 logger.error("Failed to recover live timeline: \(error)")
             }
         }
+
+        // Wait for the diff observer to deliver initial content so
+        // `timelineItems` is populated before we clear the loading flag.
+        // Focused timelines don't use the pagination-status observer,
+        // so this is the only gate that prevents an empty flash.
+        if let diffStream = initialDiffsStream {
+            for await _ in diffStream { break }
+        }
+        rebuildMessages()
         isLoading = false
     }
 
@@ -447,10 +463,21 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         hasReachedEnd = true
         isLoadingMore = false
         fetchedReplyEventIds = []
+        initialDiffsContinuation?.finish()
+        initialDiffsContinuation = nil
+        initialDiffsStream = nil
     }
 
     /// Creates a new SDK timeline with the given focus, subscribes to diffs and pagination status.
     private func setupTimeline(focus: TimelineFocus) async throws {
+        // Create a one-shot stream that the diff observer signals once the
+        // first batch of diffs has been applied. Consumers (pagination status
+        // observer, focusOnEvent) await this so they never clear `isLoading`
+        // before any timeline content is available.
+        let (diffStream, diffContinuation) = AsyncStream<Void>.makeStream()
+        initialDiffsStream = diffStream
+        initialDiffsContinuation = diffContinuation
+
         let config = TimelineConfiguration(
             focus: focus,
             filter: .all,
@@ -502,9 +529,19 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             // items to TimelineMessage on every SDK callback.
             var needsRebuild = false
             var throttleTask: Task<Void, Never>?
+            var hasSignaledInitialDiffs = false
 
             for await diffs in stream {
                 self.applyDiffs(diffs)
+
+                // Signal that the first batch of diffs has been applied so
+                // consumers waiting on `initialDiffsStream` can proceed.
+                if !hasSignaledInitialDiffs {
+                    hasSignaledInitialDiffs = true
+                    self.initialDiffsContinuation?.yield()
+                    self.initialDiffsContinuation?.finish()
+                    self.initialDiffsContinuation = nil
+                }
 
                 needsRebuild = true
 
@@ -555,12 +592,13 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                         _ = try? await tl.paginateBackwards(numEvents: 100)
                     } else if self.isLoading {
                         // The initial auto-pagination loop has settled — either
-                        // we have enough items or hit the room start. Rebuild
-                        // messages synchronously so the view has up-to-date
-                        // content before we clear the loading flag. Without
-                        // this, the throttled diff observer might not have
-                        // flushed yet, leaving `messages` empty and briefly
-                        // showing the empty-room placeholder.
+                        // we have enough items or hit the room start.  Wait for
+                        // the diff observer to deliver at least one batch so
+                        // `timelineItems` is populated, then rebuild messages
+                        // synchronously before clearing the loading flag.
+                        if let diffStream = self.initialDiffsStream {
+                            for await _ in diffStream { break }
+                        }
                         self.rebuildMessages()
                         self.isLoading = false
                     }
