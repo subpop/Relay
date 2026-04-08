@@ -87,6 +87,7 @@ final class AuthenticationService {
             .slidingSyncVersionBuilder(.discoverNative)
             .autoEnableCrossSigning(true)
             .autoEnableBackups(true)
+            .userAgent("Relay")
             .setSessionDelegate(sessionDelegate)
     }
 
@@ -199,7 +200,7 @@ final class AuthenticationService {
             clientName: "Relay",
             redirectUri: Self.oauthRedirectURI,
             clientUri: "https://github.com/subpop/Relay",
-            logoUri: nil,
+            logoUri: "https://subpop.github.io/Relay/logo-256.png",
             tosUri: nil,
             policyUri: nil,
             staticRegistrations: [:]
