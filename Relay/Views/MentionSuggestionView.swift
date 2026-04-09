@@ -19,13 +19,20 @@ import SwiftUI
 ///
 /// ``MentionSuggestionView`` appears above the compose bar when the user types `@` followed
 /// by zero or more characters. It filters the room's member list by display name (case-insensitive
-/// prefix match) and lets the user select a member to insert a mention pill.
+/// substring match) and lets the user select a member to insert a mention pill.
+///
+/// Keyboard navigation is supported via the `selectedIndex` binding: the parent view updates
+/// the index in response to Up/Down arrow keys, and reads it back to confirm a selection
+/// on Tab or Return.
 struct MentionSuggestionView: View {
     /// The room members available for mention.
     let members: [RoomMemberDetails]
 
     /// The current query string (characters typed after `@`). Empty string shows all members.
     let query: String
+
+    /// The index of the currently highlighted row, managed by the parent view.
+    @Binding var selectedIndex: Int
 
     /// Called when a member is selected from the suggestion list.
     let onSelect: (RoomMemberDetails) -> Void
@@ -36,7 +43,14 @@ struct MentionSuggestionView: View {
     /// The maximum number of visible suggestions before scrolling.
     private let maxVisible = 6
 
-    private var filteredMembers: [RoomMemberDetails] {
+    /// Estimated height of a single row (vertical padding + avatar + subtitle).
+    private let rowHeight: CGFloat = 40
+
+    /// Vertical padding inside the scroll content VStack (top + bottom).
+    private let contentPadding: CGFloat = 8
+
+    /// The filtered member list matching the current query.
+    var filteredMembers: [RoomMemberDetails] {
         if query.isEmpty {
             return Array(members.prefix(maxVisible * 2))
         }
@@ -51,15 +65,32 @@ struct MentionSuggestionView: View {
     var body: some View {
         let matches = filteredMembers
         if !matches.isEmpty {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(matches) { member in
-                        memberRow(member)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(matches.enumerated()), id: \.element.id) { index, member in
+                            memberRow(member, isSelected: index == selectedIndex)
+                                .id(member.id)
+                                .onHover { hovering in
+                                    if hovering {
+                                        selectedIndex = index
+                                    }
+                                }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(height: CGFloat(min(matches.count, maxVisible)) * rowHeight + contentPadding)
+                .onChange(of: selectedIndex) { _, newIndex in
+                    let clamped = max(0, min(newIndex, matches.count - 1))
+                    if clamped != newIndex { selectedIndex = clamped }
+                    if clamped < matches.count {
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(matches[clamped].id, anchor: nil)
+                        }
                     }
                 }
-                .padding(.vertical, 4)
             }
-            .frame(maxHeight: CGFloat(min(matches.count, maxVisible)) * 40)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -70,7 +101,7 @@ struct MentionSuggestionView: View {
         }
     }
 
-    private func memberRow(_ member: RoomMemberDetails) -> some View {
+    private func memberRow(_ member: RoomMemberDetails, isSelected: Bool) -> some View {
         Button {
             onSelect(member)
         } label: {
@@ -111,29 +142,35 @@ struct MentionSuggestionView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
-        .buttonStyle(MentionRowButtonStyle())
+        .buttonStyle(MentionRowButtonStyle(isSelected: isSelected))
     }
 }
 
-/// A button style for mention suggestion rows with subtle hover highlighting.
+/// A button style for mention suggestion rows with hover and keyboard-selection highlighting.
 private struct MentionRowButtonStyle: ButtonStyle {
+    let isSelected: Bool
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(configuration.isPressed
-                        ? Color.accentColor.opacity(0.15)
-                        : (isHovering ? Color.primary.opacity(0.05) : Color.clear))
+                    .fill(fillColor(isPressed: configuration.isPressed))
                     .padding(.horizontal, 4)
             )
-            .onHover { hovering in
-                isHovering = hovering
-            }
+    }
+
+    private func fillColor(isPressed: Bool) -> Color {
+        if isPressed {
+            return Color.accentColor.opacity(0.15)
+        }
+        if isSelected {
+            return Color.accentColor.opacity(0.12)
+        }
+        return Color.clear
     }
 }
 
@@ -148,6 +185,7 @@ private struct MentionRowButtonStyle: ButtonStyle {
                 RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans")
             ],
             query: "",
+            selectedIndex: .constant(0),
             onSelect: { _ in },
             onDismiss: {}
         )
@@ -167,6 +205,7 @@ private struct MentionRowButtonStyle: ButtonStyle {
                 RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis")
             ],
             query: "ali",
+            selectedIndex: .constant(0),
             onSelect: { _ in },
             onDismiss: {}
         )

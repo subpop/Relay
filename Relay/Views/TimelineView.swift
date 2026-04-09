@@ -58,6 +58,9 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     @State private var stagedAttachments: [StagedAttachment] = []
     @State private var roomMembers: [RoomMemberDetails] = []
     @State private var draftMentions: [Mention] = []
+    @State private var mentionQuery: String?
+    @State private var mentionSelectedIndex: Int = 0
+    @State private var mentionSuggestionsHeight: CGFloat = 0
     @State private var messageToDelete: TimelineMessage?
 
     @State private var tableProxy = TimelineTableProxy()
@@ -435,10 +438,27 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 mentions: $draftMentions,
                 onSend: sendMessage,
                 onAttach: stageAttachments,
-                onGIFSelected: sendGIF
+                onGIFSelected: sendGIF,
+                mentionQuery: $mentionQuery,
+                mentionSelectedIndex: $mentionSelectedIndex
             )
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
+        }
+        .overlay(alignment: .topLeading) {
+            if mentionQuery != nil {
+                mentionSuggestions
+                    .padding(.leading, 16)
+                    .padding(.trailing, 96)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .offset(y: -mentionSuggestionsHeight - 4)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        mentionSuggestionsHeight = height
+                    }
+            }
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
@@ -448,6 +468,36 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 top: 0, left: 0, bottom: height + 4, right: 0
             ))
         }
+        .onChange(of: mentionQuery) { _, _ in
+            mentionSelectedIndex = 0
+        }
+    }
+
+    // MARK: - Mention Suggestions
+
+    private var mentionSuggestions: some View {
+        MentionSuggestionView(
+            members: roomMembers,
+            query: mentionQuery ?? "",
+            selectedIndex: $mentionSelectedIndex,
+            onSelect: { member in
+                insertMention(member)
+            },
+            onDismiss: {
+                mentionQuery = nil
+            }
+        )
+    }
+
+    private func insertMention(_ member: RoomMemberDetails) {
+        NotificationCenter.default.post(
+            name: .insertMention,
+            object: nil,
+            userInfo: [
+                "userId": member.userId,
+                "displayName": member.displayName ?? member.userId
+            ]
+        )
     }
 
     @ViewBuilder

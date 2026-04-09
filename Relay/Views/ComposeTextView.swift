@@ -58,6 +58,15 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
     /// Called when the user presses Return (without Shift) to send the message.
     var onSubmit: () -> Void
 
+    /// Called when the user presses Up arrow while mention suggestions are visible.
+    var onMentionNavigateUp: (() -> Void)?
+
+    /// Called when the user presses Down arrow while mention suggestions are visible.
+    var onMentionNavigateDown: (() -> Void)?
+
+    /// Called when the user presses Tab or Return to confirm the highlighted mention suggestion.
+    var onMentionConfirm: (() -> Void)?
+
     /// Accent color from the SwiftUI environment, used for mention pill styling.
     @Environment(\.colorScheme) private var colorScheme
 
@@ -110,6 +119,11 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
 
     func updateNSView(_ scrollView: ComposeScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MentionTextView else { return }
+
+        // Keep the coordinator's reference to the parent struct current so that
+        // key-handling callbacks (onMentionConfirm, etc.) and binding reads
+        // (mentionQuery) reflect the latest SwiftUI state.
+        context.coordinator.parent = self
 
         // Only update text if it actually changed from outside (e.g., cleared after send)
         let currentPlainText = textView.textStorage?.string ?? ""
@@ -168,19 +182,41 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
 
         // MARK: Key Handling
 
+        func mentionTextViewShouldConfirmOnTab(_ textView: MentionTextView) -> Bool {
+            guard parent.mentionQuery != nil else { return false }
+            parent.onMentionConfirm?()
+            return true
+        }
+
         func mentionTextView(_ textView: MentionTextView, shouldHandleKeyDown event: NSEvent) -> Bool {
             // Escape dismisses mention suggestions if active
             if event.keyCode == 53 && parent.mentionQuery != nil {
                 parent.mentionQuery = nil
                 return true
             }
-            // Return without Shift → send
-            if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
-                if parent.mentionQuery != nil {
-                    // If mention suggestions are open, dismiss them instead of sending
-                    parent.mentionQuery = nil
+
+            // When mention suggestions are visible, intercept navigation keys
+            if parent.mentionQuery != nil {
+                // Up arrow (keyCode 126) — move selection up
+                if event.keyCode == 126 {
+                    parent.onMentionNavigateUp?()
                     return true
                 }
+                // Down arrow (keyCode 125) — move selection down
+                if event.keyCode == 125 {
+                    parent.onMentionNavigateDown?()
+                    return true
+                }
+                // Tab is intercepted via insertTab(_:) override, not here.
+                // Return without Shift — confirm highlighted selection
+                if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
+                    parent.onMentionConfirm?()
+                    return true
+                }
+            }
+
+            // Return without Shift → send
+            if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
                 parent.onSubmit()
                 return true
             }
@@ -357,10 +393,9 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
 
             // Add a trailing space after the pill if there isn't one
             let afterPill = pillRange.location + pillRange.length
-            let afterPillChar = (storage.string as NSString)
-                .character(at: afterPill)
-            if afterPill >= storage.length
-                || afterPillChar != Self.spaceCharCode {
+            let needsSpace = afterPill >= storage.length
+                || (storage.string as NSString).character(at: afterPill) != Self.spaceCharCode
+            if needsSpace {
                 let spaceAttrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
                     .foregroundColor: NSColor.labelColor
@@ -408,6 +443,11 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
 /// Key-handling delegate protocol for intercepting key events before `NSTextView` processes them.
 protocol MentionTextViewKeyDelegate: AnyObject {
     func mentionTextView(_ textView: MentionTextView, shouldHandleKeyDown event: NSEvent) -> Bool
+
+    /// Called when the user presses Tab. Returns `true` if the delegate handled the
+    /// event (e.g. confirming a mention suggestion), preventing `NSTextView` from
+    /// processing it as field navigation.
+    func mentionTextViewShouldConfirmOnTab(_ textView: MentionTextView) -> Bool
 }
 
 // MARK: - ComposeScrollView
@@ -438,6 +478,16 @@ final class MentionTextView: NSTextView {
             return // Event was handled (e.g. Return to send)
         }
         super.keyDown(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        // NSTextView translates Tab into insertTab: via interpretKeyEvents.
+        // Intercept it here before it inserts a literal tab character.
+        if selector == #selector(insertTab(_:)),
+           mentionTextViewDelegate?.mentionTextViewShouldConfirmOnTab(self) == true {
+            return
+        }
+        super.doCommand(by: selector)
     }
 
     override func draw(_ dirtyRect: NSRect) {

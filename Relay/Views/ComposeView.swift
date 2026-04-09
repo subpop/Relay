@@ -251,55 +251,54 @@ struct ComposeView: View {
     @State private var pasteHandler = PasteHandler()
 
     /// The active query string after `@`, or `nil` when no mention autocomplete is active.
-    @State private var mentionQuery: String?
+    @Binding var mentionQuery: String?
+
+    /// The index of the currently highlighted row in the mention suggestion list.
+    @Binding var mentionSelectedIndex: Int
 
     private var hasContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
     }
 
     var body: some View {
-        VStack(spacing: 4) {
-            mentionSuggestions
-
-            GlassEffectContainer {
-                HStack(alignment: .bottom, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if !attachments.isEmpty {
-                            attachmentCapsules
-                        }
-
-                        messageField
+        GlassEffectContainer {
+            HStack(alignment: .bottom, spacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !attachments.isEmpty {
+                        attachmentCapsules
                     }
-                    .glassEffect(in: .rect(cornerRadius: !attachments.isEmpty ? 16 : 20))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: !attachments.isEmpty ? 18 : 22, style: .continuous)
-                            .strokeBorder(Color.accentColor, lineWidth: 2)
-                            .padding(-4)
-                            .opacity(isDropTargeted ? 1 : 0)
-                    )
 
-                    Button { isShowingFilePicker = true } label: {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 15, weight: .regular))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                            .glassEffect(in: .circle)
-                    }
-                    .buttonStyle(.plain)
+                    messageField
+                }
+                .glassEffect(in: .rect(cornerRadius: !attachments.isEmpty ? 16 : 20))
+                .overlay(
+                    RoundedRectangle(cornerRadius: !attachments.isEmpty ? 18 : 22, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(-4)
+                        .opacity(isDropTargeted ? 1 : 0)
+                )
 
-                    Button { isShowingGIFPicker = true } label: {
-                        Image(systemName: "number")
-                            .font(.system(size: 15, weight: .regular))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                            .glassEffect(in: .circle)
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $isShowingGIFPicker, arrowEdge: .top) {
-                        GIFPickerView { gif in
-                            isShowingGIFPicker = false
-                            onGIFSelected(gif)
-                        }
+                Button { isShowingFilePicker = true } label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 15, weight: .regular))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                        .glassEffect(in: .circle)
+                }
+                .buttonStyle(.plain)
+
+                Button { isShowingGIFPicker = true } label: {
+                    Image(systemName: "number")
+                        .font(.system(size: 15, weight: .regular))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                        .glassEffect(in: .circle)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $isShowingGIFPicker, arrowEdge: .top) {
+                    GIFPickerView { gif in
+                        isShowingGIFPicker = false
+                        onGIFSelected(gif)
                     }
                 }
             }
@@ -350,30 +349,46 @@ struct ComposeView: View {
                 if hasContent {
                     onSend()
                 }
+            },
+            onMentionNavigateUp: {
+                mentionSelectedIndex = max(0, mentionSelectedIndex - 1)
+            },
+            onMentionNavigateDown: {
+                mentionSelectedIndex += 1
+                // Clamping handled by MentionSuggestionView's onChange
+            },
+            onMentionConfirm: {
+                confirmSelectedMention()
             }
         )
     }
 
     // MARK: - Mention Suggestions
 
-    @ViewBuilder
-    private var mentionSuggestions: some View {
-        if mentionQuery != nil {
-            MentionSuggestionView(
-                members: members,
-                query: mentionQuery ?? "",
-                onSelect: { member in
-                    insertMention(member)
-                },
-                onDismiss: {
-                    mentionQuery = nil
-                }
-            )
-            .padding(.leading, 40)  // Aligns with the text field, past the + button (32pt) + spacing (8pt)
+    /// Confirms the currently highlighted mention suggestion by looking up the
+    /// selected member from the filtered list and inserting it.
+    func confirmSelectedMention() {
+        let matches = filteredMentionMembers
+        guard !matches.isEmpty else { return }
+        let index = max(0, min(mentionSelectedIndex, matches.count - 1))
+        insertMention(matches[index])
+    }
+
+    /// The filtered member list matching the current mention query.
+    var filteredMentionMembers: [RoomMemberDetails] {
+        let query = mentionQuery ?? ""
+        if query.isEmpty {
+            return Array(members.prefix(12))
+        }
+        let lowered = query.lowercased()
+        return members.filter { member in
+            let name = member.displayName ?? member.userId
+            return name.lowercased().contains(lowered)
+                || member.userId.lowercased().contains(lowered)
         }
     }
 
-    private func insertMention(_ member: RoomMemberDetails) {
+    func insertMention(_ member: RoomMemberDetails) {
         // Find the ComposeTextView's coordinator and call insertMention
         // This is handled via the ComposeTextView's notification system
         // We post a notification that the coordinator picks up
@@ -505,7 +520,9 @@ private let previewMembers: [RoomMemberDetails] = [
         mentions: .constant([]),
         onSend: {},
         onAttach: { _ in },
-        onGIFSelected: { _ in }
+        onGIFSelected: { _ in },
+        mentionQuery: .constant(nil),
+        mentionSelectedIndex: .constant(0)
     )
     .frame(width: 400)
     .environment(\.matrixService, PreviewMatrixService())
@@ -520,7 +537,9 @@ private let previewMembers: [RoomMemberDetails] = [
         mentions: .constant([]),
         onSend: {},
         onAttach: { _ in },
-        onGIFSelected: { _ in }
+        onGIFSelected: { _ in },
+        mentionQuery: .constant(nil),
+        mentionSelectedIndex: .constant(0)
     )
     .frame(width: 400)
     .environment(\.matrixService, PreviewMatrixService())
@@ -537,7 +556,9 @@ private let previewMembers: [RoomMemberDetails] = [
         mentions: .constant([]),
         onSend: {},
         onAttach: { _ in },
-        onGIFSelected: { _ in }
+        onGIFSelected: { _ in },
+        mentionQuery: .constant(nil),
+        mentionSelectedIndex: .constant(0)
     )
     .frame(width: 400)
     .environment(\.matrixService, PreviewMatrixService())
@@ -556,7 +577,9 @@ private let previewMembers: [RoomMemberDetails] = [
         mentions: .constant([]),
         onSend: {},
         onAttach: { _ in },
-        onGIFSelected: { _ in }
+        onGIFSelected: { _ in },
+        mentionQuery: .constant(nil),
+        mentionSelectedIndex: .constant(0)
     )
     .frame(width: 400)
     .environment(\.matrixService, PreviewMatrixService())
@@ -583,7 +606,9 @@ private let previewMembers: [RoomMemberDetails] = [
         mentions: .constant([]),
         onSend: {},
         onAttach: { _ in },
-        onGIFSelected: { _ in }
+        onGIFSelected: { _ in },
+        mentionQuery: .constant(nil),
+        mentionSelectedIndex: .constant(0)
     )
     .frame(width: 500)
     .environment(\.matrixService, PreviewMatrixService())
