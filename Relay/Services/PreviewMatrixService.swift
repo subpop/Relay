@@ -133,14 +133,14 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         PreviewSessionVerificationViewModel()
     }
 
-    func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)? {
+    func makeCallViewModel(roomId: String) async -> (any CallViewModelProtocol)? {
         PreviewCallViewModel()
     }
 
-    func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String) {
+    func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String, sfuServiceURL: String) {
         // Simulate a brief credential fetch; previews never actually connect.
         try? await Task.sleep(for: .milliseconds(500))
-        return (livekitURL: "wss://preview.livekit.example.com", token: "preview-jwt-token")
+        return (livekitURL: "wss://preview.livekit.example.com", token: "preview-jwt-token", sfuServiceURL: "https://preview.livekit.example.com")
     }
 
     func declinePendingVerificationRequest() async {

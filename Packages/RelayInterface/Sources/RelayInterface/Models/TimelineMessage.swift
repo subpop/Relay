@@ -56,6 +56,8 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         case profileChange
         /// A room state change (room name, topic, avatar, encryption, join rules, etc.).
         case stateEvent
+        /// A call-related event (user started, joined, or left a call).
+        case callEvent
     }
 
     /// A group of emoji reactions attached to a message, aggregated by reaction key.
@@ -290,7 +292,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     nonisolated public var isSpecialType: Bool {
         switch kind {
         case .text, .emote, .notice: false
-        case .membership, .profileChange, .stateEvent: false
+        case .membership, .profileChange, .stateEvent, .callEvent: false
         default: true
         }
     }
@@ -299,7 +301,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     /// rather than a user-authored message.
     nonisolated public var isSystemEvent: Bool {
         switch kind {
-        case .membership, .profileChange, .stateEvent: true
+        case .membership, .profileChange, .stateEvent, .callEvent: true
         default: false
         }
     }

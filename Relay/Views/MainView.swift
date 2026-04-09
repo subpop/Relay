@@ -23,6 +23,8 @@ import SwiftUI
 struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
+    @Environment(\.callManager) private var callManager
+    @Environment(\.openWindow) private var openWindow
     @State private var selectedRoomId: String?
     @State private var searchText = ""
     @State private var showingCreateRoom = false
@@ -34,9 +36,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
     @State private var isJoiningLinkedRoom = false
-    @State private var activeCallViewModel: (any CallViewModelProtocol)?
-    @State private var isShowingCall = false
-    @State private var isPreparingCall = false
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -213,18 +212,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             )
             .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500)
         }
-        .sheet(isPresented: $isShowingCall) {
-            if let callViewModel = activeCallViewModel {
-                CallView(
-                    viewModel: callViewModel,
-                    isPreparingCredentials: isPreparingCall
-                ) {
-                    isShowingCall = false
-                    isPreparingCall = false
-                    activeCallViewModel = nil
-                }
-            }
-        }
         .onChange(of: matrixService.pendingDeepLink) { _, deepLink in
             guard let deepLink else { return }
             handleDeepLink(deepLink)
@@ -239,21 +226,27 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     // MARK: - Call Handling
 
     private func startCall(roomId: String) {
-        guard !isPreparingCall else { return }
-        guard let viewModel = matrixService.makeCallViewModel(roomId: roomId) else { return }
-        activeCallViewModel = viewModel
-        isPreparingCall = true
-        isShowingCall = true
+        guard !callManager.hasActiveCall else { return }
+        callManager.isPreparingCredentials = true
+        callManager.callRoomId = roomId
 
         Task {
+            guard let viewModel = await matrixService.makeCallViewModel(roomId: roomId) else {
+                callManager.isPreparingCredentials = false
+                callManager.callRoomId = nil
+                return
+            }
+            callManager.activeCallViewModel = viewModel
+            openWindow(id: "call")
+
             do {
-                let (url, token) = try await matrixService.callCredentials(for: roomId)
-                try await viewModel.connect(url: url, token: token)
+                let creds = try await matrixService.callCredentials(for: roomId)
+                try await viewModel.connect(url: creds.livekitURL, token: creds.token, sfuServiceURL: creds.sfuServiceURL)
             } catch {
                 // Credential fetch or connect failed — viewModel stays in .idle so
                 // CallView shows the manual-entry join form as a fallback.
             }
-            isPreparingCall = false
+            callManager.isPreparingCredentials = false
         }
     }
 
