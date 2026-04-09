@@ -126,6 +126,7 @@ struct RoomListView: View {
                 }
             }
         }
+        .animation(.default, value: filteredRooms.map(\.id))
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
         .toolbar {
             ToolbarItem(placement: .automatic) {
