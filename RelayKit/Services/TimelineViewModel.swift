@@ -676,7 +676,16 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
     private func rebuildMessages() {
         let mapping = messageMapper.mapItems(timelineItems)
-        messages = mapping.messages
+
+        // Suppress the @Observable notification when the mapped messages
+        // haven't actually changed. Without this guard, every diff batch
+        // replaces the array reference, causing a full SwiftUI body
+        // re-evaluation + messageRows rebuild + table update even when
+        // no visible data changed (e.g. a .set diff that only touches
+        // a read receipt or delivery status).
+        if mapping.messages != messages {
+            messages = mapping.messages
+        }
 
         computeUnreadMarkerIfNeeded(mapping.messages)
         resolveUnfetchedReplies(mapping.unresolvedReplyEventIds)

@@ -356,7 +356,8 @@ final class TimelineTableViewController: NSViewController {
         }
         let reversed = newRows.reversed().map { $0 }
 
-        let oldIDs = rows.map(\.id)
+        let oldRows = rows
+        let oldIDs = oldRows.map(\.id)
         rows = reversed
         let newIDs = rows.map(\.id)
 
@@ -372,20 +373,31 @@ final class TimelineTableViewController: NSViewController {
 
         if oldIDs == newIDs && !snapshotIsEmpty {
             // Content-only update (reactions, read receipts, edits).
-            // Invalidate cached heights for visible rows since content
-            // changes (e.g. added reactions) can affect row height.
+            // Only reload visible rows whose data actually changed to
+            // avoid unnecessary NSHostingView re-renders that cause
+            // flickering.
             let visible = tableView.rows(in: tableView.visibleRect)
             if visible.length > 0 {
+                var changedIndexes = IndexSet()
+                for idx in visible.lowerBound ..< visible.upperBound
+                    where idx < rows.count && idx < oldRows.count {
+                    if rows[idx] != oldRows[idx] {
+                        changedIndexes.insert(idx)
+                    }
+                }
+
+                guard !changedIndexes.isEmpty else { return }
+
                 let scrollBefore = scrollView.contentView.bounds.origin
-                for idx in visible.lowerBound ..< visible.upperBound where idx < rows.count {
+                for idx in changedIndexes {
                     invalidateHeight(for: rows[idx].id)
                 }
                 tableView.reloadData(
-                    forRowIndexes: IndexSet(integersIn: visible.lowerBound ..< visible.upperBound),
+                    forRowIndexes: changedIndexes,
                     columnIndexes: IndexSet(integer: 0)
                 )
                 tableView.noteHeightOfRows(
-                    withIndexesChanged: IndexSet(integersIn: visible.lowerBound ..< visible.upperBound)
+                    withIndexesChanged: changedIndexes
                 )
                 // Restore scroll position if noteHeightOfRows shifted it.
                 if isNearBottom {

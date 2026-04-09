@@ -71,6 +71,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     @State private var isDirectRoom = false
     @State private var highlightedMessageId: String?
     @State private var memberRefreshTask: Task<Void, Never>?
+    @State private var cachedMessageRows: [MessageRow] = []
 
     /// Number of membership events observed in the timeline, used to trigger
     /// a member list refresh when new joins/leaves arrive.
@@ -132,6 +133,9 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 focusEventId = await matrixService.fullyReadEventId(roomId: roomId)
             }
             await viewModel.loadTimeline(focusedOnEventId: focusEventId)
+
+            // Seed the row cache now that messages are available.
+            rebuildCachedRows()
 
             // After loading, scroll to the focused event and briefly highlight it
             if let focusEventId {
@@ -222,9 +226,15 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
     // MARK: - Message List
 
-    /// The rows to display, precomputed from the filtered messages.
-    private var messageRows: [MessageRow] {
-        Self.buildRows(for: filteredMessages, hasReachedStart: viewModel.hasReachedStart)
+    /// Rebuilds the cached `messageRows` from the current messages and user
+    /// preferences.  Called from `onChange` handlers so the expensive
+    /// `filteredMessages` + `buildRows` pipeline only runs when the underlying
+    /// data actually changes, not on every `body` evaluation.
+    private func rebuildCachedRows() {
+        cachedMessageRows = Self.buildRows(
+            for: filteredMessages,
+            hasReachedStart: viewModel.hasReachedStart
+        )
     }
 
     /// The message list backed by an `NSTableView` for cell recycling and
@@ -234,6 +244,18 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) { loadingMoreOverlay }
+            .onChange(of: viewModel.messages) {
+                rebuildCachedRows()
+            }
+            .onChange(of: viewModel.hasReachedStart) {
+                rebuildCachedRows()
+            }
+            .onChange(of: showMembershipEvents) {
+                rebuildCachedRows()
+            }
+            .onChange(of: showStateEvents) {
+                rebuildCachedRows()
+            }
             .onChange(of: viewModel.messages.last?.id) {
                 guard viewModel.timelineFocus == .live else { return }
                 guard !viewModel.isLoadingMore else { return }
@@ -257,7 +279,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
     private var timelineTable: some View {
         TimelineTableViewRepresentable(
-            rows: messageRows,
+            rows: cachedMessageRows,
             hasReachedEnd: viewModel.hasReachedEnd,
             showUnreadMarker: showUnreadMarker,
             firstUnreadMessageId: viewModel.firstUnreadMessageId,
@@ -608,12 +630,18 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// A message bundled with its precomputed layout metadata, used as the
     /// element type for the `ForEach` to avoid capturing the full groupInfo
     /// dictionary or messages array in each row's closure.
-    struct MessageRow: Identifiable {
+    struct MessageRow: Identifiable, Equatable {
         let message: TimelineMessage
         let info: MessageGroupInfo
         let isPaginationTrigger: Bool
 
         var id: String { message.id }
+
+        nonisolated static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
+            lhs.message == rhs.message
+                && lhs.info == rhs.info
+                && lhs.isPaginationTrigger == rhs.isPaginationTrigger
+        }
     }
 
     /// Builds an array of ``MessageRow`` values, pairing each message with its

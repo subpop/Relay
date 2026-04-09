@@ -25,7 +25,7 @@ import RelayInterface
 ///
 /// Separating this mapping from the view model makes the conversion logic independently
 /// testable and keeps the view model focused on state management and coordination.
-struct TimelineMessageMapper { // swiftlint:disable:this type_body_length
+struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_length
     /// The Matrix user ID of the signed-in user, used for highlight and reaction detection.
     let currentUserId: String?
 
