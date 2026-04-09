@@ -1265,17 +1265,26 @@ public final class MatrixService: MatrixServiceProtocol {
         return viewModel
     }
 
-    public func makeCallViewModel(roomId: String) -> (any CallViewModelProtocol)? {
+    public func makeCallViewModel(roomId: String) async -> (any CallViewModelProtocol)? {
         guard let client else { return nil }
         do {
             let session = try client.session()
             let sdkRoom = room(id: roomId)
+            // Check if the Matrix room has encryption enabled to decide whether
+            // to use LiveKit-level E2EE for the call.
+            let isEncrypted: Bool
+            if let sdkRoom, let info = try? await sdkRoom.roomInfo() {
+                isEncrypted = info.encryptionState != .notEncrypted
+            } else {
+                isEncrypted = false
+            }
             let context = CallViewModel.EncryptionContext(
                 homeserver: client.homeserver,
                 accessToken: session.accessToken,
                 userID: client.userID,
                 deviceID: client.deviceID,
                 roomID: roomId,
+                isRoomEncrypted: isEncrypted,
                 matrixRoom: sdkRoom
             )
             return CallViewModel(encryptionContext: context)
@@ -1285,7 +1294,7 @@ public final class MatrixService: MatrixServiceProtocol {
         }
     }
 
-    public func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String) {
+    public func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String, sfuServiceURL: String) {
         guard let client else {
             throw LiveKitCredentialError.serverError
         }
@@ -1297,7 +1306,7 @@ public final class MatrixService: MatrixServiceProtocol {
             deviceID: client.deviceID
         )
         let result = try await service.credentials(for: roomId)
-        return (livekitURL: result.url, token: result.token)
+        return (livekitURL: result.url, token: result.token, sfuServiceURL: result.sfuServiceURL)
     }
 
     public func declinePendingVerificationRequest() async {

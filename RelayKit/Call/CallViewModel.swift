@@ -68,6 +68,7 @@ public final class CallViewModel: CallViewModelProtocol {
     /// Creates a call view model without E2EE. Use ``init(encryptionContext:)``
     /// for encrypted calls that interoperate with Element Call.
     public init() {
+        self.isE2eeEnabled = false
         let delegate = Delegate(viewModel: self)
         self.delegate = delegate
         room.add(delegate: delegate)
@@ -80,23 +81,34 @@ public final class CallViewModel: CallViewModelProtocol {
         public let userID: String
         public let deviceID: String
         public let roomID: String
+        /// Whether the Matrix room has encryption enabled (`m.room.encryption` state event).
+        /// When `true`, LiveKit-level GCM frame encryption + key exchange is enabled.
+        public let isRoomEncrypted: Bool
         /// The Matrix SDK room, used to obtain the timeline for listening to
         /// inbound encryption key state events. `nil` if unavailable.
         public let matrixRoom: MatrixRustSDK.Room?
 
-        public init(homeserver: String, accessToken: String, userID: String, deviceID: String, roomID: String, matrixRoom: MatrixRustSDK.Room? = nil) {
+        public init(homeserver: String, accessToken: String, userID: String, deviceID: String, roomID: String, isRoomEncrypted: Bool = false, matrixRoom: MatrixRustSDK.Room? = nil) {
             self.homeserver = homeserver
             self.accessToken = accessToken
             self.userID = userID
             self.deviceID = deviceID
             self.roomID = roomID
+            self.isRoomEncrypted = isRoomEncrypted
             self.matrixRoom = matrixRoom
         }
     }
 
-    /// Creates a call view model with E2EE enabled, using AES-128-GCM frame
-    /// encryption compatible with Element Call's MatrixRTC key exchange.
+    /// Whether this call uses LiveKit-level E2EE (GCM frame encryption).
+    /// Mirrors the Matrix room's encryption state.
+    private let isE2eeEnabled: Bool
+
+    /// Creates a call view model with optional E2EE, determined by the Matrix
+    /// room's encryption state. Encrypted rooms use AES-128-GCM frame encryption
+    /// with MatrixRTC key exchange; unencrypted rooms use no LiveKit-level E2EE.
     public init(encryptionContext: EncryptionContext) {
+        self.isE2eeEnabled = encryptionContext.isRoomEncrypted
+
         let delegate = Delegate(viewModel: self)
         self.delegate = delegate
         room.add(delegate: delegate)
@@ -109,15 +121,17 @@ public final class CallViewModel: CallViewModelProtocol {
             roomID: encryptionContext.roomID
         )
 
-        // Per-participant key provider: each participant has their own key.
-        let provider = BaseKeyProvider(isSharedKey: false)
-        self.keyProvider = provider
+        if encryptionContext.isRoomEncrypted {
+            // Per-participant key provider: each participant has their own key.
+            let provider = BaseKeyProvider(isSharedKey: false)
+            self.keyProvider = provider
+        }
         self.matrixRoom = encryptionContext.matrixRoom
     }
 
     // MARK: - CallViewModelProtocol
 
-    public func connect(url: String, token: String) async throws {
+    public func connect(url: String, token: String, sfuServiceURL: String = "") async throws {
         state = .connecting
         do {
             let connectOpts = ConnectOptions(
@@ -125,13 +139,24 @@ public final class CallViewModel: CallViewModelProtocol {
                 enableMicrophone: true
             )
 
-            // Build RoomOptions — with E2EE if a key provider was configured.
+            // Enable LiveKit-level GCM frame encryption only for encrypted Matrix
+            // rooms. Element Call also uses LiveKit E2EE (SFrame) for encrypted
+            // rooms and no encryption for unencrypted rooms.
             let encryptionOpts: EncryptionOptions? = keyProvider.map {
                 EncryptionOptions(keyProvider: $0, encryptionType: .gcm)
+            }
+            if isE2eeEnabled {
+                logger.info("E2EE enabled (encrypted Matrix room)")
+            } else {
+                logger.info("E2EE disabled (unencrypted Matrix room)")
             }
             let roomOpts = RoomOptions(
                 defaultVideoPublishOptions: VideoPublishOptions(
                     preferredCodec: .vp8
+                ),
+                defaultAudioPublishOptions: AudioPublishOptions(
+                    dtx: true,
+                    red: false
                 ),
                 adaptiveStream: true,
                 dynacast: true,
@@ -146,21 +171,28 @@ public final class CallViewModel: CallViewModelProtocol {
             localParticipantID = room.localParticipant.identity?.stringValue
             logger.info("Connected as \(self.localParticipantID ?? "unknown")")
 
-            // Send MatrixRTC call membership state event so Element-X and other
-            // MatrixRTC clients can discover our participation in this call.
+            // Ensure call power levels are set so any room member can join,
+            // then send the MatrixRTC call membership state event.
             if let encryptionService {
                 Task {
+                    // Debug: log existing call member events to compare formats.
+                    await encryptionService.fetchCallMemberEvents()
+
                     do {
-                        try await encryptionService.sendCallMemberEvent(livekitURL: url)
+                        try await encryptionService.enableCallPowerLevels()
+                    } catch {
+                        logger.warning("Call power level setup failed: \(error.localizedDescription)")
+                    }
+                    do {
+                        try await encryptionService.sendCallMemberEvent(sfuServiceURL: sfuServiceURL)
                     } catch {
                         logger.warning("Call membership event failed: \(error.localizedDescription)")
                     }
                 }
             }
 
-            // Generate and distribute the local E2EE key before publishing tracks,
-            // so that the first frames are already encrypted.
-            if let keyProvider, let encryptionService {
+            // Generate and distribute the local E2EE key when the room is encrypted.
+            if isE2eeEnabled, let keyProvider, let encryptionService {
                 let key = CallEncryptionService.generateKey()
                 localEncryptionKey = key
 
@@ -176,7 +208,6 @@ public final class CallViewModel: CallViewModelProtocol {
                 // Distribute key via both transports (best-effort, don't block connect).
                 Task {
                     do {
-                        // 1. To-device messages (Element Call interop)
                         let members = try await encryptionService.fetchJoinedMembers()
                         if !members.isEmpty {
                             try await encryptionService.sendKey(key, keyIndex: localKeyIndex, to: members)
@@ -186,7 +217,6 @@ public final class CallViewModel: CallViewModelProtocol {
                     }
 
                     do {
-                        // 2. Room state event (Relay-to-Relay interop)
                         try await encryptionService.sendKeyAsStateEvent(key, keyIndex: localKeyIndex)
                     } catch {
                         logger.warning("State event key distribution failed: \(error.localizedDescription)")
@@ -218,12 +248,7 @@ public final class CallViewModel: CallViewModelProtocol {
     }
 
     public func disconnect() async {
-        // Remove call membership state event so other clients know we've left.
-        if let encryptionService {
-            try? await encryptionService.removeCallMemberEvent()
-        }
-
-        await room.disconnect()
+        // Update UI state immediately — don't block on network I/O.
         state = .disconnected
         participants = []
         isLocalCameraEnabled = false
@@ -233,6 +258,14 @@ public final class CallViewModel: CallViewModelProtocol {
         localEncryptionKey = nil
         localKeyIndex = 0
         keyListenerHandle = nil
+
+        // Network cleanup in background so the UI never beachballs.
+        let service = encryptionService
+        let livekitRoom = room
+        Task.detached {
+            try? await service?.removeCallMemberEvent()
+            await livekitRoom.disconnect()
+        }
     }
 
     public func toggleCamera() async throws {
@@ -389,7 +422,7 @@ public final class CallViewModel: CallViewModelProtocol {
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
                 viewModel.syncParticipants(trackChanged: true)
-                if let identity = participant.identity?.stringValue {
+                if viewModel.isE2eeEnabled, let identity = participant.identity?.stringValue {
                     viewModel.redistributeKey(to: identity)
                 }
             }

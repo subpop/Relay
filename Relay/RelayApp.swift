@@ -29,6 +29,7 @@ private let logger = Logger(subsystem: "Relay", category: "DeepLink")
 struct RelayApp: App {
     @State private var matrixService = MatrixService()
     @State private var gifSearchService = GiphyService(apiKey: Secrets.giphyAPIKey ?? "")
+    @State private var callManager = CallManager()
     @State private var notificationDelegate = NotificationDelegate()
     @State private var appActions = AppActions()
     @State private var showClearCacheConfirmation = false
@@ -42,6 +43,7 @@ struct RelayApp: App {
             ContentView()
                 .environment(\.matrixService, matrixService)
                 .environment(\.gifSearchService, gifSearchService)
+                .environment(\.callManager, callManager)
                 .environment(\.errorReporter, matrixService.errorReporter)
                 .environment(appActions)
                 .onChange(of: dockBadgeCount) { _, newCount in
@@ -106,6 +108,16 @@ struct RelayApp: App {
                 .environment(\.gifSearchService, gifSearchService)
                 .environment(\.errorReporter, matrixService.errorReporter)
         }
+
+        Window("Call", id: "call") {
+            CallWindowView()
+                .environment(\.matrixService, matrixService)
+                .environment(\.callManager, callManager)
+        }
+        .windowStyle(.plain)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 360, height: 540)
+        .defaultPosition(.topTrailing)
     }
 
     // MARK: - Notifications

@@ -31,6 +31,8 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
     @Environment(AppActions.self) private var appActions
+    @Environment(\.callManager) private var callManager
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @State private var selectedSpaceId: String?
     @State private var leaveSpaceItem: LeaveSpaceItem?
@@ -46,8 +48,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @State private var isJoiningLinkedRoom = false
     @State private var inspectorSelectedProfile: UserProfile?
     @State private var inspectorInitialTab: InspectorTab?
-    @State private var activeCallViewModel: (any CallViewModelProtocol)?
-    @State private var isShowingCall = false
     @State private var isPreparingCall = false
 
     private func scrollToMessage(_ eventId: String) {
@@ -239,18 +239,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         .sheet(item: $leaveSpaceItem) { item in
             LeaveSpaceSheet(spaceName: item.name, spaceId: item.id, children: item.children)
         }
-        .sheet(isPresented: $isShowingCall) {
-            if let callViewModel = activeCallViewModel {
-                CallView(
-                    viewModel: callViewModel,
-                    isPreparingCredentials: isPreparingCall
-                ) {
-                    isShowingCall = false
-                    isPreparingCall = false
-                    activeCallViewModel = nil
-                }
-            }
-        }
         .onChange(of: matrixService.spaces.map(\.id)) {
             if let selectedSpaceId, !matrixService.spaces.contains(where: { $0.id == selectedSpaceId }) {
                 self.selectedSpaceId = nil
@@ -409,21 +397,27 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     // MARK: - Call Handling
 
     private func startCall(roomId: String) {
-        guard !isPreparingCall else { return }
-        guard let viewModel = matrixService.makeCallViewModel(roomId: roomId) else { return }
-        activeCallViewModel = viewModel
-        isPreparingCall = true
-        isShowingCall = true
+        guard !callManager.hasActiveCall else { return }
+        callManager.isPreparingCredentials = true
+        callManager.callRoomId = roomId
 
         Task {
+            guard let viewModel = await matrixService.makeCallViewModel(roomId: roomId) else {
+                callManager.isPreparingCredentials = false
+                callManager.callRoomId = nil
+                return
+            }
+            callManager.activeCallViewModel = viewModel
+            openWindow(id: "call")
+
             do {
-                let (url, token) = try await matrixService.callCredentials(for: roomId)
-                try await viewModel.connect(url: url, token: token)
+                let creds = try await matrixService.callCredentials(for: roomId)
+                try await viewModel.connect(url: creds.livekitURL, token: creds.token, sfuServiceURL: creds.sfuServiceURL)
             } catch {
                 // Credential fetch or connect failed — viewModel stays in .idle so
                 // CallView shows the manual-entry join form as a fallback.
             }
-            isPreparingCall = false
+            callManager.isPreparingCredentials = false
         }
     }
 

@@ -15,84 +15,349 @@
 import RelayInterface
 import SwiftUI
 
-/// Renders a LiveKit audio/video call within a Matrix room.
+/// Renders a LiveKit audio/video call with a FaceTime-inspired design.
 ///
-/// When the view model is in the ``CallState/idle`` state, ``CallView`` shows a
-/// credential-entry form so the user can supply the LiveKit server URL and JWT token
-/// before connecting. While connecting it shows a spinner with a Cancel button.
-/// Once connected it shows participant tiles and a media-control bar.
+/// The call opens in its own borderless window (`.windowStyle(.plain)`).
+/// When connected, the remote participant's video fills the window with
+/// a small self-view PiP overlay and a translucent floating control bar.
 struct CallView: View {
     @State var viewModel: any CallViewModelProtocol
-    /// `true` while the parent is fetching LiveKit credentials from the homeserver.
-    /// When set, the `.idle` state shows a spinner instead of the manual-entry form.
     var isPreparingCredentials: Bool = false
     var onDismiss: () -> Void
 
-    // Local fields used only while in the .idle (pre-connect) manual-entry form.
     @State private var serverURL: String = ""
     @State private var accessToken: String = ""
     @State private var isJoining: Bool = false
+    @State private var isHovering: Bool = false
+    @State private var controlsVisible: Bool = true
+    @State private var hideControlsTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                switch viewModel.state {
-                case .idle:
-                    if isPreparingCredentials {
-                        preparingView
-                    } else {
-                        joinForm
-                    }
-
-                case .connecting:
-                    connectingView
-
-                case .connected:
-                    participantsGrid
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    controlBar
-
-                case .disconnected:
-                    endedView(
-                        title: "Call Ended",
-                        systemImage: "phone.down.fill",
-                        description: "The call has ended.",
-                        isError: false
-                    )
-
-                case .failed(let message):
-                    endedView(
-                        title: "Call Failed",
-                        systemImage: "exclamationmark.triangle.fill",
-                        description: message,
-                        isError: true
-                    )
+            switch viewModel.state {
+            case .idle:
+                if isPreparingCredentials {
+                    preparingView
+                } else {
+                    joinForm
                 }
+
+            case .connecting:
+                connectingView
+
+            case .connected:
+                connectedView
+
+            case .disconnected:
+                endedOverlay(
+                    title: "Call Ended",
+                    systemImage: "phone.down.fill",
+                    isError: false
+                )
+
+            case .failed(let message):
+                endedOverlay(
+                    title: "Call Failed",
+                    systemImage: "exclamationmark.triangle.fill",
+                    isError: true,
+                    detail: message
+                )
             }
         }
-        .frame(minWidth: 480, minHeight: 360)
+        .frame(minWidth: 320, minHeight: 480)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    // MARK: - Preparing View (fetching credentials from homeserver)
+    // MARK: - Connected View (FaceTime-style)
+
+    @ViewBuilder
+    private var connectedView: some View {
+        ZStack {
+            // Primary video: first remote participant fills the window
+            primaryVideo
+                .ignoresSafeArea()
+
+            // Self-view PiP in bottom-right corner
+            if let localID = viewModel.localParticipantID {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        selfViewPiP(id: localID)
+                    }
+                }
+                .padding(12)
+                .padding(.bottom, 72)
+            }
+
+            // Participant name at top
+            VStack {
+                participantNameBar
+                Spacer()
+            }
+
+            // Floating control bar at bottom
+            VStack {
+                Spacer()
+                controlBar
+                    .opacity(controlsVisible ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+            }
+            .padding(.bottom, 16)
+        }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                showControls()
+            } else {
+                scheduleHideControls()
+            }
+        }
+        .onAppear { scheduleHideControls() }
+    }
+
+    // MARK: - Primary Video
+
+    @ViewBuilder
+    private var primaryVideo: some View {
+        let _ = viewModel.videoTrackRevision
+        if let firstRemote = viewModel.participants.first {
+            if let videoView = viewModel.makeVideoView(for: firstRemote.id) {
+                videoView
+            } else {
+                // Remote has no video — show avatar placeholder
+                participantPlaceholder(firstRemote)
+            }
+        } else {
+            // No remote participants yet — waiting
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.white)
+                Text("Waiting for others to join…")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+        }
+    }
+
+    // MARK: - Self-View PiP
+
+    @ViewBuilder
+    private func selfViewPiP(id: String) -> some View {
+        let _ = viewModel.videoTrackRevision
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .darkGray))
+
+            if viewModel.isLocalCameraEnabled,
+               let videoView = viewModel.makeVideoView(for: id) {
+                videoView
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .frame(width: 120, height: 90)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
+    }
+
+    // MARK: - Participant Name Bar
+
+    @ViewBuilder
+    private var participantNameBar: some View {
+        if let first = viewModel.participants.first {
+            HStack {
+                if first.isSpeaking {
+                    Image(systemName: "waveform")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+                Text(first.displayName ?? first.id)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial.opacity(0.8), in: Capsule())
+            .padding(.top, 12)
+        }
+    }
+
+    // MARK: - Control Bar
+
+    @ViewBuilder
+    private var controlBar: some View {
+        HStack(spacing: 20) {
+            // Microphone toggle
+            controlButton(
+                icon: viewModel.isLocalMicrophoneEnabled ? "mic.fill" : "mic.slash.fill",
+                isActive: viewModel.isLocalMicrophoneEnabled,
+                help: viewModel.isLocalMicrophoneEnabled ? "Mute" : "Unmute"
+            ) {
+                Task { try? await viewModel.toggleMicrophone() }
+            }
+
+            // Camera toggle
+            controlButton(
+                icon: viewModel.isLocalCameraEnabled ? "video.fill" : "video.slash.fill",
+                isActive: viewModel.isLocalCameraEnabled,
+                help: viewModel.isLocalCameraEnabled ? "Camera Off" : "Camera On"
+            ) {
+                Task { try? await viewModel.toggleCamera() }
+            }
+
+            // End call
+            Button {
+                Task {
+                    await viewModel.disconnect()
+                    onDismiss()
+                }
+            } label: {
+                Image(systemName: "phone.down.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Color.red, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("End Call")
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    @ViewBuilder
+    private func controlButton(icon: String, isActive: Bool, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    isActive ? Color.white.opacity(0.15) : Color.red.opacity(0.8),
+                    in: Circle()
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    // MARK: - Controls Visibility
+
+    private func showControls() {
+        hideControlsTask?.cancel()
+        controlsVisible = true
+    }
+
+    private func scheduleHideControls() {
+        hideControlsTask?.cancel()
+        hideControlsTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled && !isHovering {
+                controlsVisible = false
+            }
+        }
+    }
+
+    // MARK: - Participant Placeholder
+
+    @ViewBuilder
+    private func participantPlaceholder(_ participant: CallParticipant) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "person.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(.white.opacity(0.3))
+            Text(participant.displayName ?? participant.id)
+                .font(.title2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.6))
+        }
+    }
+
+    // MARK: - Preparing View
 
     @ViewBuilder
     private var preparingView: some View {
-        Spacer()
-        ProgressView("Contacting call server…")
-            .progressViewStyle(.circular)
-            .controlSize(.large)
-            .foregroundStyle(.white)
-            .tint(.white)
-        Button("Cancel") { onDismiss() }
-            .buttonStyle(.bordered)
-            .foregroundStyle(.white)
-            .padding(.top, 20)
-        Spacer()
+        VStack(spacing: 16) {
+            Spacer()
+            ProgressView()
+                .controlSize(.large)
+                .tint(.white)
+            Text("Contacting call server…")
+                .font(.headline)
+                .foregroundStyle(.white.opacity(0.7))
+            Button("Cancel") { onDismiss() }
+                .buttonStyle(.bordered)
+                .foregroundStyle(.white)
+            Spacer()
+        }
     }
 
-    // MARK: - Join Form (idle state)
+    // MARK: - Connecting View
+
+    @ViewBuilder
+    private var connectingView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            ProgressView()
+                .controlSize(.large)
+                .tint(.white)
+            Text("Joining call…")
+                .font(.headline)
+                .foregroundStyle(.white.opacity(0.7))
+            Button("Cancel") {
+                Task {
+                    await viewModel.disconnect()
+                    onDismiss()
+                }
+            }
+            .buttonStyle(.bordered)
+            .foregroundStyle(.white)
+            Spacer()
+        }
+    }
+
+    // MARK: - Ended/Failed Overlay
+
+    @ViewBuilder
+    private func endedOverlay(title: String, systemImage: String, isError: Bool, detail: String? = nil) -> some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: systemImage)
+                .font(.system(size: 40))
+                .foregroundStyle(isError ? .red : .white.opacity(0.6))
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+            if let detail {
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            Button("Dismiss") { onDismiss() }
+                .buttonStyle(.borderedProminent)
+                .tint(isError ? .red : .accentColor)
+                .padding(.top, 4)
+            Spacer()
+        }
+        .task {
+            // Auto-dismiss after a few seconds for clean endings.
+            if !isError {
+                try? await Task.sleep(for: .seconds(2))
+                onDismiss()
+            }
+        }
+    }
+
+    // MARK: - Join Form (manual entry fallback)
 
     @ViewBuilder
     private var joinForm: some View {
@@ -108,7 +373,7 @@ struct CallView: View {
                     .font(.title2.bold())
                     .foregroundStyle(.white)
 
-                Text("Enter the LiveKit server URL and access token\nprovided by your call server.")
+                Text("Enter the LiveKit server URL and access token.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -129,20 +394,18 @@ struct CallView: View {
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
                 }
-                .frame(maxWidth: 360)
+                .frame(maxWidth: 320)
 
                 HStack(spacing: 16) {
-                    Button("Cancel") {
-                        onDismiss()
-                    }
-                    .buttonStyle(.bordered)
-                    .foregroundStyle(.white)
+                    Button("Cancel") { onDismiss() }
+                        .buttonStyle(.bordered)
+                        .foregroundStyle(.white)
 
                     Button("Join") {
                         guard !serverURL.isEmpty, !accessToken.isEmpty else { return }
                         Task {
                             isJoining = true
-                            try? await viewModel.connect(url: serverURL, token: accessToken)
+                            try? await viewModel.connect(url: serverURL, token: accessToken, sfuServiceURL: "")
                             isJoining = false
                         }
                     }
@@ -155,228 +418,20 @@ struct CallView: View {
             Spacer()
         }
     }
-
-    // MARK: - Connecting View
-
-    @ViewBuilder
-    private var connectingView: some View {
-        Spacer()
-        ProgressView("Joining call…")
-            .progressViewStyle(.circular)
-            .controlSize(.large)
-            .foregroundStyle(.white)
-            .tint(.white)
-        Button("Cancel") {
-            Task {
-                await viewModel.disconnect()
-                onDismiss()
-            }
-        }
-        .buttonStyle(.bordered)
-        .foregroundStyle(.white)
-        .padding(.top, 20)
-        Spacer()
-    }
-
-    // MARK: - Ended / Failed View
-
-    @ViewBuilder
-    private func endedView(title: String, systemImage: String, description: String, isError: Bool) -> some View {
-        Spacer()
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(description)
-        )
-        .foregroundStyle(.white)
-        Button("Dismiss") { onDismiss() }
-            .buttonStyle(.borderedProminent)
-            .tint(isError ? .red : .accentColor)
-            .padding(.top, 12)
-        Spacer()
-    }
-
-    // MARK: - Participants Grid
-    //
-    // NOTE: For a richer integration, consider adopting LiveKitComponents
-    // (ForEachParticipant / ForEachTrack / VideoTrackView) which handle
-    // participant lifecycle, adaptive streaming, and reconnection automatically.
-    // See: https://github.com/livekit/components-swift
-
-    @ViewBuilder
-    private var participantsGrid: some View {
-        let columns = [GridItem(.adaptive(minimum: 200, maximum: 400), spacing: 8)]
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(viewModel.participants) { participant in
-                    participantTile(participant)
-                        .id(participant.id)
-                }
-                if let localID = viewModel.localParticipantID {
-                    localParticipantTile(id: localID)
-                        .id(localID)
-                }
-            }
-            .padding(8)
-        }
-    }
-
-    // MARK: - Participant Tile
-
-    @ViewBuilder
-    private func participantTile(_ participant: CallParticipant) -> some View {
-        ZStack(alignment: .bottom) {
-            Color(nsColor: .darkGray)
-
-            videoContent(for: participant.id)
-
-            if participant.isSpeaking {
-                Rectangle()
-                    .strokeBorder(.green, lineWidth: 3)
-            }
-
-            HStack(spacing: 6) {
-                Text(participant.displayName ?? participant.id)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer()
-                if !participant.isMicrophoneEnabled {
-                    Image(systemName: "mic.slash.fill").font(.caption).foregroundStyle(.red)
-                }
-                if !participant.isCameraEnabled {
-                    Image(systemName: "video.slash.fill").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.55))
-        }
-        .aspectRatio(16.0 / 9.0, contentMode: .fit)
-    }
-
-    // MARK: - Local Participant Tile
-
-    @ViewBuilder
-    private func localParticipantTile(id: String) -> some View {
-        ZStack(alignment: .bottom) {
-            Color(nsColor: .darkGray)
-
-            videoContent(for: id)
-
-            HStack(spacing: 6) {
-                Text("You").font(.caption).foregroundStyle(.white)
-                Spacer()
-                if !viewModel.isLocalMicrophoneEnabled {
-                    Image(systemName: "mic.slash.fill").font(.caption).foregroundStyle(.red)
-                }
-                if !viewModel.isLocalCameraEnabled {
-                    Image(systemName: "video.slash.fill").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.55))
-        }
-        .aspectRatio(16.0 / 9.0, contentMode: .fit)
-    }
-
-    // MARK: - Control Bar
-
-    @ViewBuilder
-    private var controlBar: some View {
-        HStack(spacing: 24) {
-            Button {
-                Task { try? await viewModel.toggleMicrophone() }
-            } label: {
-                Image(systemName: viewModel.isLocalMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
-                    .background(viewModel.isLocalMicrophoneEnabled ? Color.white.opacity(0.15) : Color.red.opacity(0.8))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .help(viewModel.isLocalMicrophoneEnabled ? "Mute microphone" : "Unmute microphone")
-
-            Button {
-                Task { try? await viewModel.toggleCamera() }
-            } label: {
-                Image(systemName: viewModel.isLocalCameraEnabled ? "video.fill" : "video.slash.fill")
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
-                    .background(viewModel.isLocalCameraEnabled ? Color.white.opacity(0.15) : Color.red.opacity(0.8))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .help(viewModel.isLocalCameraEnabled ? "Turn off camera" : "Turn on camera")
-
-            Button {
-                Task {
-                    await viewModel.disconnect()
-                    onDismiss()
-                }
-            } label: {
-                Image(systemName: "phone.down.fill")
-                    .font(.title2)
-                    .frame(width: 52, height: 52)
-                    .background(Color.red)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .help("End call")
-        }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 32)
-        .background(.black.opacity(0.7))
-    }
-}
-
-// MARK: - Video Content
-
-extension CallView {
-    /// Returns the LiveKit `SwiftUIVideoView` (via `AnyView`) for the given participant,
-    /// or a dark grey placeholder if no video track is available yet.
-    ///
-    /// > Important: Do **not** apply `.clipShape()` or `.mask()` to the returned
-    /// > video view.  `SwiftUIVideoView` renders via Metal and SwiftUI shape
-    /// > clipping interferes with the GPU-backed surface, causing visual artefacts.
-    @ViewBuilder
-    fileprivate func videoContent(for participantID: String) -> some View {
-        // Reading videoTrackRevision ensures SwiftUI re-evaluates this
-        // when tracks change (publish, subscribe, toggle).
-        let _ = viewModel.videoTrackRevision
-        if let videoView = viewModel.makeVideoView(for: participantID) {
-            videoView
-        } else {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .darkGray))
-        }
-    }
 }
 
 // MARK: - Previews
 
-#Preview("Join Form") {
-    CallView(viewModel: PreviewCallViewModel(), onDismiss: {})
-        .frame(width: 640, height: 480)
-}
-
-#Preview("Connecting") {
-    @Previewable @State var vm = PreviewCallViewModel()
-    CallView(viewModel: vm, onDismiss: {})
-        .frame(width: 640, height: 480)
-        .onAppear { vm.state = .connecting }
+#Preview("Preparing") {
+    CallView(viewModel: PreviewCallViewModel(), isPreparingCredentials: true, onDismiss: {})
+        .frame(width: 360, height: 540)
 }
 
 #Preview("Connected") {
     let vm = PreviewCallViewModel()
     return CallView(viewModel: vm, onDismiss: {})
-        .frame(width: 640, height: 480)
+        .frame(width: 360, height: 540)
         .task {
-            try? await vm.connect(url: "wss://preview.example.com", token: "preview-token")
+            try? await vm.connect(url: "wss://preview.example.com", token: "preview-token", sfuServiceURL: "")
         }
 }
