@@ -21,6 +21,14 @@ import SwiftUI
 // main-actor-isolated views.
 extension LPLinkMetadata: @retroactive @unchecked Sendable {}
 
+extension Notification.Name {
+    /// Posted when a ``LinkPreviewView`` finishes loading metadata and its
+    /// intrinsic height changes. The `userInfo` dictionary contains a
+    /// `"messageID"` string identifying the timeline row that needs
+    /// re-measurement.
+    static let linkPreviewDidLoad = Notification.Name("relay.linkPreviewDidLoad")
+}
+
 // MARK: - Metadata Cache
 
 /// A global, thread-safe cache for fetched link metadata, preventing redundant
@@ -71,6 +79,11 @@ struct LinkPreviewView: View {
     let url: URL
     let isOutgoing: Bool
 
+    /// The timeline message ID that contains this preview. Used to notify the
+    /// table view controller that the row height needs re-measurement after
+    /// metadata loads asynchronously.
+    let messageID: String
+
     @State private var metadata: LPLinkMetadata?
     @State private var didFail = false
 
@@ -96,6 +109,15 @@ struct LinkPreviewView: View {
         .task(id: url) {
             if let fetched = await LinkMetadataCache.shared.metadata(for: url) {
                 metadata = fetched
+                // The row was initially measured while the preview was in its
+                // loading state (small spinner). Now that the full LPLinkView
+                // will render, post a notification so the table view controller
+                // can invalidate the cached height and re-measure the row.
+                NotificationCenter.default.post(
+                    name: .linkPreviewDidLoad,
+                    object: nil,
+                    userInfo: ["messageID": messageID]
+                )
             } else {
                 didFail = true
             }
@@ -128,7 +150,8 @@ private struct LinkPreviewRepresentable: NSViewRepresentable {
     VStack(spacing: 12) {
         LinkPreviewView(
             url: URL(string: "https://www.apple.com")!,
-            isOutgoing: false
+            isOutgoing: false,
+            messageID: "preview-1"
         )
         .frame(width: 300)
         .padding()
@@ -137,7 +160,8 @@ private struct LinkPreviewRepresentable: NSViewRepresentable {
 
         LinkPreviewView(
             url: URL(string: "https://matrix.org")!,
-            isOutgoing: true
+            isOutgoing: true,
+            messageID: "preview-2"
         )
         .frame(width: 300)
         .padding()

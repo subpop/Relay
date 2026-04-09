@@ -144,7 +144,7 @@ struct TimelineRowView: View, Equatable {
 
             if showURLPreviews, message.kind == .text,
                let url = TimelineView.firstPreviewURL(in: message.body) {
-                LinkPreviewView(url: url, isOutgoing: message.isOutgoing)
+                LinkPreviewView(url: url, isOutgoing: message.isOutgoing, messageID: message.id)
                     .frame(maxWidth: 260)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .background(

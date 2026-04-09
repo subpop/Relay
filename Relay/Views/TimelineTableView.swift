@@ -292,6 +292,17 @@ final class TimelineTableViewController: NSViewController {
             name: NSView.frameDidChangeNotification,
             object: scrollView
         )
+
+        // Listen for link preview metadata loads so we can re-measure the
+        // affected row. When a LinkPreviewView first renders it shows a
+        // small loading placeholder; once metadata arrives the LPLinkView
+        // expands, requiring a height update.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(linkPreviewDidLoad),
+            name: .linkPreviewDidLoad,
+            object: nil
+        )
     }
 
     // MARK: - Data Source
@@ -512,6 +523,53 @@ final class TimelineTableViewController: NSViewController {
                 if h > 0 {
                     heightCache[HeightCacheKey(rows[idx].id, roundedWidth)] = h
                 }
+            }
+        }
+    }
+
+    // MARK: - Link Preview Height Updates
+
+    @objc private func linkPreviewDidLoad(_ notification: Notification) {
+        guard let messageID = notification.userInfo?["messageID"] as? String else { return }
+
+        // Find the row index for this message. If it's not currently in the
+        // data source there's nothing to re-measure.
+        guard let rowIndex = rows.firstIndex(where: { $0.id == messageID }) else { return }
+
+        invalidateHeight(for: messageID)
+
+        // Defer the re-measurement so the live NSHostingView cell has time
+        // to lay out the newly loaded LPLinkView at its full size.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // Pre-cache from the live cell if it's visible, so
+            // noteHeightOfRows returns the fresh value without hitting
+            // the measurement host (which would still see loading state).
+            let visible = self.tableView.rows(in: self.tableView.visibleRect)
+            if visible.contains(rowIndex),
+               let cell = self.tableView.view(atColumn: 0, row: rowIndex, makeIfNecessary: false)
+                as? NSHostingView<TimelineRowView> {
+                var targetWidth = self.tableView.tableColumns.first?.width ?? 0
+                if targetWidth < 1 { targetWidth = self.scrollView.frame.width }
+                let h = cell.fittingSize.height
+                if h > 0 {
+                    self.heightCache[HeightCacheKey(messageID, targetWidth.rounded())] = h
+                }
+            }
+
+            let wasNearBottom = self.isNearBottom
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                self.tableView.noteHeightOfRows(
+                    withIndexesChanged: IndexSet(integer: rowIndex)
+                )
+            }
+
+            if wasNearBottom {
+                self.scrollToBottom(animated: false)
             }
         }
     }
