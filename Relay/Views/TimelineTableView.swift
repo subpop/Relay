@@ -169,7 +169,7 @@ final class TimelineTableViewController: NSViewController {
         var onPaginateForward: () -> Void = {}
         var onMessageAppeared: (TimelineView.MessageRow) -> Void = { _ in }
         var onSwipeReply: (TimelineView.MessageRow) -> Void = { _ in }
-        var makeRowView: (TimelineView.MessageRow) -> TimelineRowView = { _ in
+        var makeRowView: (TimelineView.MessageRow, _ isNewlyAppended: Bool) -> TimelineRowView = { _, _ in
             fatalError("makeRowView not configured")
         }
     }
@@ -232,6 +232,22 @@ final class TimelineTableViewController: NSViewController {
             // differences during live resize.
             self.width = width.rounded()
         }
+    }
+
+    /// Whether the timeline is in live mode (as opposed to focused on a
+    /// specific event). When `true`, newly appended messages animate in.
+    var isLive = true
+
+    /// Message IDs that were appended at the bottom during the most recent
+    /// structural update while in live mode. Row views read this set to
+    /// decide whether to play an entry animation, then clear their ID
+    /// after animating.
+    private(set) var newlyAppendedMessageIDs: Set<String> = []
+
+    /// Removes an ID from the newly-appended set after its entry animation
+    /// has started, preventing the animation from replaying on cell reuse.
+    func consumeNewlyAppended(_ id: String) {
+        newlyAppendedMessageIDs.remove(id)
     }
 
     /// Tracks whether the user is scrolled near the bottom (newest messages).
@@ -312,7 +328,9 @@ final class TimelineTableViewController: NSViewController {
             guard let self, row < self.rows.count else { return NSView() }
 
             let messageRow = self.rows[row]
-            let rowView = self.callbacks.makeRowView(messageRow)
+            let isNew = self.newlyAppendedMessageIDs.contains(messageRow.id)
+            if isNew { self.consumeNewlyAppended(messageRow.id) }
+            let rowView = self.callbacks.makeRowView(messageRow, isNew)
             let reuseID = NSUserInterfaceItemIdentifier(messageRow.message.isSystemEvent ? "system" : "message")
 
             let hostView: NSHostingView<TimelineRowView>
@@ -414,6 +432,23 @@ final class TimelineTableViewController: NSViewController {
         let removedIDs = Set(oldIDs).subtracting(newIDs)
         for id in removedIDs {
             invalidateHeight(for: id)
+        }
+
+        // Detect messages appended at the bottom (newest end) while in live
+        // mode after the initial load.  These IDs are exposed to row views
+        // so they can play an entry animation.
+        if isLive && hasScrolledToBottom && !oldIDs.isEmpty {
+            let oldSet = Set(oldIDs)
+            // newIDs is reversed (newest = index 0).  Walk from the front
+            // and collect IDs that didn't exist in the previous snapshot.
+            var appended: Set<String> = []
+            for id in newIDs {
+                if oldSet.contains(id) { break }
+                appended.insert(id)
+            }
+            newlyAppendedMessageIDs = appended
+        } else {
+            newlyAppendedMessageIDs = []
         }
 
         // Structural update via diffable data source.
@@ -685,7 +720,7 @@ extension TimelineTableViewController: NSTableViewDelegate {
 
         // 2. Fall back to the measurement host for rows without a cached
         //    value (initial load, pagination, first resize at a new width).
-        let rowView = callbacks.makeRowView(messageRow)
+        let rowView = callbacks.makeRowView(messageRow, false)
         measurementHost.rootView = AnyView(rowView)
         measurementHost.sizingOptions = [.standardBounds]
 

@@ -38,6 +38,7 @@ extension EnvironmentValues {
 /// entire parent view's 20+ `@State` properties on every frame.
 struct TimelineRowView: View, Equatable {
     let row: TimelineView.MessageRow
+    let isNewlyAppended: Bool
     let showUnreadMarker: Bool
     let firstUnreadMessageId: String?
     let highlightedMessageId: String?
@@ -58,10 +59,17 @@ struct TimelineRowView: View, Equatable {
     /// swipes this row, the offset and reply arrow are rendered here.
     var swipeState: TimelineSwipeState?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Drives the entry animation for newly appended messages. Starts
+    /// `false` for new messages and is set to `true` on appear.
+    @State private var didAppear = false
+
     nonisolated static func == (lhs: TimelineRowView, rhs: TimelineRowView) -> Bool {
         lhs.row.message == rhs.row.message
             && lhs.row.info == rhs.row.info
             && lhs.row.isPaginationTrigger == rhs.row.isPaginationTrigger
+            && lhs.isNewlyAppended == rhs.isNewlyAppended
             && lhs.showUnreadMarker == rhs.showUnreadMarker
             && lhs.firstUnreadMessageId == rhs.firstUnreadMessageId
             && lhs.highlightedMessageId == rhs.highlightedMessageId
@@ -78,11 +86,25 @@ struct TimelineRowView: View, Equatable {
         return swipeState.offset
     }
 
+    /// Whether this row should animate in.
+    private var shouldAnimate: Bool { isNewlyAppended && !didAppear }
+
     var body: some View {
         rowContent
             .padding(.horizontal, 16)
             .environment(\.swipeOffset, currentSwipeOffset)
             .offset(x: currentSwipeOffset)
+            .opacity(shouldAnimate ? 0 : 1)
+            .offset(y: shouldAnimate && !reduceMotion ? 12 : 0)
+            .animation(
+                isNewlyAppended ? .spring(duration: 0.35, bounce: 0.15) : nil,
+                value: didAppear
+            )
+            .onAppear {
+                if isNewlyAppended && !didAppear {
+                    didAppear = true
+                }
+            }
     }
 
     @ViewBuilder
@@ -250,6 +272,7 @@ enum TimelineRowContextAction {
 private func previewRow(_ message: TimelineMessage, info: TimelineView.MessageGroupInfo = .default) -> TimelineRowView {
     TimelineRowView(
         row: .init(message: message, info: info, isPaginationTrigger: false),
+        isNewlyAppended: false,
         showUnreadMarker: false,
         firstUnreadMessageId: nil,
         highlightedMessageId: nil,
@@ -276,6 +299,7 @@ private func previewRow(_ message: TimelineMessage, info: TimelineView.MessageGr
             ForEach(rows) { row in
                 TimelineRowView(
                     row: row,
+                    isNewlyAppended: false,
                     showUnreadMarker: false,
                     firstUnreadMessageId: nil,
                     highlightedMessageId: nil,
@@ -369,6 +393,7 @@ private func previewRow(_ message: TimelineMessage, info: TimelineView.MessageGr
             ForEach(rows) { row in
                 TimelineRowView(
                     row: row,
+                    isNewlyAppended: false,
                     showUnreadMarker: true,
                     firstUnreadMessageId: "5",
                     highlightedMessageId: nil,

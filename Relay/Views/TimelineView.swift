@@ -288,6 +288,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         TimelineTableViewRepresentable(
             rows: cachedMessageRows,
             hasReachedEnd: viewModel.hasReachedEnd,
+            isLive: viewModel.timelineFocus == .live,
             showUnreadMarker: showUnreadMarker,
             firstUnreadMessageId: viewModel.firstUnreadMessageId,
             highlightedMessageId: highlightedMessageId,
@@ -1015,6 +1016,7 @@ private struct PreviewTimeline: View {
                 ForEach(rows) { row in
                     TimelineRowView(
                         row: row,
+                        isNewlyAppended: false,
                         showUnreadMarker: showUnreadMarker,
                         firstUnreadMessageId: viewModel.firstUnreadMessageId,
                         highlightedMessageId: nil,

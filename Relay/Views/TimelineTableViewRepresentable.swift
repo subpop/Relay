@@ -22,6 +22,7 @@ import SwiftUI
 struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
     let rows: [TimelineView.MessageRow]
     let hasReachedEnd: Bool
+    let isLive: Bool
 
     // Row configuration values passed through to TimelineRowView.
     let showUnreadMarker: Bool
@@ -50,6 +51,7 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
     func makeNSViewController(context: Context) -> TimelineTableViewController {
         let vc = TimelineTableViewController()
         vc.hasReachedEnd = hasReachedEnd
+        vc.isLive = isLive
         configureCallbacks(vc, context: context)
         vc.updateRows(rows)
         scrollProxy.controller = vc
@@ -58,6 +60,7 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
 
     func updateNSViewController(_ vc: TimelineTableViewController, context: Context) {
         vc.hasReachedEnd = hasReachedEnd
+        vc.isLive = isLive
         configureCallbacks(vc, context: context)
         vc.updateRows(rows)
         // Ensure the proxy always points to the current controller.
@@ -74,9 +77,10 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
             onSwipeReply: { row in
                 onReply(row.message)
             },
-            makeRowView: { row in
+            makeRowView: { row, isNewlyAppended in
                 TimelineRowView(
                     row: row,
+                    isNewlyAppended: isNewlyAppended,
                     showUnreadMarker: showUnreadMarker,
                     firstUnreadMessageId: firstUnreadMessageId,
                     highlightedMessageId: highlightedMessageId,
