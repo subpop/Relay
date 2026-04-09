@@ -356,12 +356,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
     private var composeBar: some View {
         VStack(spacing: 0) {
-            if !viewModel.typingUserDisplayNames.isEmpty {
-                typingIndicator
-                    .padding(.top, 4)
-                    .padding(.bottom, 4)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
+            TypingIndicatorOverlay(viewModel: viewModel)
             if let reply = replyingTo {
                 HStack {
                     Label("Replying to \(reply.displayName)", systemImage: "arrowshape.turn.up.left")
@@ -438,34 +433,6 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 systemImage: "text.bubble",
                 description: Text("Send a message to get the conversation started.")
             )
-        }
-    }
-
-    // MARK: - Typing Indicator
-
-    private var typingIndicator: some View {
-        HStack(spacing: 6) {
-            TypingBubble()
-            Text(typingLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-    }
-
-    private var typingLabel: String {
-        let names = viewModel.typingUserDisplayNames
-        switch names.count {
-        case 1:
-            return "\(names[0]) is typing…"
-        case 2:
-            return "\(names[0]) and \(names[1]) are typing…"
-        default:
-            return "\(names[0]) and \(names.count - 1) others are typing…"
         }
     }
 
@@ -870,6 +837,48 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         image.draw(in: NSRect(origin: .zero, size: targetSize))
         thumbnail.unlockFocus()
         return thumbnail
+    }
+}
+
+// MARK: - Typing Indicator Overlay
+
+/// A lightweight view that observes only `viewModel.typingUserDisplayNames`,
+/// isolating typing-state changes from ``TimelineView/body`` re-evaluation.
+/// Without this, every typing notification would trigger a full `body`
+/// recompute, rebuilding `messageRows` and passing them through the
+/// representable boundary — even though the message data hasn't changed.
+private struct TypingIndicatorOverlay: View {
+    let viewModel: any TimelineViewModelProtocol
+
+    var body: some View {
+        let names = viewModel.typingUserDisplayNames
+        if !names.isEmpty {
+            HStack(spacing: 6) {
+                TypingBubble()
+                Text(typingLabel(for: names))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: Capsule())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 4)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
+    private func typingLabel(for names: [String]) -> String {
+        switch names.count {
+        case 1:
+            return "\(names[0]) is typing…"
+        case 2:
+            return "\(names[0]) and \(names[1]) are typing…"
+        default:
+            return "\(names[0]) and \(names.count - 1) others are typing…"
+        }
     }
 }
 
