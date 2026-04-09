@@ -31,7 +31,7 @@ final class PreviewCallViewModel: CallViewModelProtocol {
     var localParticipantID: String? = nil
     var videoTrackRevision: UInt = 0
 
-    func connect(url: String, token: String) async throws {
+    func connect(url: String, token: String, sfuServiceURL: String) async throws {
         state = .connecting
         try? await Task.sleep(for: .milliseconds(800))
         isLocalCameraEnabled = true

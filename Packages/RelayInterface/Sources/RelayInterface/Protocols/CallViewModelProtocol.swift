@@ -94,7 +94,7 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
     /// - Parameters:
     ///   - url: The WebSocket URL of the LiveKit server (e.g. `"wss://livekit.example.com"`).
     ///   - token: A signed JWT granting access to the room.
-    func connect(url: String, token: String) async throws
+    func connect(url: String, token: String, sfuServiceURL: String) async throws
 
     /// Disconnects from the call and cleans up media resources.
     func disconnect() async

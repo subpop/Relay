@@ -42,6 +42,8 @@ struct SystemEventView: View {
             "person.2"
         case .profileChange:
             "person.text.rectangle"
+        case .callEvent:
+            "phone.fill"
         case .stateEvent:
             "gearshape"
         default:

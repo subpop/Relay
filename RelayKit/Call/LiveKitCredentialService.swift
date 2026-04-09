@@ -44,14 +44,16 @@ struct LiveKitCredentialService {
 
     // MARK: - Public Entry Point
 
-    /// Returns `(livekitWebSocketURL, livekitJWT)` for the given Matrix room.
-    func credentials(for roomID: String) async throws -> (url: String, token: String) {
+    /// Returns `(livekitWebSocketURL, livekitJWT, sfuServiceURL)` for the given Matrix room.
+    /// The `sfuServiceURL` is the SFU service URL from discovery, used in call member events.
+    func credentials(for roomID: String) async throws -> (url: String, token: String, sfuServiceURL: String) {
         logger.info("Fetching LiveKit credentials for room \(roomID, privacy: .private)")
         let sfuURL = try await discoverSFUURL()
         logger.info("SFU URL discovered: \(sfuURL)")
         let openIDToken = try await requestOpenIDToken()
         logger.debug("OpenID token obtained")
-        return try await fetchLiveKitToken(sfuURL: sfuURL, roomID: roomID, openIDToken: openIDToken)
+        let (url, jwt) = try await fetchLiveKitToken(sfuURL: sfuURL, roomID: roomID, openIDToken: openIDToken)
+        return (url, jwt, sfuURL)
     }
 
     // MARK: - Step 1: Discover SFU URL

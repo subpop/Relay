@@ -53,42 +53,55 @@ struct CallEncryptionService {
     /// Sends the MatrixRTC call membership state event so that Element-X and other
     /// MatrixRTC clients can discover our participation in the call.
     ///
-    /// - Parameter livekitURL: The LiveKit SFU service URL (used in `foci_active`).
-    func sendCallMemberEvent(livekitURL: String) async throws {
+    /// Uses the modern MSC4143 per-device format matching Element-X:
+    /// - State key: `_@userId:server_deviceId_m.call`
+    /// - `focus_active`: `{"type": "livekit", "focus_selection": "oldest_membership"}`
+    /// - `foci_preferred`: array with the SFU service URL and room alias
+    ///
+    /// - Parameter sfuServiceURL: The SFU service URL from MatrixRTC discovery
+    ///   (e.g. `https://livekit.example.com/livekit/jwt`).
+    func sendCallMemberEvent(sfuServiceURL: String) async throws {
         let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
         let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
         let encodedEventType = Self.callMemberEventType
             .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? Self.callMemberEventType
-        // State key is the user's Matrix ID — one membership entry per user.
-        let encodedStateKey = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userID
+        // MSC4143 state key: "_@userId:server_deviceId_m.call"
+        let stateKey = "_\(userID)_\(deviceID)_m.call"
+        let encodedStateKey = stateKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? stateKey
 
         guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/\(encodedEventType)/\(encodedStateKey)") else {
             throw LiveKitCredentialError.invalidURL
         }
 
-        // Strip trailing slash from LiveKit URL for the foci_active entry.
-        let sfuURL = livekitURL.trimmingCharacters(in: .init(charactersIn: "/"))
+        let serviceURL = sfuServiceURL.trimmingCharacters(in: .init(charactersIn: "/"))
 
+        // Match Element-X's exact format.
         let body: [String: Any] = [
-            "memberships": [
+            "application": "m.call",
+            "call_id": "",
+            "device_id": deviceID,
+            "expires": 14400000,
+            "focus_active": [
+                "type": "livekit",
+                "focus_selection": "oldest_membership"
+            ] as [String: Any],
+            "foci_preferred": [
                 [
-                    "application": "m.call",
-                    "call_id": "",
-                    "device_id": deviceID,
-                    "expires": 3600000,
-                    "foci_active": [
-                        [
-                            "type": "livekit",
-                            "livekit_service_url": sfuURL
-                        ]
-                    ],
-                    "membershipID": UUID().uuidString,
-                    "scope": "m.room"
+                    "type": "livekit",
+                    "livekit_service_url": serviceURL,
+                    "livekit_alias": roomID
                 ] as [String: Any]
-            ]
+            ],
+            "m.call.intent": "video",
+            "membershipID": "\(userID):\(deviceID)",
+            "scope": "m.room"
         ]
 
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let jsonData = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        if let jsonStr = String(data: jsonData, encoding: .utf8) {
+            logger.info("Call member event body: \(jsonStr)")
+        }
+        logger.info("Call member state key: \(stateKey)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
@@ -96,30 +109,33 @@ struct CallEncryptionService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (responseData, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            logger.error("sendCallMemberEvent failed with status \(statusCode)")
+            if let respStr = String(data: responseData, encoding: .utf8) {
+                logger.error("sendCallMemberEvent failed with status \(statusCode): \(respStr)")
+            }
             throw CallEncryptionError.callMemberEventFailed
         }
 
         logger.info("Sent call membership state event")
     }
 
-    /// Removes the call membership state event (sets memberships to empty)
+    /// Removes the call membership state event (sets content to empty object)
     /// so Element-X knows we've left the call.
     func removeCallMemberEvent() async throws {
         let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
         let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
         let encodedEventType = Self.callMemberEventType
             .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? Self.callMemberEventType
-        let encodedStateKey = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userID
+        let stateKey = "_\(userID)_\(deviceID)_m.call"
+        let encodedStateKey = stateKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? stateKey
 
         guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/\(encodedEventType)/\(encodedStateKey)") else {
             throw LiveKitCredentialError.invalidURL
         }
 
-        let body: [String: Any] = ["memberships": [Any]()]
+        let body: [String: Any] = [:]
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
 
@@ -137,6 +153,114 @@ struct CallEncryptionService {
         }
 
         logger.info("Removed call membership state event")
+    }
+
+    // MARK: - Debug: Fetch Existing Call Members
+
+    /// Fetches all existing `org.matrix.msc3401.call.member` state events from
+    /// the room for debugging interoperability issues.
+    func fetchCallMemberEvents() async {
+        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
+        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
+
+        guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state") else { return }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let events = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return
+        }
+
+        for event in events {
+            guard let type = event["type"] as? String,
+                  type == Self.callMemberEventType else { continue }
+            let stateKey = event["state_key"] as? String ?? "(none)"
+            if let content = event["content"],
+               let contentData = try? JSONSerialization.data(withJSONObject: content, options: [.sortedKeys]),
+               let contentStr = String(data: contentData, encoding: .utf8) {
+                logger.info("Existing call member [key=\(stateKey)]: \(contentStr)")
+            }
+        }
+    }
+
+    // MARK: - Room Call Setup
+
+    /// Ensures the room's power levels allow any member to send call-related
+    /// state events. Element-web does this automatically when a call is started.
+    ///
+    /// Sets `org.matrix.msc3401.call.member` and `io.element.call.encryption_keys`
+    /// to power level 0 in the room's `m.room.power_levels` state event.
+    ///
+    /// This is idempotent — if the levels are already correct, the PUT overwrites
+    /// with the same content.
+    func enableCallPowerLevels() async throws {
+        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
+        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
+
+        // 1. Fetch current power levels.
+        guard let getURL = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/m.room.power_levels/") else {
+            throw LiveKitCredentialError.invalidURL
+        }
+
+        var getRequest = URLRequest(url: getURL)
+        getRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, getResponse) = try await URLSession.shared.data(for: getRequest)
+        guard let http = getResponse as? HTTPURLResponse, http.statusCode == 200 else {
+            logger.warning("Could not fetch power levels (status \((getResponse as? HTTPURLResponse)?.statusCode ?? -1))")
+            return
+        }
+
+        guard var powerLevels = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        // 2. Merge call event types into the events dict at PL 0.
+        var events = (powerLevels["events"] as? [String: Any]) ?? [:]
+        let callEventTypes = [
+            Self.callMemberEventType,
+            Self.encryptionKeysEventType
+        ]
+
+        var needsUpdate = false
+        for eventType in callEventTypes {
+            if events[eventType] as? Int != 0 {
+                events[eventType] = 0
+                needsUpdate = true
+            }
+        }
+
+        guard needsUpdate else {
+            logger.info("Call power levels already configured")
+            return
+        }
+
+        powerLevels["events"] = events
+
+        // 3. PUT the updated power levels.
+        guard let putURL = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/m.room.power_levels/") else {
+            throw LiveKitCredentialError.invalidURL
+        }
+
+        let jsonData = try JSONSerialization.data(withJSONObject: powerLevels)
+
+        var putRequest = URLRequest(url: putURL)
+        putRequest.httpMethod = "PUT"
+        putRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        putRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        putRequest.httpBody = jsonData
+
+        let (_, putResponse) = try await URLSession.shared.data(for: putRequest)
+        guard let putHTTP = putResponse as? HTTPURLResponse, (200...299).contains(putHTTP.statusCode) else {
+            let statusCode = (putResponse as? HTTPURLResponse)?.statusCode ?? -1
+            logger.warning("Failed to update call power levels (status \(statusCode))")
+            return
+        }
+
+        logger.info("Enabled call power levels for room")
     }
 
     // MARK: - Key Generation
