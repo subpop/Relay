@@ -47,8 +47,16 @@ struct AvatarView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .task(id: mxcURL) {
-            guard let mxcURL else { return }
+            guard let mxcURL else {
+                image = nil
+                return
+            }
             image = await matrixService.avatarThumbnail(mxcURL: mxcURL, size: size)
+        }
+        .onChange(of: name) {
+            // When the view is reused for a different entity (e.g. switching rooms
+            // in the toolbar capsule), clear any stale image immediately.
+            image = nil
         }
     }
 

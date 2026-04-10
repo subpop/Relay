@@ -279,7 +279,15 @@ private final class RoomEntry: Identifiable {
     private func applyRoomInfo(_ info: RoomInfo) {
         summary.name = info.displayName ?? room.displayName() ?? id
         summary.topic = info.topic
-        summary.avatarURL = info.avatarUrl
+        // For DM rooms without an explicit room avatar, fall back to the
+        // first hero's avatar so the sidebar shows the other user's picture.
+        if let explicit = info.avatarUrl {
+            summary.avatarURL = explicit
+        } else if info.isDirect, let heroAvatar = info.heroes.first?.avatarUrl {
+            summary.avatarURL = heroAvatar
+        } else {
+            summary.avatarURL = nil
+        }
         summary.unreadMessages = UInt(info.numUnreadMessages)
         summary.unreadMentions = UInt(info.numUnreadMentions)
         summary.isDirect = info.isDirect
