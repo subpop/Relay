@@ -53,7 +53,7 @@ struct ContentView: View {
             }
         }
         .relayErrorAlert()
-        .frame(minWidth: 700, minHeight: 250)
+        .frame(minWidth: 700, minHeight: 500)
     }
 }
 
