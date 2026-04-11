@@ -64,11 +64,18 @@ public final class RoomSummary: Identifiable {
     /// Whether this room has any pinned messages.
     public var hasPinnedMessages: Bool { !pinnedEventIds.isEmpty }
 
-    /// Whether this room's notification mode is set to mute.
+    /// The user-defined notification mode for this room, or `nil` if using the default.
     ///
-    /// When `true`, the room should not display unread indicators in the sidebar
-    /// and should not participate in recency-based sorting.
-    public var isMuted: Bool
+    /// This value comes from the server-side push rules. When `nil`, the effective
+    /// notification mode is determined by the global default for this room type
+    /// (direct message vs group).
+    public var notificationMode: RoomNotificationMode?
+
+    /// Whether this room's effective notification mode is mute.
+    ///
+    /// A convenience accessor that checks whether the user has explicitly muted this room.
+    /// When `true`, the room should not display unread indicators in the sidebar.
+    public var isMuted: Bool { notificationMode == .mute }
 
     /// Creates a new ``RoomSummary`` instance.
     ///
@@ -84,7 +91,7 @@ public final class RoomSummary: Identifiable {
     ///   - isDirect: Whether this is a direct message conversation.
     ///   - canonicalAlias: The canonical alias for the room.
     ///   - pinnedEventIds: The event IDs of pinned messages in this room.
-    ///   - isMuted: Whether the room's notification mode is set to mute.
+    ///   - notificationMode: The user-defined notification mode, or `nil` for default.
     public init(
         id: String,
         name: String,
@@ -97,7 +104,7 @@ public final class RoomSummary: Identifiable {
         isDirect: Bool = false,
         canonicalAlias: String? = nil,
         pinnedEventIds: [String] = [],
-        isMuted: Bool = false
+        notificationMode: RoomNotificationMode? = nil
     ) {
         self.id = id
         self.name = name
@@ -110,6 +117,6 @@ public final class RoomSummary: Identifiable {
         self.isDirect = isDirect
         self.canonicalAlias = canonicalAlias
         self.pinnedEventIds = pinnedEventIds
-        self.isMuted = isMuted
+        self.notificationMode = notificationMode
     }
 }

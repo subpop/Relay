@@ -29,6 +29,10 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
     /// The Matrix user ID of the signed-in user, used for highlight and reaction detection.
     let currentUserId: String?
 
+    /// User-defined notification keywords. Messages whose body contains any of
+    /// these keywords (case-insensitive) will be highlighted with the "@" badge.
+    let notificationKeywords: [String]
+
     /// The result of mapping timeline items to messages.
     struct MappingResult {
         /// The ordered list of timeline messages, from oldest to newest.
@@ -207,6 +211,9 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     }
                     if !isHighlighted {
                         isHighlighted = msgBody.contains(userId)
+                    }
+                    if !isHighlighted {
+                        isHighlighted = notificationKeywords.contains { msgBody.localizedStandardContains($0) }
                     }
                 }
 
@@ -446,6 +453,9 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 }
                 if !isHighlighted {
                     isHighlighted = msgBody.contains(userId)
+                }
+                if !isHighlighted {
+                    isHighlighted = notificationKeywords.contains { msgBody.localizedStandardContains($0) }
                 }
             }
 

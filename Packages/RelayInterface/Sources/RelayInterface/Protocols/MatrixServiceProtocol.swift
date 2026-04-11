@@ -383,6 +383,25 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     ///   - mode: The notification mode to apply.
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws
 
+    /// Checks whether the encrypted and unencrypted push rules are consistent
+    /// for both direct and group chats.
+    ///
+    /// Old Matrix clients sometimes set different notification modes for encrypted
+    /// vs unencrypted rooms. When a mismatch is detected, the user should be
+    /// prompted to fix it.
+    ///
+    /// - Returns: `true` if the settings are consistent, `false` if there is a mismatch.
+    func hasConsistentNotificationSettings() async throws -> Bool
+
+    /// Repairs inconsistent notification settings by aligning encrypted and
+    /// unencrypted push rules to the same mode.
+    func fixInconsistentNotificationSettings() async throws
+
+    /// Returns the room IDs that have user-defined (per-room) notification overrides.
+    ///
+    /// - Returns: An array of room IDs with custom notification settings.
+    func roomsWithCustomNotificationSettings() async throws -> [String]
+
     /// Returns whether notifications for incoming calls are enabled.
     func isCallNotificationEnabled() async throws -> Bool
 
@@ -406,6 +425,28 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     /// Enables or disables notifications for `@user` mentions.
     func setUserMentionEnabled(_ enabled: Bool) async throws
+
+    // MARK: Keyword Notification Settings
+
+    /// Returns the list of user-defined notification keywords.
+    ///
+    /// Keywords are extracted from the `content` push rules in the user's
+    /// push ruleset. Only non-default, enabled rules are returned.
+    func getNotificationKeywords() async throws -> [String]
+
+    /// Adds a keyword to the notification push rules.
+    ///
+    /// Creates a `content`-type push rule where the keyword pattern triggers
+    /// a notification with sound.
+    /// - Parameter keyword: The keyword pattern to match against message bodies.
+    func addNotificationKeyword(_ keyword: String) async throws
+
+    /// Removes a keyword from the notification push rules.
+    ///
+    /// Disables the `content`-type push rule for the given keyword by setting
+    /// its actions to empty.
+    /// - Parameter keyword: The keyword pattern to remove.
+    func removeNotificationKeyword(_ keyword: String) async throws
 
     // MARK: Per-Room Notification Settings
 
@@ -568,6 +609,9 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
         isOneToOne: Bool
     ) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws {}
+    func hasConsistentNotificationSettings() async throws -> Bool { true }
+    func fixInconsistentNotificationSettings() async throws {}
+    func roomsWithCustomNotificationSettings() async throws -> [String] { [] }
     func isCallNotificationEnabled() async throws -> Bool { true }
     func setCallNotificationEnabled(_ enabled: Bool) async throws {}
     func isInviteNotificationEnabled() async throws -> Bool { true }
@@ -576,6 +620,9 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func setRoomMentionEnabled(_ enabled: Bool) async throws {}
     func isUserMentionEnabled() async throws -> Bool { true }
     func setUserMentionEnabled(_ enabled: Bool) async throws {}
+    func getNotificationKeywords() async throws -> [String] { [] }
+    func addNotificationKeyword(_ keyword: String) async throws {}
+    func removeNotificationKeyword(_ keyword: String) async throws {}
     func getRoomNotificationMode(roomId: String) async throws -> RoomNotificationMode? { nil }
     func setRoomNotificationMode(roomId: String, mode: RoomNotificationMode) async throws {}
     func restoreDefaultRoomNotificationMode(roomId: String) async throws {}

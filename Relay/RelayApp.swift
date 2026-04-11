@@ -34,6 +34,8 @@ struct RelayApp: App {
 
     @Environment(\.openWindow) private var openWindow
 
+    @AppStorage("selectedRoomId") private var selectedRoomId: String?
+
     var body: some Scene {
         WindowGroup(id: "main") {
             ContentView()
@@ -57,6 +59,11 @@ struct RelayApp: App {
                 }
                 .task {
                     await setupNotifications()
+                    matrixService.onNotificationEvent = { event in
+                        Task { @MainActor in
+                            self.handleNotificationEvent(event)
+                        }
+                    }
                 }
         }
         .defaultSize(width: 880, height: 560)
@@ -101,36 +108,61 @@ struct RelayApp: App {
             title: "Accept",
             options: [.foreground]
         )
-        let category = UNNotificationCategory(
+        let verificationCategory = UNNotificationCategory(
             identifier: NotificationDelegate.verificationCategoryIdentifier,
             actions: [acceptAction],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([category])
+        let roomMessageCategory = UNNotificationCategory(
+            identifier: NotificationDelegate.roomMessageCategoryIdentifier,
+            actions: [],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([verificationCategory, roomMessageCategory])
     }
 
-    /// The total dock badge count, computed from every room's unread state.
+    /// The total dock badge count, computed from every room's notification-worthy unread state.
     ///
     /// Because ``RoomSummary`` is `@Observable`, SwiftUI tracks each property
-    /// access (``unreadMessages``, ``unreadMentions``, ``isDirect``, ``isMuted``)
-    /// and re-evaluates this whenever any of them change -- unlike the previous
-    /// `onChange(of: rooms.map(\.id))` which only fired on structural list changes.
+    /// access and re-evaluates this whenever any room's unread state changes.
+    /// The count respects each room's effective notification mode:
+    /// - All Messages: counts all unread messages
+    /// - Mentions & Keywords Only: counts only unread mentions
+    /// - Mute: counts nothing
     private var dockBadgeCount: UInt {
         matrixService.rooms.reduce(0 as UInt) { total, room in
-            guard !room.isMuted else { return total }
-            return room.isDirect ? total + room.unreadMessages : total + room.unreadMentions
+            switch room.notificationMode {
+            case .mute:
+                return total
+            case .mentionsAndKeywordsOnly:
+                return total + room.unreadMentions
+            case .allMessages:
+                return total + room.unreadMessages
+            case nil:
+                // Default: DMs count all messages, groups count mentions only
+                return room.isDirect ? total + room.unreadMessages : total + room.unreadMentions
+            }
         }
     }
 
-    private func postNotification(roomName: String, roomId: String, body: String) {
+    /// Handles a notification event from the room list manager.
+    ///
+    /// Posts a system notification banner when a room has new unread activity
+    /// and the user is not currently looking at that room.
+    private func handleNotificationEvent(_ event: RoomNotificationEvent) {
+        // Suppress when the user is looking at this room
+        if NSApp.isActive, selectedRoomId == event.roomId { return }
+
         let content = UNMutableNotificationContent()
-        content.title = roomName
-        content.body = body
+        content.title = event.roomName
+        content.body = event.messageBody ?? "New message"
         content.sound = .default
-        content.threadIdentifier = roomId
+        content.threadIdentifier = event.roomId
+        content.userInfo = ["roomId": event.roomId]
+        content.categoryIdentifier = NotificationDelegate.roomMessageCategoryIdentifier
 
         let request = UNNotificationRequest(
-            identifier: "room-\(roomId)-\(Date.now.timeIntervalSince1970)",
+            identifier: "room-\(event.roomId)-\(Date.now.timeIntervalSince1970)",
             content: content,
             trigger: nil
         )
@@ -203,10 +235,13 @@ struct FileMenuCommands: Commands {
 /// When the user taps the verification notification or its "Accept" action,
 /// the delegate creates a ``SessionVerificationViewModel`` and presents the
 /// verification sheet via ``MatrixService/showVerificationSheet``.
+/// When the user taps a room message notification, the delegate navigates to
+/// that room by setting the `selectedRoomId` in `UserDefaults`.
 @Observable
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     nonisolated static let verificationCategoryIdentifier = "VERIFICATION_REQUEST"
     nonisolated static let acceptActionIdentifier = "ACCEPT_VERIFICATION"
+    nonisolated static let roomMessageCategoryIdentifier = "ROOM_MESSAGE"
 
     weak var matrixService: MatrixService?
 
@@ -218,16 +253,33 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         [.banner, .sound]
     }
 
-    /// Handle the user tapping the notification or the Accept action.
+    /// Handle the user tapping a notification.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let categoryIdentifier = response.notification.request.content.categoryIdentifier
-        guard categoryIdentifier == Self.verificationCategoryIdentifier else { return }
+        let content = response.notification.request.content
 
-        await MainActor.run {
-            matrixService?.shouldPresentVerificationSheet = true
+        if content.categoryIdentifier == Self.verificationCategoryIdentifier {
+            await MainActor.run {
+                matrixService?.shouldPresentVerificationSheet = true
+            }
+            return
+        }
+
+        if content.categoryIdentifier == Self.roomMessageCategoryIdentifier {
+            let roomId = content.userInfo["roomId"] as? String
+            await MainActor.run {
+                if let roomId {
+                    UserDefaults.standard.set(roomId, forKey: "selectedRoomId")
+                }
+                NSApp.activate()
+                if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain }) {
+                    window.deminiaturize(nil)
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+            return
         }
     }
 }

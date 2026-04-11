@@ -125,4 +125,22 @@ public final class NotificationSettingsProxy: NotificationSettingsProxyProtocol,
     public func getRoomsWithUserDefinedRules(enabled: Bool?) async -> [String] {
         await settings.getRoomsWithUserDefinedRules(enabled: enabled)
     }
+
+    public func getRawPushRules() async throws -> String? {
+        try await settings.getRawPushRules()
+    }
+
+    public func setCustomPushRule(
+        ruleId: String,
+        ruleKind: RuleKind,
+        actions: [Action],
+        conditions: [PushCondition]
+    ) async throws {
+        try await settings.setCustomPushRule(
+            ruleId: ruleId,
+            ruleKind: ruleKind,
+            actions: actions,
+            conditions: conditions
+        )
+    }
 }

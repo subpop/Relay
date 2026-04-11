@@ -132,6 +132,10 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         isOneToOne ? .allMessages : .mentionsAndKeywordsOnly
     }
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws {}
+    func hasConsistentNotificationSettings() async throws -> Bool { true }
+    func fixInconsistentNotificationSettings() async throws {}
+    var customNotificationRoomIds: [String] = []
+    func roomsWithCustomNotificationSettings() async throws -> [String] { customNotificationRoomIds }
     func isCallNotificationEnabled() async throws -> Bool { true }
     func setCallNotificationEnabled(_ enabled: Bool) async throws {}
     func isInviteNotificationEnabled() async throws -> Bool { true }
@@ -140,6 +144,9 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func setRoomMentionEnabled(_ enabled: Bool) async throws {}
     func isUserMentionEnabled() async throws -> Bool { true }
     func setUserMentionEnabled(_ enabled: Bool) async throws {}
+    func getNotificationKeywords() async throws -> [String] { ["matrix", "relay"] }
+    func addNotificationKeyword(_ keyword: String) async throws {}
+    func removeNotificationKeyword(_ keyword: String) async throws {}
     func getRoomNotificationMode(roomId: String) async throws -> RoomNotificationMode? { nil }
     func setRoomNotificationMode(roomId: String, mode: RoomNotificationMode) async throws {}
     func restoreDefaultRoomNotificationMode(roomId: String) async throws {}
@@ -261,7 +268,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             lastMessageTimestamp: nil,
             unreadCount: 0,
             isDirect: false,
-            isMuted: true
+            notificationMode: .mute
         ),
         RoomSummary(
             id: "!bob:matrix.org",

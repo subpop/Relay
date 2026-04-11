@@ -89,12 +89,22 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     ///   - room: The Matrix Rust SDK `Room` object.
     ///   - currentUserId: The Matrix user ID of the signed-in user, used for highlight detection.
     ///   - unreadCount: The number of unread messages, used to position the "New" divider.
-    public init(room: Room, currentUserId: String?, unreadCount: Int = 0, errorReporter: ErrorReporter) {
+    ///   - notificationKeywords: User-defined keywords that trigger message highlighting.
+    public init(
+        room: Room,
+        currentUserId: String?,
+        unreadCount: Int = 0,
+        notificationKeywords: [String] = [],
+        errorReporter: ErrorReporter
+    ) {
         self.room = room
         self.roomId = room.id()
         self.currentUserId = currentUserId
         self.unreadCount = unreadCount
-        self.messageMapper = TimelineMessageMapper(currentUserId: currentUserId)
+        self.messageMapper = TimelineMessageMapper(
+            currentUserId: currentUserId,
+            notificationKeywords: notificationKeywords
+        )
         self.errorReporter = errorReporter
     }
 

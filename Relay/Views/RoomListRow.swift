@@ -16,13 +16,41 @@ import RelayInterface
 import SwiftUI
 
 /// A single room row in the sidebar list, showing the avatar, name, last message preview,
-/// unread indicator, and muted state.
+/// unread indicator, and notification mode state.
 struct RoomListRow: View {
     let room: RoomSummary
 
-    /// Whether this room has unread activity and is not muted.
+    /// Whether the room name should appear bold (has notification-worthy unread activity).
     private var hasVisibleUnread: Bool {
-        !room.isMuted && (room.unreadMessages > 0 || room.unreadMentions > 0)
+        switch room.notificationMode {
+        case .mute:
+            return false
+        case .mentionsAndKeywordsOnly:
+            return room.unreadMentions > 0
+        case .allMessages, nil:
+            return room.unreadMessages > 0 || room.unreadMentions > 0
+        }
+    }
+
+    /// The color of the unread indicator dot.
+    ///
+    /// - Red: unread mentions (highest priority)
+    /// - Accent (blue): unread messages in an "all messages" room
+    /// - Grey: unread messages in a "mentions only" room (subtle activity indicator)
+    private var dotColor: Color {
+        if room.unreadMentions > 0 {
+            return .red
+        }
+        if room.notificationMode == .mentionsAndKeywordsOnly {
+            return .secondary.opacity(0.5)
+        }
+        return .accentColor
+    }
+
+    /// Whether any dot should be visible (including subtle grey dots for mentions-only rooms).
+    private var showDot: Bool {
+        guard !room.isMuted else { return false }
+        return room.unreadMessages > 0 || room.unreadMentions > 0
     }
 
     var body: some View {
@@ -33,9 +61,9 @@ struct RoomListRow: View {
                     .foregroundStyle(.secondary)
             } else {
                 Circle()
-                    .fill(room.unreadMentions > 0 ? Color.red : Color.accentColor)
+                    .fill(dotColor)
                     .frame(width: 8, height: 8)
-                    .opacity(hasVisibleUnread ? 1 : 0)
+                    .opacity(showDot ? 1 : 0)
             }
 
             AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
@@ -115,7 +143,19 @@ extension RoomListRow {
         lastMessage: AttributedString("General discussion"),
         lastMessageTimestamp: .now.addingTimeInterval(-7200),
         unreadCount: 42,
-        isMuted: true
+        notificationMode: .mute
+    ))
+    .frame(width: 300)
+}
+
+#Preview("Mentions Only — Activity") {
+    RoomListRow(room: RoomSummary(
+        id: "!dev:matrix.org",
+        name: "Development",
+        lastMessage: AttributedString("Merged the refactor PR"),
+        lastMessageTimestamp: .now.addingTimeInterval(-600),
+        unreadCount: 5,
+        notificationMode: .mentionsAndKeywordsOnly
     ))
     .frame(width: 300)
 }

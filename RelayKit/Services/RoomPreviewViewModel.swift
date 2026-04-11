@@ -57,7 +57,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     public init(roomId: String, client: any ClientProxyProtocol, errorReporter: ErrorReporter) {
         self.roomId = roomId
         self.client = client
-        self.messageMapper = TimelineMessageMapper(currentUserId: client.userID)
+        self.messageMapper = TimelineMessageMapper(currentUserId: client.userID, notificationKeywords: [])
         self.errorReporter = errorReporter
     }
 

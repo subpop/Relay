@@ -139,4 +139,23 @@ public protocol NotificationSettingsProxyProtocol: AnyObject, Sendable {
     /// - Parameter enabled: Optional filter for enabled/disabled rules.
     /// - Returns: An array of room IDs.
     func getRoomsWithUserDefinedRules(enabled: Bool?) async -> [String]
+
+    /// Returns the raw push rules as a JSON string.
+    ///
+    /// The JSON contains the full ruleset including `content`, `override`,
+    /// `room`, `sender`, and `underride` rule arrays.
+    /// - Returns: The JSON string, or `nil` if unavailable.
+    func getRawPushRules() async throws -> String?
+
+    /// Creates or updates a custom push rule.
+    ///
+    /// For keyword rules, use `RuleKind.content` where the `ruleId` is the
+    /// keyword pattern. The `conditions` array should be empty for content rules.
+    ///
+    /// - Parameters:
+    ///   - ruleId: The rule identifier (for content rules, this is the keyword pattern).
+    ///   - ruleKind: The kind of push rule.
+    ///   - actions: The actions to perform when the rule matches.
+    ///   - conditions: The conditions for the rule (empty for content rules).
+    func setCustomPushRule(ruleId: String, ruleKind: RuleKind, actions: [Action], conditions: [PushCondition]) async throws
 }

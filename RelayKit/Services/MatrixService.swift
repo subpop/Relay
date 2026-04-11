@@ -48,11 +48,20 @@ public final class MatrixService: MatrixServiceProtocol {
     public var pendingDeepLink: MatrixURI?
     public let errorReporter = ErrorReporter()
 
+    /// Callback invoked when a room has new notification-worthy unread activity.
+    ///
+    /// The app layer sets this to post system notifications. The callback
+    /// provides the room name, room ID, message body, and whether it's a mention.
+    public var onNotificationEvent: ((RoomNotificationEvent) -> Void)? {
+        didSet { roomListManager.onNotificationEvent = onNotificationEvent }
+    }
+
     // MARK: - Private State
 
     private var client: ClientProxy?
     private var syncTask: Task<Void, Never>?
     private var timelineViewModels: [String: TimelineViewModel] = [:]
+    private var cachedNotificationKeywords: [String] = []
     private var verificationController: SessionVerificationControllerProxy?
     private var verificationObservationTask: Task<Void, Never>?
     private var verificationStateTask: Task<Void, Never>?
@@ -161,6 +170,7 @@ public final class MatrixService: MatrixServiceProtocol {
             if let syncService = syncManager.syncService {
                 try await roomListManager.start(syncService: syncService)
             }
+            cachedNotificationKeywords = (try? await getNotificationKeywords()) ?? []
         } catch is CancellationError {
             // Logout cancelled the sync — don't overwrite state
         } catch {
@@ -263,7 +273,9 @@ public final class MatrixService: MatrixServiceProtocol {
         // swiftlint:disable:next identifier_name
         let vm = TimelineViewModel(
             room: room, currentUserId: userId(),
-            unreadCount: Int(unreadCount), errorReporter: errorReporter
+            unreadCount: Int(unreadCount),
+            notificationKeywords: cachedNotificationKeywords,
+            errorReporter: errorReporter
         )
         timelineViewModels[roomId] = vm
 
@@ -660,6 +672,34 @@ public final class MatrixService: MatrixServiceProtocol {
         try await settings.setDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: isOneToOne, mode: sdkMode)
     }
 
+    public func hasConsistentNotificationSettings() async throws -> Bool {
+        let settings = try await notificationSettings()
+
+        let directEncrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: true)
+        let directUnencrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: true)
+        let groupEncrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: false)
+        let groupUnencrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: false)
+
+        return directEncrypted == directUnencrypted && groupEncrypted == groupUnencrypted
+    }
+
+    public func fixInconsistentNotificationSettings() async throws {
+        let settings = try await notificationSettings()
+
+        // For each chat type, read the encrypted mode and apply it to unencrypted as well
+        let directMode = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: true)
+        try await settings.setDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: true, mode: directMode)
+
+        let groupMode = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: false)
+        try await settings.setDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: false, mode: groupMode)
+    }
+
+    public func roomsWithCustomNotificationSettings() async throws -> [String] {
+        let settings = try await notificationSettings()
+        let ids = await settings.getRoomsWithUserDefinedRules(enabled: true)
+        return Array(Set(ids))
+    }
+
     public func isCallNotificationEnabled() async throws -> Bool {
         try await notificationSettings().isCallEnabled()
     }
@@ -690,6 +730,74 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func setUserMentionEnabled(_ enabled: Bool) async throws {
         try await notificationSettings().setUserMentionEnabled(enabled: enabled)
+    }
+
+    // MARK: - Keyword Notification Settings
+
+    /// The prefix used for keyword override rules to distinguish them from other
+    /// user-defined override rules.
+    private static let keywordRulePrefix = "relay.keyword."
+
+    public func getNotificationKeywords() async throws -> [String] {
+        let settings = try await notificationSettings()
+        guard let json = try await settings.getRawPushRules(),
+              let data = json.data(using: .utf8),
+              let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return []
+        }
+
+        var keywords: [String] = []
+
+        // Read user-defined content rules (keyword patterns set by other clients).
+        if let content = rules["content"] as? [[String: Any]] {
+            for rule in content {
+                guard let isDefault = rule["default"] as? Bool, !isDefault,
+                      let enabled = rule["enabled"] as? Bool, enabled,
+                      let pattern = rule["pattern"] as? String
+                else { continue }
+                keywords.append(pattern)
+            }
+        }
+
+        // Read override rules created by Relay (prefixed with "relay.keyword.").
+        if let overrides = rules["override"] as? [[String: Any]] {
+            for rule in overrides {
+                guard let ruleId = rule["rule_id"] as? String,
+                      ruleId.hasPrefix(Self.keywordRulePrefix),
+                      let enabled = rule["enabled"] as? Bool, enabled,
+                      let actions = rule["actions"] as? [Any], !actions.isEmpty
+                else { continue }
+                let keyword = String(ruleId.dropFirst(Self.keywordRulePrefix.count))
+                if !keyword.isEmpty, !keywords.contains(keyword) {
+                    keywords.append(keyword)
+                }
+            }
+        }
+
+        return keywords
+    }
+
+    public func addNotificationKeyword(_ keyword: String) async throws {
+        let settings = try await notificationSettings()
+        let ruleId = Self.keywordRulePrefix + keyword
+        try await settings.setCustomPushRule(
+            ruleId: ruleId,
+            ruleKind: .override,
+            actions: [.notify, .setTweak(value: .sound(value: "default"))],
+            conditions: [.eventMatch(key: "content.body", pattern: keyword)]
+        )
+    }
+
+    public func removeNotificationKeyword(_ keyword: String) async throws {
+        let settings = try await notificationSettings()
+        let ruleId = Self.keywordRulePrefix + keyword
+        try await settings.setCustomPushRule(
+            ruleId: ruleId,
+            ruleKind: .override,
+            actions: [],
+            conditions: [.eventMatch(key: "content.body", pattern: keyword)]
+        )
     }
 
     // MARK: - Per-Room Notification Settings

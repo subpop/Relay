@@ -18,6 +18,18 @@ import os
 
 private let logger = Logger(subsystem: "RelayKit", category: "RoomList")
 
+/// Information about a new notification-worthy event in a room.
+public struct RoomNotificationEvent: Sendable {
+    /// The room ID that has new unread activity.
+    public let roomId: String
+    /// The display name of the room.
+    public let roomName: String
+    /// A plain-text preview of the latest message, if available.
+    public let messageBody: String?
+    /// Whether the new activity includes a mention of the current user.
+    public let isMention: Bool
+}
+
 /// Maintains the sorted list of joined rooms using the SDK's reactive `RoomListService`.
 ///
 /// ``RoomListManager`` subscribes to `RoomListService.allRooms().entriesWithDynamicAdapters()`
@@ -47,6 +59,11 @@ final class RoomListManager {
 
     /// Debounce task for re-sorting after room info updates.
     private var resortTask: Task<Void, Never>?
+
+    /// Callback invoked when a room has new notification-worthy activity.
+    ///
+    /// The app layer uses this to post system notifications.
+    var onNotificationEvent: ((RoomNotificationEvent) -> Void)?
 
     /// Starts the reactive room list using the sync service's `RoomListService`.
     ///
@@ -125,7 +142,11 @@ final class RoomListManager {
     }
 
     private func makeEntry(room: Room) -> RoomEntry {
-        RoomEntry(room: room, onInfoUpdated: { [weak self] in self?.scheduleResort() })
+        RoomEntry(
+            room: room,
+            onInfoUpdated: { [weak self] in self?.scheduleResort() },
+            onNotificationEvent: { [weak self] event in self?.onNotificationEvent?(event) }
+        )
     }
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
@@ -224,10 +245,20 @@ private final class RoomEntry: Identifiable {
     @ObservationIgnored private var listenerTask: Task<Void, Never>?
     @ObservationIgnored private var onInfoUpdated: (() -> Void)?
 
-    init(room: Room, onInfoUpdated: (() -> Void)? = nil) {
+    @ObservationIgnored private var onNotificationEvent: ((RoomNotificationEvent) -> Void)?
+    @ObservationIgnored private var previousUnreadMessages: UInt = 0
+    @ObservationIgnored private var previousUnreadMentions: UInt = 0
+    @ObservationIgnored private var hasReceivedInitialInfo = false
+
+    init(
+        room: Room,
+        onInfoUpdated: (() -> Void)? = nil,
+        onNotificationEvent: ((RoomNotificationEvent) -> Void)? = nil
+    ) {
         self.id = room.id()
         self.room = room
         self.onInfoUpdated = onInfoUpdated
+        self.onNotificationEvent = onNotificationEvent
         self.summary = RelayInterface.RoomSummary(
             id: room.id(),
             name: room.displayName() ?? room.id()
@@ -288,12 +319,53 @@ private final class RoomEntry: Identifiable {
         } else {
             summary.avatarURL = nil
         }
-        summary.unreadMessages = UInt(info.numUnreadMessages)
-        summary.unreadMentions = UInt(info.numUnreadMentions)
+
+        let newUnreadMessages = UInt(info.numUnreadMessages)
+        let newUnreadMentions = UInt(info.numUnreadMentions)
+
+        summary.unreadMessages = newUnreadMessages
+        summary.unreadMentions = newUnreadMentions
         summary.isDirect = info.isDirect
         summary.canonicalAlias = info.canonicalAlias
         summary.pinnedEventIds = info.pinnedEventIds
-        summary.isMuted = info.cachedUserDefinedNotificationMode == .some(.mute)
+
+        // Map SDK notification mode to RelayInterface type
+        if let sdkMode = info.cachedUserDefinedNotificationMode {
+            switch sdkMode {
+            case .allMessages: summary.notificationMode = .allMessages
+            case .mentionsAndKeywordsOnly: summary.notificationMode = .mentionsAndKeywordsOnly
+            case .mute: summary.notificationMode = .mute
+            }
+        } else {
+            summary.notificationMode = nil
+        }
+
+        // Detect increases in unread counts for notification delivery.
+        // Skip the initial info fetch to avoid firing notifications for
+        // pre-existing unread counts on app launch.
+        if hasReceivedInitialInfo {
+            let hadNewMessages = newUnreadMessages > previousUnreadMessages
+            let hadNewMentions = newUnreadMentions > previousUnreadMentions
+
+            if hadNewMessages || hadNewMentions {
+                let roomName = summary.name
+                let roomId = id
+                let isMention = hadNewMentions
+                Task { [weak self] in
+                    guard let self else { return }
+                    let body = await self.latestMessageBody()
+                    self.onNotificationEvent?(RoomNotificationEvent(
+                        roomId: roomId,
+                        roomName: roomName,
+                        messageBody: body,
+                        isMention: isMention
+                    ))
+                }
+            }
+        }
+        previousUnreadMessages = newUnreadMessages
+        previousUnreadMentions = newUnreadMentions
+        hasReceivedInitialInfo = true
 
         // Extract latest message preview and notify the manager to re-sort
         Task { [weak self] in
@@ -304,6 +376,34 @@ private final class RoomEntry: Identifiable {
             self.summary.lastMessageTimestamp = ts
             self.onInfoUpdated?()
         }
+    }
+
+    /// Returns a plain-text body of the latest message for notification content.
+    private func latestMessageBody() async -> String? {
+        let latest = await room.latestEvent()
+        let content: TimelineItemContent
+        switch latest {
+        case .remote(_, _, _, _, let c): content = c
+        case .local(_, _, _, let c, _): content = c
+        case .remoteInvite: return "Invited you to join"
+        case .none: return nil
+        }
+        if case .msgLike(let msgLike) = content,
+           case .message(let mc) = msgLike.kind {
+            switch mc.msgType {
+            case .text(let t): return t.body
+            case .image: return "Sent an image"
+            case .video: return "Sent a video"
+            case .audio: return "Sent audio"
+            case .file: return "Sent a file"
+            case .emote(let e): return "* \(e.body)"
+            case .notice(let n): return n.body
+            case .location: return "Shared a location"
+            case .gallery: return "Sent a gallery"
+            case .other: return nil
+            }
+        }
+        return nil
     }
 
     // swiftlint:disable identifier_name
