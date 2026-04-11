@@ -86,7 +86,7 @@ struct RoomListRow: View {
                 }
 
                 if let msg = room.lastMessage {
-                    Text(msg)
+                    Text(msg.visualizeLinksOnly())
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -119,6 +119,30 @@ extension RoomListRow {
         } else {
             return date.formatted(.dateTime.month(.abbreviated).day())
         }
+    }
+}
+
+// MARK: - AttributedString Extension
+
+extension AttributedString {
+    /// Returns a copy of the attributed string where links are stripped of their
+    /// interaction but keep their accent color.
+    func visualizeLinksOnly() -> AttributedString {
+        var result = self
+        var linkRanges: [Range<AttributedString.Index>] = []
+        
+        for run in result.runs {
+            if run.attributes.link != nil {
+                linkRanges.append(run.range)
+            }
+        }
+        
+        for range in linkRanges {
+            result[range].link = nil
+            result[range].foregroundColor = .accentColor
+        }
+        
+        return result
     }
 }
 
