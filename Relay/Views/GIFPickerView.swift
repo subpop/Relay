@@ -40,13 +40,16 @@ struct GIFPickerView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            searchField
-            Divider()
-            gifGrid
-            Divider()
-            attribution
-        }
+        gifGrid
+            .overlay(alignment: .top) {
+                searchField
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+            .overlay(alignment: .bottom) {
+                attribution
+                    .padding(.bottom, 8)
+            }
         .frame(width: 400, height: 480)
         .task {
             await loadTrending()
@@ -81,7 +84,8 @@ struct GIFPickerView: View {
                 .textFieldStyle(.plain)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 
     // MARK: - GIF Grid
@@ -118,24 +122,30 @@ struct GIFPickerView: View {
                     .padding(.vertical, 8)
             }
         }
+        .safeAreaInset(edge: .top) {
+            Color.clear.frame(height: 40)
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 36)
+        }
     }
 
     // MARK: - Attribution
 
     private var attribution: some View {
         HStack(spacing: 4) {
-            Spacer()
             Text("Powered by GIPHY")
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
             Image("GiphyLogo")
                 .resizable()
                 .scaledToFit()
                 .frame(height: 14)
                 .opacity(0.6)
-            Spacer()
         }
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .background(.thickMaterial, in: .capsule)
     }
 
     // MARK: - Data Loading
