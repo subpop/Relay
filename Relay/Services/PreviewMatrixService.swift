@@ -237,6 +237,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             name: "Design Team",
             topic: "UI/UX design discussion",
             avatarURL: nil,
+            lastAuthor: "Alice",
             lastMessage: try? AttributedString(
                 markdown: "Let's **finalize** the mockups tomorrow",
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -251,6 +252,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             id: "!alice:matrix.org",
             name: "Alice",
             avatarURL: nil,
+            lastAuthor: "Alice",
             lastMessage: try? AttributedString(
                 markdown: "Sounds good, talk *soon*!",
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -264,6 +266,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             name: "Matrix HQ",
             topic: "General discussion on anything related to Matrix",
             avatarURL: nil,
+            lastAuthor: nil,
             lastMessage: nil,
             lastMessageTimestamp: nil,
             unreadCount: 0,
@@ -274,6 +277,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             id: "!bob:matrix.org",
             name: "Bob Chen",
             avatarURL: nil,
+            lastAuthor: "Charlie",
             lastMessage: AttributedString("Sent an image"),
             lastMessageTimestamp: .now.addingTimeInterval(-86400 * 2),
             unreadCount: 12,

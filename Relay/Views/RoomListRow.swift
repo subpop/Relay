@@ -86,7 +86,8 @@ struct RoomListRow: View {
                 }
 
                 if let msg = room.lastMessage {
-                    Text(msg.visualizeLinksOnly())
+                    let author = RoomListRow.formatAuthor(room.lastAuthor)
+                    Text(author + msg.visualizeLinksOnly())
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -120,6 +121,16 @@ extension RoomListRow {
             return date.formatted(.dateTime.month(.abbreviated).day())
         }
     }
+    
+    /// Formats an author for preview in the roomlist, always adds a ": " at the end of the name, for easier concatination with the message
+    static func formatAuthor(_ author: String?) -> AttributedString {
+        let authorName = author ?? "Unknown Sender"
+        if let markdown = try? AttributedString(markdown: "**\(authorName)**: ",
+                        options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            return markdown
+        }
+        return AttributedString("\(authorName): ")
+    }
 }
 
 // MARK: - AttributedString Extension
@@ -152,6 +163,7 @@ extension AttributedString {
     RoomListRow(room: RoomSummary(
         id: "!design:matrix.org",
         name: "Design Team",
+        lastAuthor: "Alice",
         lastMessage: AttributedString("Let's finalize the mockups tomorrow"),
         lastMessageTimestamp: .now.addingTimeInterval(-300),
         unreadCount: 3,
@@ -164,6 +176,7 @@ extension AttributedString {
     RoomListRow(room: RoomSummary(
         id: "!hq:matrix.org",
         name: "Matrix HQ",
+        lastAuthor: "Bob",
         lastMessage: AttributedString("General discussion"),
         lastMessageTimestamp: .now.addingTimeInterval(-7200),
         unreadCount: 42,
@@ -176,6 +189,7 @@ extension AttributedString {
     RoomListRow(room: RoomSummary(
         id: "!dev:matrix.org",
         name: "Development",
+        lastAuthor: "Alice",
         lastMessage: AttributedString("Merged the refactor PR"),
         lastMessageTimestamp: .now.addingTimeInterval(-600),
         unreadCount: 5,
@@ -188,6 +202,7 @@ extension AttributedString {
     RoomListRow(room: RoomSummary(
         id: "!alice:matrix.org",
         name: "Alice",
+        lastAuthor: "Alice",
         lastMessage: AttributedString("Sounds good, talk soon!"),
         lastMessageTimestamp: .now.addingTimeInterval(-7200),
         isDirect: true

@@ -37,6 +37,9 @@ public final class RoomSummary: Identifiable {
     /// The `mxc://` URL of the room's avatar image, if set.
     public var avatarURL: String?
 
+    /// The room's most recent author, if available
+    public var lastAuthor: String?
+    
     /// A rich text preview of the most recent message in the room.
     ///
     /// The attributed string preserves inline Markdown formatting (bold, italic, code,
@@ -97,6 +100,7 @@ public final class RoomSummary: Identifiable {
         name: String,
         topic: String? = nil,
         avatarURL: String? = nil,
+        lastAuthor: String? = nil,
         lastMessage: AttributedString? = nil,
         lastMessageTimestamp: Date? = nil,
         unreadCount: UInt = 0,
@@ -110,6 +114,7 @@ public final class RoomSummary: Identifiable {
         self.name = name
         self.topic = topic
         self.avatarURL = avatarURL
+        self.lastAuthor = lastAuthor
         self.lastMessage = lastMessage
         self.lastMessageTimestamp = lastMessageTimestamp
         self.unreadMessages = unreadCount

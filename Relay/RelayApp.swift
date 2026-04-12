@@ -154,7 +154,13 @@ struct RelayApp: App {
         if NSApp.isActive, selectedRoomId == event.roomId { return }
 
         let content = UNMutableNotificationContent()
-        content.title = event.roomName
+        
+        if (event.isDirect) {
+            content.title = event.roomName
+        } else {
+            content.title = "\(event.messageAuthor ?? "Unknown sender") in \(event.roomName)"
+        }
+        
         content.body = event.messageBody ?? "New message"
         content.sound = .default
         content.threadIdentifier = event.roomId

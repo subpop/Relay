@@ -24,10 +24,14 @@ public struct RoomNotificationEvent: Sendable {
     public let roomId: String
     /// The display name of the room.
     public let roomName: String
+    /// A plain-text representation of the latest author, if available.
+    public let messageAuthor: String?
     /// A plain-text preview of the latest message, if available.
     public let messageBody: String?
     /// Whether the new activity includes a mention of the current user.
     public let isMention: Bool
+    /// Whether the new activity is in a direct message room.
+    public let isDirect: Bool
 }
 
 /// Maintains the sorted list of joined rooms using the SDK's reactive `RoomListService`.
@@ -351,14 +355,18 @@ private final class RoomEntry: Identifiable {
                 let roomName = summary.name
                 let roomId = id
                 let isMention = hadNewMentions
+                let isDirect = summary.isDirect
                 Task { [weak self] in
                     guard let self else { return }
                     let body = await self.latestMessageBody()
+                    let author = await self.latestMessageAuthor()
                     self.onNotificationEvent?(RoomNotificationEvent(
                         roomId: roomId,
                         roomName: roomName,
+                        messageAuthor: author,
                         messageBody: body,
-                        isMention: isMention
+                        isMention: isMention,
+                        isDirect: isDirect
                     ))
                 }
             }
@@ -372,6 +380,7 @@ private final class RoomEntry: Identifiable {
             guard let self else { return }
             // swiftlint:disable:next identifier_name
             let (msg, ts) = await self.latestMessagePreview()
+            self.summary.lastAuthor = await self.latestMessageAuthor()
             self.summary.lastMessage = msg
             self.summary.lastMessageTimestamp = ts
             self.onInfoUpdated?()
@@ -404,6 +413,31 @@ private final class RoomEntry: Identifiable {
             }
         }
         return nil
+    }
+    
+    /// Returns a plain-text representation latest author for notification content.
+    private func latestMessageAuthor() async -> String? {
+        let latest = await room.latestEvent()
+        let sender: String?
+        let profile: ProfileDetails
+        
+        switch latest {
+        case .remote(_, let s, _, let p, _):
+            sender = s
+            profile = p
+        case .local(_, let s, let p, _, _):
+            sender = s
+            profile = p
+        case .remoteInvite(_, let s, let p):
+            sender = s
+            profile = p
+        case .none: return nil
+        }
+        
+        switch (profile) {
+        case .ready(let displayName, _, _): return displayName ?? sender
+        default: return sender
+        }
     }
 
     // swiftlint:disable identifier_name
