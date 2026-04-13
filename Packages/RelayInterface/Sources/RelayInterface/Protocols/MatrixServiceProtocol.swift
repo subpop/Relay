@@ -455,8 +455,8 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     /// Removes a keyword from the notification push rules.
     ///
-    /// Disables the `content`-type push rule for the given keyword by setting
-    /// its actions to empty.
+    /// Deletes the `content`-type push rule for the given keyword from the
+    /// server's push ruleset.
     /// - Parameter keyword: The keyword pattern to remove.
     func removeNotificationKeyword(_ keyword: String) async throws
 

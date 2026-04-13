@@ -765,70 +765,109 @@ public final class MatrixService: MatrixServiceProtocol {
 
     // MARK: - Keyword Notification Settings
 
-    /// The prefix used for keyword override rules to distinguish them from other
-    /// user-defined override rules.
-    private static let keywordRulePrefix = "relay.keyword."
-
     public func getNotificationKeywords() async throws -> [String] {
-        let settings = try await notificationSettings()
-        guard let json = try await settings.getRawPushRules(),
-              let data = json.data(using: .utf8),
-              let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let client else { throw RelayError.notLoggedIn }
+        let session = try client.session()
+
+        var request = URLRequest(
+            url: URL(string: "\(client.homeserver)_matrix/client/v3/pushrules/global/")!
+        )
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let ruleset = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = ruleset["content"] as? [[String: Any]]
         else {
             return []
         }
 
         var keywords: [String] = []
 
-        // Read user-defined content rules (keyword patterns set by other clients).
-        if let content = rules["content"] as? [[String: Any]] {
-            for rule in content {
-                guard let isDefault = rule["default"] as? Bool, !isDefault,
-                      let enabled = rule["enabled"] as? Bool, enabled,
-                      let pattern = rule["pattern"] as? String
-                else { continue }
-                keywords.append(pattern)
-            }
-        }
-
-        // Read override rules created by Relay (prefixed with "relay.keyword.").
-        if let overrides = rules["override"] as? [[String: Any]] {
-            for rule in overrides {
-                guard let ruleId = rule["rule_id"] as? String,
-                      ruleId.hasPrefix(Self.keywordRulePrefix),
-                      let enabled = rule["enabled"] as? Bool, enabled,
-                      let actions = rule["actions"] as? [Any], !actions.isEmpty
-                else { continue }
-                let keyword = String(ruleId.dropFirst(Self.keywordRulePrefix.count))
-                if !keyword.isEmpty, !keywords.contains(keyword) {
-                    keywords.append(keyword)
-                }
-            }
+        for rule in content {
+            guard let isDefault = rule["default"] as? Bool, !isDefault,
+                  let enabled = rule["enabled"] as? Bool, enabled,
+                  let actions = rule["actions"] as? [Any], !actions.isEmpty,
+                  let pattern = rule["pattern"] as? String
+            else { continue }
+            keywords.append(pattern)
         }
 
         return keywords
     }
 
+    /// The request body for creating a content-type push rule via the Matrix
+    /// REST API. Uses `Codable` for type-safe JSON serialization.
+    private struct ContentPushRuleBody: Encodable {
+        enum Action: Encodable {
+            case notify
+            case setTweak(name: String, value: String? = nil)
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                switch self {
+                case .notify:
+                    try container.encode("notify")
+                case .setTweak(let name, let value):
+                    var tweakDict: [String: String] = ["set_tweak": name]
+                    if let value { tweakDict["value"] = value }
+                    try container.encode(tweakDict)
+                }
+            }
+        }
+
+        let pattern: String
+        let actions: [Action]
+    }
+
     public func addNotificationKeyword(_ keyword: String) async throws {
-        let settings = try await notificationSettings()
-        let ruleId = Self.keywordRulePrefix + keyword
-        try await settings.setCustomPushRule(
-            ruleId: ruleId,
-            ruleKind: .override,
-            actions: [.notify, .setTweak(value: .sound(value: "default"))],
-            conditions: [.eventMatch(key: "content.body", pattern: keyword)]
+        guard let client else { throw RelayError.notLoggedIn }
+        let session = try client.session()
+
+        let encodedKeyword = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+        let url = URL(string: "\(client.homeserver)_matrix/client/v3/pushrules/global/content/\(encodedKeyword)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ContentPushRuleBody(
+            pattern: keyword,
+            actions: [.notify, .setTweak(name: "highlight"), .setTweak(name: "sound", value: "default")]
         )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode)
+        else {
+            let serverMessage = String(data: data, encoding: .utf8) ?? ""
+            throw RelayError.notificationSettingsFailed("Failed to add keyword rule: \(serverMessage)")
+        }
+
+        if !cachedNotificationKeywords.contains(keyword) {
+            cachedNotificationKeywords.append(keyword)
+        }
     }
 
     public func removeNotificationKeyword(_ keyword: String) async throws {
-        let settings = try await notificationSettings()
-        let ruleId = Self.keywordRulePrefix + keyword
-        try await settings.setCustomPushRule(
-            ruleId: ruleId,
-            ruleKind: .override,
-            actions: [],
-            conditions: [.eventMatch(key: "content.body", pattern: keyword)]
-        )
+        guard let client else { throw RelayError.notLoggedIn }
+        let session = try client.session()
+
+        let encodedKeyword = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+        let url = URL(string: "\(client.homeserver)_matrix/client/v3/pushrules/global/content/\(encodedKeyword)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode)
+        else {
+            let serverMessage = String(data: data, encoding: .utf8) ?? ""
+            throw RelayError.notificationSettingsFailed("Failed to remove keyword rule: \(serverMessage)")
+        }
+
+        cachedNotificationKeywords.removeAll { $0 == keyword }
     }
 
     // MARK: - Per-Room Notification Settings

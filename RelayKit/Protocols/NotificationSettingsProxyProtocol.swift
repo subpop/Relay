@@ -149,13 +149,14 @@ public protocol NotificationSettingsProxyProtocol: AnyObject, Sendable {
 
     /// Creates or updates a custom push rule.
     ///
-    /// For keyword rules, use `RuleKind.content` where the `ruleId` is the
-    /// keyword pattern. The `conditions` array should be empty for content rules.
+    /// This method supports `override` and `underride` rule kinds. The
+    /// underlying SDK rejects `RuleKind.content`; use the Matrix REST API
+    /// directly for content-type push rules (e.g. keyword notifications).
     ///
     /// - Parameters:
-    ///   - ruleId: The rule identifier (for content rules, this is the keyword pattern).
-    ///   - ruleKind: The kind of push rule.
+    ///   - ruleId: The rule identifier.
+    ///   - ruleKind: The kind of push rule (`.override` or `.underride`).
     ///   - actions: The actions to perform when the rule matches.
-    ///   - conditions: The conditions for the rule (empty for content rules).
+    ///   - conditions: The conditions for the rule.
     func setCustomPushRule(ruleId: String, ruleKind: RuleKind, actions: [Action], conditions: [PushCondition]) async throws
 }
