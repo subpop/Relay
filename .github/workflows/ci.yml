@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    # Relay requires macOS 26 (Tahoe) and Xcode 26.
+    # If macos-26 is unavailable, check GitHub's runner images documentation
+    # for the current label: https://github.com/actions/runner-images
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Create empty Secrets.xcconfig
+        run: touch Secrets.xcconfig
+
+      - name: Generate Secrets.swift
+        run: bash scripts/generate-secrets.sh
+        env:
+          SRCROOT: ${{ github.workspace }}
+
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Relay.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build
+        run: |
+          xcodebuild -project Relay.xcodeproj \
+            -scheme Relay \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
