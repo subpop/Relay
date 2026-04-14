@@ -381,11 +381,25 @@ final class TimelineTableViewController: NSViewController {
             }
             return
         }
-        let reversed = Array(newRows.reversed())
+
+        // Deduplicate rows by ID, keeping only the last occurrence of each
+        // event (the most up-to-date version). The SDK may deliver duplicate
+        // event IDs during room joins or when events arrive from multiple
+        // sources. NSDiffableDataSourceSnapshot requires unique identifiers.
+        let deduplicatedRows: [TimelineView.MessageRow]
+        let reversedInput = Array(newRows.reversed())
+        let inputIDs = reversedInput.map(\.id)
+        if Set(inputIDs).count == inputIDs.count {
+            deduplicatedRows = reversedInput
+        } else {
+            var seen = Set<String>()
+            seen.reserveCapacity(reversedInput.count)
+            deduplicatedRows = reversedInput.filter { seen.insert($0.id).inserted }
+        }
 
         let oldRows = rows
         let oldIDs = rowIDs
-        rows = reversed
+        rows = deduplicatedRows
         let newIDs = rowIDs
 
         // Check whether the data source already has a populated snapshot.

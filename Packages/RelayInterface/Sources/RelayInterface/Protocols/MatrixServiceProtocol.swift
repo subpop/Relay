@@ -241,6 +241,16 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Returns: A ``RoomPreviewViewModelProtocol`` instance, or `nil` if not available.
     func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)?
 
+    /// Accepts a pending room invitation and joins the room.
+    ///
+    /// - Parameter roomId: The Matrix room identifier of the invited room.
+    func acceptInvite(roomId: String) async throws
+
+    /// Declines a pending room invitation.
+    ///
+    /// - Parameter roomId: The Matrix room identifier of the invited room.
+    func declineInvite(roomId: String) async throws
+
     /// Leaves a room and removes it from the local room list.
     ///
     /// - Parameter id: The Matrix room identifier.
@@ -601,6 +611,8 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func createDirectMessage(userId: String) async throws -> String { "" }
     func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? { nil }
     func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? { nil }
+    func acceptInvite(roomId: String) async throws {}
+    func declineInvite(roomId: String) async throws {}
     func leaveRoom(id: String) async throws {}
     func searchDirectory(query: String) async throws -> [DirectoryRoom] { [] }
     func markAsRead(roomId: String, sendPublicReceipt: Bool) async {}

@@ -26,12 +26,13 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(AppActions.self) private var appActions
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @State private var searchText = ""
-    @State private var isBrowsingDirectory = false
     @State private var showingInspector = false
     @State private var showingPinnedMessages = false
     @State private var focusedMessageId: String?
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
+    @State private var previewingDirectoryRoom: DirectoryRoom?
+    @State private var previewingInvite: RoomSummary?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var isJoiningLinkedRoom = false
 
@@ -50,18 +51,53 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         NavigationSplitView(columnVisibility: $columnVisibility) {
             RoomListView(
                     selectedRoomId: $selectedRoomId,
-                    searchText: $searchText
+                    searchText: $searchText,
+                    previewingInvite: $previewingInvite
                 )
                 .navigationSplitViewColumnWidth(min: 116, ideal: 260, max: 360)
                 .onChange(of: selectedRoomId) {
                     if selectedRoomId != nil {
-                        isBrowsingDirectory = false
+                        appActions.showRoomDirectory = false
+                        previewingDirectoryRoom = nil
+                        previewingInvite = nil
                         showingPinnedMessages = false
                     }
                 }
         } detail: {
-            if isBrowsingDirectory {
-                RoomDirectoryView(selectedRoomId: $selectedRoomId, isBrowsing: $isBrowsingDirectory)
+            if let previewingInvite {
+                RoomPreviewView(
+                    room: DirectoryRoom(
+                        roomId: previewingInvite.id,
+                        name: previewingInvite.name,
+                        topic: previewingInvite.topic,
+                        alias: previewingInvite.canonicalAlias,
+                        avatarURL: previewingInvite.avatarURL
+                    ),
+                    onJoin: { acceptInviteFromPreview(previewingInvite) },
+                    onClose: { self.previewingInvite = nil },
+                    inviterName: previewingInvite.inviterName,
+                    inviterAvatarURL: previewingInvite.inviterAvatarURL,
+                    onDecline: {
+                        let invite = previewingInvite
+                        self.previewingInvite = nil
+                        declineInviteFromPreview(invite)
+                    },
+                    showsHeader: false
+                )
+            } else if appActions.showRoomDirectory, let previewingDirectoryRoom {
+                RoomPreviewView(
+                    room: previewingDirectoryRoom,
+                    onJoin: { joinDirectoryRoom(previewingDirectoryRoom) },
+                    onClose: { self.previewingDirectoryRoom = nil },
+                    showsHeader: false
+                )
+            } else if appActions.showRoomDirectory {
+                RoomDirectoryView(
+                    previewingRoom: $previewingDirectoryRoom,
+                    onRoomJoined: { roomId in
+                        selectedRoomId = roomId
+                    }
+                )
             } else if let selectedRoomId,
                       let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
                       let viewModel = matrixService.makeTimelineViewModel(roomId: selectedRoomId) {
@@ -127,13 +163,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 handleDeepLink(deepLink)
             }
         }
-        .onChange(of: appActions.showRoomDirectory) { _, show in
-            if show {
-                appActions.showRoomDirectory = false
-                selectedRoomId = nil
-                isBrowsingDirectory = true
-            }
-        }
     }
 
     // MARK: - Toolbar
@@ -154,14 +183,36 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             roomDirectoryButton
         }
 
-        if selectedRoomId != nil {
+        if let previewingInvite {
+            ToolbarItem(placement: .navigation) {
+                Button("Back", systemImage: "chevron.left") {
+                    self.previewingInvite = nil
+                }
+                .help("Back to Room List")
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                inviteToolbarCapsule(for: previewingInvite)
+            }
+        } else if appActions.showRoomDirectory, let previewingDirectoryRoom {
+            ToolbarItem(placement: .navigation) {
+                Button("Back", systemImage: "chevron.left") {
+                    self.previewingDirectoryRoom = nil
+                }
+                .help("Back to Directory")
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                previewToolbarCapsule(for: previewingDirectoryRoom)
+            }
+        } else if selectedRoomId != nil && !appActions.showRoomDirectory {
             ToolbarItem(placement: .secondaryAction) {
                 toolbarTitleCapsule
             }
         }
         
-        ToolbarItem(placement: .primaryAction) {
-            showInspectorButton
+        if !appActions.showRoomDirectory && previewingInvite == nil {
+            ToolbarItem(placement: .primaryAction) {
+                showInspectorButton
+            }
         }
 
     }
@@ -182,14 +233,50 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
     }
 
+    private func inviteToolbarCapsule(for invite: RoomSummary) -> some View {
+        HStack(spacing: 0) {
+            AvatarView(name: invite.name,
+                       mxcURL: invite.avatarURL,
+                       size: 28)
+            .padding(.leading, 4)
+            Text(invite.name)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+        }
+    }
+
+    private func previewToolbarCapsule(for room: DirectoryRoom) -> some View {
+        HStack(spacing: 0) {
+            AvatarView(name: room.name ?? room.roomId,
+                       mxcURL: room.avatarURL,
+                       size: 28)
+            .padding(.leading, 4)
+            Text(room.name ?? room.roomId)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+        }
+    }
+
     @ViewBuilder
     private var roomDirectoryButton: some View {
         Button {
-            appActions.showRoomDirectory = true
+            appActions.showRoomDirectory.toggle()
+            if appActions.showRoomDirectory {
+                previewingInvite = nil
+            } else {
+                previewingDirectoryRoom = nil
+            }
         } label: {
-            Label("Room Directory", systemImage: "building.2")
+            Label(
+                appActions.showRoomDirectory ? "Close Directory" : "Room Directory",
+                systemImage: appActions.showRoomDirectory ? "xmark" : "plus.bubble"
+            )
         }
-        .help("Room Directory")
+        .help(appActions.showRoomDirectory ? "Close Directory" : "Room Directory")
     }
 
     @ViewBuilder
@@ -269,6 +356,55 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
             }
             isJoiningLinkedRoom = false
+        }
+    }
+
+    // MARK: - Invite Actions
+
+    /// Accepts an invitation from the inline preview and navigates to the room.
+    private func acceptInviteFromPreview(_ invite: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.acceptInvite(roomId: invite.id)
+                try? await Task.sleep(for: .milliseconds(500))
+                previewingInvite = nil
+                selectedRoomId = invite.id
+            } catch {
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
+            }
+        }
+    }
+
+    /// Declines an invitation from the inline preview.
+    private func declineInviteFromPreview(_ invite: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.declineInvite(roomId: invite.id)
+            } catch {
+                errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+            }
+        }
+    }
+
+    // MARK: - Directory Room Join
+
+    /// Joins a room selected from the directory grid and navigates to it.
+    private func joinDirectoryRoom(_ room: DirectoryRoom) {
+        Task {
+            do {
+                let idOrAlias = room.alias ?? room.roomId
+                try await matrixService.joinRoom(idOrAlias: idOrAlias)
+
+                try? await Task.sleep(for: .milliseconds(500))
+                if let joined = matrixService.rooms.first(where: {
+                    $0.id == room.roomId || $0.canonicalAlias == room.alias
+                }) {
+                    selectedRoomId = joined.id
+                }
+                previewingDirectoryRoom = nil
+            } catch {
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
+            }
         }
     }
 

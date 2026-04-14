@@ -31,7 +31,7 @@ private let logger = Logger(subsystem: "RelayKit", category: "RoomPreviewViewMod
 /// recent messages. This allows users to browse a room before committing to
 /// membership.
 @Observable
-public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
+public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineViewModelProtocol {
     public private(set) var roomName: String?
     public private(set) var roomTopic: String?
     public private(set) var roomAvatarURL: String?
@@ -40,6 +40,16 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     public private(set) var messages: [TimelineMessage] = []
     public private(set) var isLoading = false
     public let roomId: String
+
+    // MARK: - TimelineViewModelProtocol (read-only stubs)
+
+    public var messagesVersion: UInt = 0
+    public var isLoadingMore: Bool = false
+    public var hasReachedStart: Bool = true
+    public var hasReachedEnd: Bool = true
+    public var firstUnreadMessageId: String?
+    public var typingUserDisplayNames: [String] = []
+    public var timelineFocus: TimelineFocusState = .live
 
     private let client: any ClientProxyProtocol
     private var previewProxy: RoomPreviewProxy?
@@ -197,5 +207,28 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol {
     private func rebuildMessages() {
         let mapping = messageMapper.mapItems(timelineItems)
         messages = mapping.messages
+        messagesVersion &+= 1
     }
+
+    // MARK: - TimelineViewModelProtocol (no-op write operations)
+
+    public func loadTimeline(focusedOnEventId fullyReadEventId: String?) async {
+        // The preview timeline is already loaded by loadPreview(). Just bump
+        // the version so TimelineView rebuilds its row cache with the existing
+        // messages.
+        messagesVersion &+= 1
+    }
+
+    public func loadMoreHistory() async {}
+    public func loadMoreFuture() async {}
+    public func focusOnEvent(eventId: String) async {}
+    public func returnToLive() async {}
+    public func sendFullyReadReceipt(upTo eventId: String) async {}
+    public func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {}
+    public func sendAttachment(url: URL, caption: String?) async {}
+    public func toggleReaction(messageId: String, key: String) async {}
+    public func edit(messageId: String, newText: String, mentionedUserIds: [String]) async {}
+    public func redact(messageId: String, reason: String?) async {}
+    public func pin(eventId: String) async {}
+    public func unpin(eventId: String) async {}
 }

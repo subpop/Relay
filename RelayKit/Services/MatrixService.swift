@@ -331,6 +331,16 @@ public final class MatrixService: MatrixServiceProtocol {
         _ = try await client.joinRoomByIdOrAlias(roomIdOrAlias: idOrAlias, serverNames: [])
     }
 
+    public func acceptInvite(roomId: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.join()
+    }
+
+    public func declineInvite(roomId: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.leave()
+    }
+
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
         guard let client else { throw RelayError.notLoggedIn }
         let params = CreateRoomParameters(

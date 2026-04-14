@@ -16,6 +16,8 @@ import RelayInterface
 import SwiftUI
 
 /// The sidebar list of joined rooms with unread indicators, search filtering, and swipe-to-leave.
+///
+/// Pending invite rows appear at the top of the list, above joined rooms.
 struct RoomListView: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
@@ -28,18 +30,48 @@ struct RoomListView: View {
     @State private var roomToLeave: RoomSummary?
     @State private var showLeaveConfirmation = false
     @State private var verificationItem: VerificationItem?
+    @Binding var previewingInvite: RoomSummary?
+    @State private var inviteToDecline: RoomSummary?
+    @State private var showDeclineConfirmation = false
 
     var body: some View {
         List(selection: $selectedRoomId) {
-            ForEach(filteredRooms) { room in
-                RoomListRow(room: room)
-                    .tag(room.id)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+            if !pendingInvites.isEmpty {
+                Section {
+                    ForEach(pendingInvites) { invite in
+                        InviteListRow(
+                            room: invite,
+                            onAccept: { acceptInvite(invite) },
+                            onDecline: { confirmDecline(invite) },
+                            onTap: { previewingInvite = invite }
+                        )
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Decline", systemImage: "xmark", role: .destructive) {
+                                confirmDecline(invite)
+                            }
+                        }
                     }
+                } header: {
+                    Text("Invites")
+                }
+            }
+
+            Section {
+                ForEach(filteredRooms) { room in
+                    RoomListRow(room: room)
+                        .tag(room.id)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+                        }
+                }
+            } header: {
+                if !pendingInvites.isEmpty {
+                    Text("Rooms")
+                }
             }
         }
         .animation(.default, value: filteredRooms.map(\.id))
+        .animation(.default, value: pendingInvites.map(\.id))
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
@@ -55,7 +87,7 @@ struct RoomListView: View {
                         description: Text("Join a room to start chatting.")
                     )
                 } else {
-                    ProgressView("Syncing…")
+                    ProgressView("Syncing...")
                 }
             }
         }
@@ -73,6 +105,12 @@ struct RoomListView: View {
             Button("Leave", role: .destructive, action: { leaveRoom(room) })
         } message: { room in
             Text("Are you sure you want to leave \"\(room.name)\"? You'll need to be re-invited or rejoin manually.")
+        }
+        .alert("Decline Invitation", isPresented: $showDeclineConfirmation, presenting: inviteToDecline) { invite in
+            Button("Cancel", role: .cancel) {}
+            Button("Decline", role: .destructive, action: { declineInvite(invite) })
+        } message: { invite in
+            Text("Decline the invitation to \"\(invite.name)\"? You'll need to be re-invited to join later.")
         }
     }
 
@@ -152,13 +190,55 @@ extension RoomListView {
             }
         }
     }
+
+    private func acceptInvite(_ invite: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.acceptInvite(roomId: invite.id)
+                // Wait briefly for the room list to sync, then select the room.
+                try? await Task.sleep(for: .milliseconds(500))
+                if let joined = matrixService.rooms.first(where: { $0.id == invite.id }) {
+                    selectedRoomId = joined.id
+                }
+            } catch {
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
+            }
+        }
+    }
+
+    private func confirmDecline(_ invite: RoomSummary) {
+        inviteToDecline = invite
+        showDeclineConfirmation = true
+    }
+
+    private func declineInvite(_ invite: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.declineInvite(roomId: invite.id)
+            } catch {
+                errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+            }
+        }
+    }
 }
 
 // MARK: - Filtering & Sorting
 
 extension RoomListView {
+    /// Rooms with a pending invitation, shown at the top of the sidebar.
+    fileprivate var pendingInvites: [RoomSummary] {
+        var invites = matrixService.rooms.filter { $0.isInvited }
+        if !searchText.isEmpty {
+            invites = invites.filter {
+                $0.name.localizedStandardContains(searchText)
+            }
+        }
+        return invites
+    }
+
+    /// Joined rooms with the current type filter, search filter, and sort applied.
     fileprivate var filteredRooms: [RoomSummary] {
-        var rooms = matrixService.rooms
+        var rooms = matrixService.rooms.filter { !$0.isInvited }
 
         // Apply type filter.
         switch typeFilter {
@@ -221,9 +301,11 @@ extension RoomListView {
 #Preview("Room Rows") {
     @Previewable @State var sel: String?
     @Previewable @State var search = ""
+    @Previewable @State var invite: RoomSummary?
     RoomListView(
         selectedRoomId: $sel,
-        searchText: $search
+        searchText: $search,
+        previewingInvite: $invite
     )
     .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 300, height: 400)
@@ -232,7 +314,8 @@ extension RoomListView {
 #Preview("Empty State") {
     RoomListView(
         selectedRoomId: .constant(nil),
-        searchText: .constant("")
+        searchText: .constant(""),
+        previewingInvite: .constant(nil)
     )
     .frame(width: 300, height: 400)
 }

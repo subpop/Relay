@@ -47,6 +47,14 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         PreviewTimelineViewModel()
     }
     func joinRoom(idOrAlias: String) async throws {}
+    func acceptInvite(roomId: String) async throws {
+        if let index = rooms.firstIndex(where: { $0.id == roomId }) {
+            rooms[index].membership = .joined
+        }
+    }
+    func declineInvite(roomId: String) async throws {
+        rooms.removeAll { $0.id == roomId }
+    }
     func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String { "!new:matrix.org" }
     func createRoom(options: CreateRoomOptions) async throws -> String { "!new:matrix.org" }
     func createDirectMessage(userId: String) async throws -> String { "!dm:matrix.org" }
@@ -283,6 +291,20 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             lastMessageTimestamp: .now.addingTimeInterval(-86400 * 2),
             unreadCount: 12,
             isDirect: true
+        ),
+        RoomSummary(
+            id: "!invite-eng:matrix.org",
+            name: "Engineering",
+            topic: "Backend and infra discussions",
+            membership: .invited,
+            inviterName: "Alice Smith"
+        ),
+        RoomSummary(
+            id: "!invite-dm:matrix.org",
+            name: "Diana Evans",
+            isDirect: true,
+            membership: .invited,
+            inviterName: "Diana Evans"
         )
     ]
 }

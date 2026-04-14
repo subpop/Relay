@@ -52,6 +52,11 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// Called when the user clicks a `matrix.to` room link, with the room ID or alias.
     var onRoomTap: ((String) -> Void)?
 
+    /// When `true`, the timeline is displayed in a read-only mode suitable for
+    /// room previews. The compose bar, reply/edit overlays, typing notifications,
+    /// read receipts, and drag-and-drop are all disabled.
+    var readOnly: Bool = false
+
     @State private var draftMessage = ""
     @State private var replyingTo: TimelineMessage?
     @State private var editingMessage: TimelineMessage?
@@ -118,7 +123,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .environment(\.mediaAutoReveal, shouldAutoRevealMedia)
             .environment(\.gifAnimationOverride, roomOverrides.animateGIFs)
             .overlay {
-                if let reply = replyingTo {
+                if !readOnly, let reply = replyingTo {
                     ZStack {
                         Rectangle()
                             .fill(.ultraThinMaterial)
@@ -142,20 +147,24 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 }
             }
             .overlay(alignment: .bottom) {
-                composeBar
+                if !readOnly {
+                    composeBar
+                }
             }
             .dropDestination(for: URL.self) { urls, _ in
+                guard !readOnly else { return false }
                 let fileURLs = urls.filter(\.isFileURL)
                 guard !fileURLs.isEmpty else { return false }
                 stageAttachments(fileURLs)
                 return true
             } isTargeted: { targeted in
+                guard !readOnly else { return }
                 withAnimation(.easeOut(duration: 0.15)) {
                     isTimelineDropTargeted = targeted
                 }
             }
             .overlay {
-                if isTimelineDropTargeted {
+                if !readOnly, isTimelineDropTargeted {
                     ZStack {
                         Rectangle()
                             .fill(.ultraThinMaterial)
@@ -180,7 +189,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
             // Load focused on the fully-read marker if the user has opted out of "always load newest"
             var focusEventId: String?
-            if !alwaysLoadNewest {
+            if !readOnly, !alwaysLoadNewest {
                 focusEventId = await matrixService.fullyReadEventId(roomId: roomId)
             }
             await viewModel.loadTimeline(focusedOnEventId: focusEventId)
@@ -192,6 +201,8 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             if let focusEventId {
                 await scrollToEventWhenAvailable(focusEventId)
             }
+
+            guard !readOnly else { return }
 
             await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
 
@@ -215,12 +226,13 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             }
         }
         .onDisappear {
-            if sendTypingNotifications {
+            if !readOnly, sendTypingNotifications {
                 Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: false) }
             }
             memberRefreshTask?.cancel()
         }
         .onChange(of: membershipEventCount) {
+            guard !readOnly else { return }
             // A membership event appeared in the timeline (join, leave, etc.).
             // Debounce slightly so rapid-fire events (e.g. a server burst) only
             // trigger one refresh.
@@ -232,7 +244,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             }
         }
         .onChange(of: draftMessage) { oldValue, newValue in
-            guard sendTypingNotifications else { return }
+            guard !readOnly, sendTypingNotifications else { return }
             let wasEmpty = oldValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let isEmpty = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             if wasEmpty && !isEmpty {

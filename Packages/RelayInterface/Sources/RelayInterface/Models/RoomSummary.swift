@@ -14,6 +14,18 @@
 
 import Foundation
 
+/// The user's membership state in a Matrix room.
+public enum RoomMembership: Sendable, Equatable {
+    /// The user has been invited to join but has not yet accepted.
+    case invited
+    /// The user has joined and is an active member.
+    case joined
+    /// The user has left the room.
+    case left
+    /// The user has been banned from the room.
+    case banned
+}
+
 /// A summary of a Matrix room for display in the room list sidebar.
 ///
 /// ``RoomSummary`` contains just enough information to render a room row in the
@@ -87,6 +99,18 @@ public final class RoomSummary: Identifiable {
     /// cleared when the room is marked as read.
     public var hasKeywordHighlight: Bool = false
 
+    /// The user's current membership state in this room.
+    public var membership: RoomMembership
+
+    /// Whether this room has a pending invite that has not been accepted or declined.
+    public var isInvited: Bool { membership == .invited }
+
+    /// The display name of the user who sent the invite, if this is an invited room.
+    public var inviterName: String?
+
+    /// The `mxc://` avatar URL of the user who sent the invite, if available.
+    public var inviterAvatarURL: String?
+
     /// Creates a new ``RoomSummary`` instance.
     ///
     /// - Parameters:
@@ -102,6 +126,9 @@ public final class RoomSummary: Identifiable {
     ///   - canonicalAlias: The canonical alias for the room.
     ///   - pinnedEventIds: The event IDs of pinned messages in this room.
     ///   - notificationMode: The user-defined notification mode, or `nil` for default.
+    ///   - membership: The user's membership state. Defaults to `.joined`.
+    ///   - inviterName: The display name of the inviter, if this is an invited room.
+    ///   - inviterAvatarURL: The avatar URL of the inviter, if available.
     public init(
         id: String,
         name: String,
@@ -115,7 +142,10 @@ public final class RoomSummary: Identifiable {
         isDirect: Bool = false,
         canonicalAlias: String? = nil,
         pinnedEventIds: [String] = [],
-        notificationMode: RoomNotificationMode? = nil
+        notificationMode: RoomNotificationMode? = nil,
+        membership: RoomMembership = .joined,
+        inviterName: String? = nil,
+        inviterAvatarURL: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -130,5 +160,8 @@ public final class RoomSummary: Identifiable {
         self.canonicalAlias = canonicalAlias
         self.pinnedEventIds = pinnedEventIds
         self.notificationMode = notificationMode
+        self.membership = membership
+        self.inviterName = inviterName
+        self.inviterAvatarURL = inviterAvatarURL
     }
 }

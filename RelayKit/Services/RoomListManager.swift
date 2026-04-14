@@ -420,6 +420,26 @@ private final class RoomEntry: Identifiable {
         summary.canonicalAlias = info.canonicalAlias
         summary.pinnedEventIds = info.pinnedEventIds
 
+        // Map SDK membership to RelayInterface type
+        switch info.membership {
+        case .invited: summary.membership = .invited
+        case .joined: summary.membership = .joined
+        case .left: summary.membership = .left
+        case .banned: summary.membership = .banned
+        case .knocked: summary.membership = .joined
+        }
+
+        // Fetch inviter details for invited rooms
+        if info.membership == .invited {
+            Task { [weak self] in
+                guard let self else { return }
+                if let inviter = try? await self.room.inviter() {
+                    self.summary.inviterName = inviter.displayName ?? inviter.userId
+                    self.summary.inviterAvatarURL = inviter.avatarUrl
+                }
+            }
+        }
+
         // Map SDK notification mode to RelayInterface type
         if let sdkMode = info.cachedUserDefinedNotificationMode {
             switch sdkMode {

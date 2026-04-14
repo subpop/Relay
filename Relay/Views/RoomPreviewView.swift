@@ -20,18 +20,47 @@ import SwiftUI
 /// ``RoomPreviewView`` displays room metadata (name, topic, member count) and,
 /// when available, a read-only timeline of recent messages. A prominent join
 /// button allows the user to commit to membership after browsing.
+///
+/// This view is reusable for two contexts:
+/// - **Room directory**: browsing a public room before joining.
+/// - **Invite preview**: viewing an invited room with inviter context.
+///
+/// When `inviterName` is provided, an invite banner appears at the top showing
+/// who sent the invitation, with both accept and decline actions.
 struct RoomPreviewView: View {
     @Environment(\.matrixService) private var matrixService
     let room: DirectoryRoom
     let onJoin: () -> Void
     let onClose: () -> Void
 
+    /// The display name of the user who sent the invite. When non-nil,
+    /// the view renders in invite mode with accept/decline actions.
+    var inviterName: String?
+
+    /// The `mxc://` avatar URL of the inviter.
+    var inviterAvatarURL: String?
+
+    /// Called when the user declines the invitation. Only used in invite mode.
+    var onDecline: (() -> Void)?
+
+    /// Whether to show the built-in header bar with back button and room identity.
+    ///
+    /// Set to `false` when the preview is rendered inline in the detail pane,
+    /// where the main window toolbar provides the room identity and navigation.
+    var showsHeader: Bool = true
+
     @State private var viewModel: (any RoomPreviewViewModelProtocol)?
 
     var body: some View {
         VStack(spacing: 0) {
-            previewHeader
-            Divider()
+            if showsHeader {
+                previewHeader
+                Divider()
+            }
+            if inviterName != nil {
+                inviteBanner
+                Divider()
+            }
             previewContent
             Divider()
             joinBar
@@ -48,17 +77,12 @@ struct RoomPreviewView: View {
 
     private var previewHeader: some View {
         HStack(spacing: 12) {
-            Button {
+            Button("Back", systemImage: "chevron.left") {
                 onClose()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                    Text("Back")
-                }
-                .font(.callout)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.tint)
+            .font(.callout)
 
             Spacer()
 
@@ -92,6 +116,38 @@ struct RoomPreviewView: View {
         .padding(.vertical, 10)
     }
 
+    // MARK: - Invite Banner
+
+    private var inviteBanner: some View {
+        HStack(spacing: 10) {
+            AvatarView(
+                name: inviterName ?? "Unknown",
+                mxcURL: inviterAvatarURL,
+                size: 28
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Invitation")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("**\(inviterName ?? "Someone")** invited you to join")
+                    .font(.callout)
+            }
+
+            Spacer()
+
+            if let onDecline {
+                Button("Decline", role: .destructive) {
+                    onDecline()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.fill.quaternary)
+    }
+
     // MARK: - Content
 
     @ViewBuilder
@@ -107,8 +163,22 @@ struct RoomPreviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.messages.isEmpty {
                 roomInfoPanel(viewModel)
+            } else if let timelineVM = viewModel as? any TimelineViewModelProtocol {
+                TimelineView(
+                    roomId: room.roomId,
+                    roomName: viewModel.roomName ?? room.name ?? room.roomId,
+                    roomAvatarURL: viewModel.roomAvatarURL ?? room.avatarURL,
+                    viewModel: timelineVM,
+                    focusedMessageId: .constant(nil),
+                    readOnly: true
+                )
             } else {
-                previewTimeline(viewModel)
+                // Fallback for preview VMs that don't conform to TimelineViewModelProtocol.
+                ContentUnavailableView(
+                    "Preview Unavailable",
+                    systemImage: "eye.slash",
+                    description: Text("Unable to load a preview for this room.")
+                )
             }
         } else {
             ContentUnavailableView(
@@ -165,30 +235,18 @@ struct RoomPreviewView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Shows a read-only timeline of messages.
-    private func previewTimeline(_ viewModel: any RoomPreviewViewModelProtocol) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(viewModel.messages) { message in
-                    PreviewMessageRow(message: message)
-                }
-            }
-            .padding(.vertical, 8)
-        }
-        .defaultScrollAnchor(.bottom)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     // MARK: - Join Bar
 
     private var joinBar: some View {
         HStack {
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .foregroundStyle(.secondary)
-            Text("Join this room to participate")
+            Text(inviterName != nil
+                 ? "Accept invitation to participate"
+                 : "Join this room to participate")
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Join Room") {
+            Button(inviterName != nil ? "Accept & Join" : "Join Room") {
                 onJoin()
             }
             .buttonStyle(.borderedProminent)
@@ -199,47 +257,9 @@ struct RoomPreviewView: View {
     }
 }
 
-// MARK: - Preview Message Row
-
-/// A simplified, read-only message row for room preview timelines.
-private struct PreviewMessageRow: View {
-    let message: TimelineMessage
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            AvatarView(
-                name: message.senderDisplayName ?? message.senderID,
-                mxcURL: message.senderAvatarURL,
-                size: 28
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(message.senderDisplayName ?? message.senderID)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-
-                    Text(message.timestamp, style: .time)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Text(message.body)
-                    .font(.body)
-                    .textSelection(.enabled)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
-    }
-}
-
 // MARK: - Previews
 
-#Preview("Room Preview") {
+#Preview("Room Preview - Directory") {
     RoomPreviewView(
         room: DirectoryRoom(
             roomId: "!test:matrix.org",
@@ -251,6 +271,23 @@ private struct PreviewMessageRow: View {
         ),
         onJoin: {},
         onClose: {}
+    )
+    .environment(\.matrixService, PreviewMatrixService())
+    .frame(width: 600, height: 500)
+}
+
+#Preview("Room Preview - Invite") {
+    RoomPreviewView(
+        room: DirectoryRoom(
+            roomId: "!invite:matrix.org",
+            name: "Design Team",
+            topic: "UI/UX design discussion"
+        ),
+        onJoin: {},
+        onClose: {},
+        inviterName: "Alice",
+        inviterAvatarURL: nil,
+        onDecline: {}
     )
     .environment(\.matrixService, PreviewMatrixService())
     .frame(width: 600, height: 500)
