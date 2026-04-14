@@ -256,6 +256,17 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Parameter id: The Matrix room identifier.
     func leaveRoom(id: String) async throws
 
+    /// Sets or clears the favourite (pinned) state for a room.
+    ///
+    /// This updates the Matrix `m.favourite` room tag on the server, which
+    /// syncs across all clients. Favourite rooms appear in the "Pinned" section
+    /// at the top of the room list sidebar.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - isFavourite: `true` to pin the room, `false` to unpin it.
+    func setFavourite(roomId: String, isFavourite: Bool) async throws
+
     /// Searches the public room directory for rooms matching the query.
     ///
     /// - Parameter query: The search string to match against room names and aliases.
@@ -614,6 +625,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func acceptInvite(roomId: String) async throws {}
     func declineInvite(roomId: String) async throws {}
     func leaveRoom(id: String) async throws {}
+    func setFavourite(roomId: String, isFavourite: Bool) async throws {}
     func searchDirectory(query: String) async throws -> [DirectoryRoom] { [] }
     func markAsRead(roomId: String, sendPublicReceipt: Bool) async {}
     func fullyReadEventId(roomId: String) async -> String? { nil }

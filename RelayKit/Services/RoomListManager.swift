@@ -419,6 +419,7 @@ private final class RoomEntry: Identifiable {
         summary.isDirect = info.isDirect
         summary.canonicalAlias = info.canonicalAlias
         summary.pinnedEventIds = info.pinnedEventIds
+        summary.isFavourite = info.isFavourite
 
         // Map SDK membership to RelayInterface type
         switch info.membership {

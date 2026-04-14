@@ -56,21 +56,28 @@ struct RoomListView: View {
                 }
             }
 
+            if !pinnedRooms.isEmpty {
+                Section {
+                    ForEach(pinnedRooms) { room in
+                        roomRow(room)
+                    }
+                } header: {
+                    Text("Pinned")
+                }
+            }
+
             Section {
-                ForEach(filteredRooms) { room in
-                    RoomListRow(room: room)
-                        .tag(room.id)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
-                        }
+                ForEach(unpinnedRooms) { room in
+                    roomRow(room)
                 }
             } header: {
-                if !pendingInvites.isEmpty {
+                if !pendingInvites.isEmpty || !pinnedRooms.isEmpty {
                     Text("Rooms")
                 }
             }
         }
-        .animation(.default, value: filteredRooms.map(\.id))
+        .animation(.default, value: pinnedRooms.map(\.id))
+        .animation(.default, value: unpinnedRooms.map(\.id))
         .animation(.default, value: pendingInvites.map(\.id))
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
         .toolbar {
@@ -112,6 +119,25 @@ struct RoomListView: View {
         } message: { invite in
             Text("Decline the invitation to \"\(invite.name)\"? You'll need to be re-invited to join later.")
         }
+    }
+
+    // MARK: - Room Row
+
+    private func roomRow(_ room: RoomSummary) -> some View {
+        RoomListRow(room: room)
+            .tag(room.id)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+            }
+            .contextMenu {
+                Button(
+                    room.isFavourite ? "Unpin" : "Pin",
+                    systemImage: room.isFavourite ? "pin.slash" : "pin",
+                    action: { toggleFavourite(room) }
+                )
+                Divider()
+                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+            }
     }
 
     // MARK: - Sort Menu
@@ -206,6 +232,16 @@ extension RoomListView {
         }
     }
 
+    private func toggleFavourite(_ room: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.setFavourite(roomId: room.id, isFavourite: !room.isFavourite)
+            } catch {
+                errorReporter.report(.pinFailed(error.localizedDescription))
+            }
+        }
+    }
+
     private func confirmDecline(_ invite: RoomSummary) {
         inviteToDecline = invite
         showDeclineConfirmation = true
@@ -236,8 +272,8 @@ extension RoomListView {
         return invites
     }
 
-    /// Joined rooms with the current type filter, search filter, and sort applied.
-    fileprivate var filteredRooms: [RoomSummary] {
+    /// All joined rooms with the current type filter, search filter, and sort applied.
+    private var filteredRooms: [RoomSummary] {
         var rooms = matrixService.rooms.filter { !$0.isInvited }
 
         // Apply type filter.
@@ -258,7 +294,24 @@ extension RoomListView {
         }
 
         // Apply sort.
-        rooms.sort { lhs, rhs in
+        rooms.sort(by: roomComparator)
+
+        return rooms
+    }
+
+    /// Favourite rooms that appear in the "Pinned" section at the top of the sidebar.
+    fileprivate var pinnedRooms: [RoomSummary] {
+        filteredRooms.filter(\.isFavourite)
+    }
+
+    /// Non-favourite rooms shown in the main "Rooms" section below pinned rooms.
+    fileprivate var unpinnedRooms: [RoomSummary] {
+        filteredRooms.filter { !$0.isFavourite }
+    }
+
+    /// A reusable comparator for sorting rooms by the current sort settings.
+    private var roomComparator: (RoomSummary, RoomSummary) -> Bool {
+        { lhs, rhs in
             // Muted rooms always sort to the bottom, regardless of direction.
             if lhs.isMuted != rhs.isMuted {
                 return rhs.isMuted
@@ -291,8 +344,6 @@ extension RoomListView {
                 ? result == .orderedAscending
                 : result == .orderedDescending
         }
-
-        return rooms
     }
 }
 

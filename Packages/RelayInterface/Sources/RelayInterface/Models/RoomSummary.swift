@@ -92,6 +92,12 @@ public final class RoomSummary: Identifiable {
     /// When `true`, the room should not display unread indicators in the sidebar.
     public var isMuted: Bool { notificationMode == .mute }
 
+    /// Whether the user has marked this room as a favourite (pinned).
+    ///
+    /// Maps to the Matrix `m.favourite` room tag. Favourite rooms are displayed
+    /// in a dedicated "Pinned" section at the top of the room list sidebar.
+    public var isFavourite: Bool
+
     /// Whether this room has an unread message that matched a notification keyword.
     ///
     /// The SDK's `highlightCount` may not include keyword push-rule matches, so this
@@ -126,6 +132,7 @@ public final class RoomSummary: Identifiable {
     ///   - canonicalAlias: The canonical alias for the room.
     ///   - pinnedEventIds: The event IDs of pinned messages in this room.
     ///   - notificationMode: The user-defined notification mode, or `nil` for default.
+    ///   - isFavourite: Whether the room is marked as a favourite (pinned). Defaults to `false`.
     ///   - membership: The user's membership state. Defaults to `.joined`.
     ///   - inviterName: The display name of the inviter, if this is an invited room.
     ///   - inviterAvatarURL: The avatar URL of the inviter, if available.
@@ -143,6 +150,7 @@ public final class RoomSummary: Identifiable {
         canonicalAlias: String? = nil,
         pinnedEventIds: [String] = [],
         notificationMode: RoomNotificationMode? = nil,
+        isFavourite: Bool = false,
         membership: RoomMembership = .joined,
         inviterName: String? = nil,
         inviterAvatarURL: String? = nil
@@ -160,6 +168,7 @@ public final class RoomSummary: Identifiable {
         self.canonicalAlias = canonicalAlias
         self.pinnedEventIds = pinnedEventIds
         self.notificationMode = notificationMode
+        self.isFavourite = isFavourite
         self.membership = membership
         self.inviterName = inviterName
         self.inviterAvatarURL = inviterAvatarURL

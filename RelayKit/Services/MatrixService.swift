@@ -404,6 +404,11 @@ public final class MatrixService: MatrixServiceProtocol {
         timelineViewModels.removeValue(forKey: id)
     }
 
+    public func setFavourite(roomId: String, isFavourite: Bool) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.setIsFavourite(isFavourite: isFavourite, tagOrder: nil)
+    }
+
     // MARK: - Read Receipts & Typing
 
     public func markAsRead(roomId: String, sendPublicReceipt: Bool) async {

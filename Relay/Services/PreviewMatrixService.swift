@@ -65,6 +65,11 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func leaveRoom(id: String) async throws {
         rooms.removeAll { $0.id == id }
     }
+    func setFavourite(roomId: String, isFavourite: Bool) async throws {
+        if let room = rooms.first(where: { $0.id == roomId }) {
+            room.isFavourite = isFavourite
+        }
+    }
     func sendTypingNotice(roomId: String, isTyping: Bool) async {}
     func markAsRead(roomId: String, sendPublicReceipt: Bool) async {
         if let room = rooms.first(where: { $0.id == roomId }) {
@@ -255,7 +260,8 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             unreadCount: 3,
             unreadMentions: 1,
             isDirect: false,
-            pinnedEventIds: ["$pinned1", "$pinned2"]
+            pinnedEventIds: ["$pinned1", "$pinned2"],
+            isFavourite: true
         ),
         RoomSummary(
             id: "!alice:matrix.org",
@@ -268,7 +274,8 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             ),
             lastMessageTimestamp: .now.addingTimeInterval(-7200),
             unreadCount: 0,
-            isDirect: true
+            isDirect: true,
+            isFavourite: true
         ),
         RoomSummary(
             id: "!hq:matrix.org",
