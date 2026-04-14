@@ -125,6 +125,14 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
         // (mentionQuery) reflect the latest SwiftUI state.
         context.coordinator.parent = self
 
+        // Skip if the coordinator itself just pushed this text change to the
+        // binding — the text view's storage is already correct and replacing it
+        // mid-layout triggers an NSRangeException crash.
+        if context.coordinator.didPushTextChange {
+            context.coordinator.didPushTextChange = false
+            return
+        }
+
         // Only update text if it actually changed from outside (e.g., cleared after send)
         let currentPlainText = textView.textStorage?.string ?? ""
         if currentPlainText != text {
@@ -150,6 +158,11 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
         var parent: ComposeTextView
         weak var textView: MentionTextView?
         var isUpdating = false
+        /// Tracks whether the coordinator itself just pushed a text change to
+        /// the binding. When `true`, the immediately-following `updateNSView`
+        /// call should skip replacing the text storage because the change
+        /// originated from the text view, not from an external SwiftUI update.
+        var didPushTextChange = false
         private var mentionObserver: Any?
 
         init(_ parent: ComposeTextView) {
@@ -229,6 +242,7 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
 
             let fullText = textView.textStorage?.string ?? ""
+            didPushTextChange = true
             parent.text = fullText
 
             // Update mention ranges after text edits — remove mentions whose
@@ -511,10 +525,19 @@ final class MentionTextView: NSTextView {
         }
     }
 
+    /// Guards against re-entrant `intrinsicContentSize` calls. `ensureLayout`
+    /// can trigger delegate callbacks that modify the text storage and
+    /// re-invalidate layout, causing a nested call with stale range data.
+    private var isComputingContentSize = false
+
     override var intrinsicContentSize: NSSize {
-        guard let container = textContainer, let manager = layoutManager else {
-            return super.intrinsicContentSize
+        guard !isComputingContentSize,
+              let container = textContainer,
+              let manager = layoutManager else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: 22)
         }
+        isComputingContentSize = true
+        defer { isComputingContentSize = false }
         manager.ensureLayout(for: container)
         let usedRect = manager.usedRect(for: container)
         let inset = textContainerInset
