@@ -480,8 +480,10 @@ struct MessageTextView: NSViewRepresentable {
             guard value != nil else { return }
             result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
 
-            // Apply pill styling to matrix.to user mention links.
-            if let url = value as? URL, MatrixURI(url: url)?.isUser == true {
+            // Apply pill styling to matrix.to user and room links.
+            if let url = value as? URL,
+               let uri = MatrixURI(url: url),
+               uri.isUser || uri.isRoom {
                 let pillColor = linkColor.withAlphaComponent(0.35)
                 result.addAttributes([
                     .mentionPillColor: pillColor,
@@ -523,8 +525,10 @@ struct MessageTextView: NSViewRepresentable {
             } else if hasLink {
                 result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
 
-                // Apply pill styling to matrix.to user mention links.
-                if let url = attrs[keys.link] as? URL, MatrixURI(url: url)?.isUser == true {
+                // Apply pill styling to matrix.to user and room links.
+                if let url = attrs[keys.link] as? URL,
+                   let uri = MatrixURI(url: url),
+                   uri.isUser || uri.isRoom {
                     let pillColor = linkColor.withAlphaComponent(0.35)
                     result.addAttributes([
                         .mentionPillColor: pillColor,
