@@ -85,11 +85,18 @@ final class MessageTextContent: NSTextView {
         if let range = linkRange(at: point) {
             if hoveredLinkRange != range {
                 clearHoverUnderline()
-                textStorage?.addAttribute(
-                    .underlineStyle,
-                    value: NSUnderlineStyle.single.rawValue,
-                    range: range
-                )
+                // Skip hover underline for mention pills — they have their
+                // own capsule background and shouldn't look like web links.
+                let isMentionPill = textStorage?.attribute(
+                    .mentionPillColor, at: range.location, effectiveRange: nil
+                ) != nil
+                if !isMentionPill {
+                    textStorage?.addAttribute(
+                        .underlineStyle,
+                        value: NSUnderlineStyle.single.rawValue,
+                        range: range
+                    )
+                }
                 hoveredLinkRange = range
             }
             NSCursor.pointingHand.set()
@@ -218,8 +225,10 @@ struct MessageTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MessageTextContent {
         let storage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
+        let layoutManager = PillLayoutManager()
         layoutManager.usesFontLeading = false
+        layoutManager.pillHorizontalInset = 0.25
+        layoutManager.pillVerticalExpansion = 0
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer()
         container.widthTracksTextView = false
@@ -227,6 +236,7 @@ struct MessageTextView: NSViewRepresentable {
         layoutManager.addTextContainer(container)
 
         let view = MessageTextContent(frame: .zero, textContainer: container)
+        view.clipsToBounds = false
         view.isEditable = false
         view.isSelectable = true
         view.drawsBackground = false
@@ -467,10 +477,20 @@ struct MessageTextView: NSViewRepresentable {
         }
 
         result.enumerateAttribute(keys.link, in: fullRange, options: []) { value, range, _ in
-            if value != nil {
-                result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
+            guard value != nil else { return }
+            result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
+
+            // Apply pill styling to matrix.to user mention links.
+            if let url = value as? URL, MatrixURI(url: url)?.isUser == true {
+                let pillColor = linkColor.withAlphaComponent(0.35)
+                result.addAttributes([
+                    .mentionPillColor: pillColor,
+                    .font: NSFont.systemFont(ofSize: baseFont.pointSize, weight: .medium)
+                ], range: range)
             }
         }
+
+        insertPillSpacing(result)
 
             return result
     }
@@ -502,6 +522,15 @@ struct MessageTextView: NSViewRepresentable {
                 result.addAttribute(keys.foregroundColor, value: barColor, range: range)
             } else if hasLink {
                 result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
+
+                // Apply pill styling to matrix.to user mention links.
+                if let url = attrs[keys.link] as? URL, MatrixURI(url: url)?.isUser == true {
+                    let pillColor = linkColor.withAlphaComponent(0.35)
+                    result.addAttributes([
+                        .mentionPillColor: pillColor,
+                        .font: NSFont.systemFont(ofSize: baseFont.pointSize, weight: .medium)
+                    ], range: range)
+                }
             } else if isSpoiler {
                 // Keep spoiler coloring as-is.
             } else if isInBlockquote, attrs[keys.foregroundColor] == nil {
@@ -516,7 +545,44 @@ struct MessageTextView: NSViewRepresentable {
             }
         }
 
+        insertPillSpacing(result)
+
         return result
+    }
+
+    /// Inserts thin spaces inside the pill-attributed range at each edge so
+    /// the capsule background has visual padding around the mention text.
+    /// The `PillLayoutManager` handles the external gap by insetting the
+    /// drawn capsule from the full glyph rect.
+    private static func insertPillSpacing(_ result: NSMutableAttributedString) {
+        // U+2009 THIN SPACE for internal pill padding.
+        let thinSpace = "\u{2009}"
+
+        var pillRanges: [NSRange] = []
+        let keys = NSAttributedString.Key.self
+        result.enumerateAttribute(
+            keys.mentionPillColor,
+            in: NSRange(location: 0, length: result.length),
+            options: []
+        ) { value, range, _ in
+            if value != nil {
+                pillRanges.append(range)
+            }
+        }
+
+        // Insert in reverse order so earlier ranges stay valid.
+        // Two thin spaces on each side: the outer one sits outside the drawn
+        // capsule (external gap, via PillLayoutManager's pillHorizontalInset),
+        // the inner one sits inside the capsule (internal padding).
+        for range in pillRanges.reversed() {
+            let pillAttrs = result.attributes(at: range.location, effectiveRange: nil)
+            let spacer = NSAttributedString(string: thinSpace + thinSpace + thinSpace, attributes: pillAttrs)
+
+            // Trailing spacers (inside pill range).
+            result.insert(spacer, at: range.location + range.length)
+            // Leading spacers (inside pill range).
+            result.insert(spacer, at: range.location)
+        }
     }
 }
 

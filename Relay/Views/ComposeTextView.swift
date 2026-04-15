@@ -86,7 +86,18 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
 
-        let textView = MentionTextView()
+        // Use PillLayoutManager for capsule-shaped mention backgrounds.
+        let storage = NSTextStorage()
+        let layoutManager = PillLayoutManager()
+        layoutManager.pillHorizontalInset = 0.25
+        layoutManager.pillVerticalExpansion = 0
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer()
+        container.widthTracksTextView = true
+        container.lineFragmentPadding = 4
+        layoutManager.addTextContainer(container)
+
+        let textView = MentionTextView(frame: .zero, textContainer: container)
         textView.isRichText = false
         textView.allowsUndo = true
         textView.drawsBackground = false
@@ -96,8 +107,6 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.lineFragmentPadding = 4
         textView.font = .systemFont(ofSize: NSFont.systemFontSize)
         textView.textColor = .labelColor
         textView.insertionPointColor = .controlAccentColor
@@ -393,7 +402,10 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
             guard atIndex >= 0 else { return }
 
             let replaceRange = NSRange(location: atIndex, length: cursorLocation - atIndex)
-            let pillText = "@\(displayName)"
+            // Pad with thin spaces for internal capsule padding + external gap,
+            // matching the MessageView pill spacing.
+            let padding = "\u{2009}\u{2009}\u{2009}"
+            let pillText = "\(padding)@\(displayName)\(padding)"
             let pillRange = NSRange(location: atIndex, length: pillText.count)
 
             isUpdating = true
@@ -443,7 +455,7 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
             guard let storage = textView.textStorage else { return }
             let pillColor = NSColor.controlAccentColor.withAlphaComponent(0.15)
             storage.addAttributes([
-                .backgroundColor: pillColor,
+                .mentionPillColor: pillColor,
                 .foregroundColor: NSColor.controlAccentColor,
                 .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium),
                 .mentionUserId: "" // placeholder, overwritten by caller
