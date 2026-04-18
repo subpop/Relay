@@ -28,6 +28,9 @@ struct SignInPage: View {
     @Environment(\.errorReporter) private var errorReporter
     @State private var matrixID = MatrixID()
     @State private var password = ""
+    #if DEBUG
+    @State private var customHomeserver = ""
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,6 +45,12 @@ struct SignInPage: View {
                     SecureField("Password", text: $password)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(signIn)
+                    #if DEBUG
+                    TextField("Homeserver URL (optional)", text: $customHomeserver)
+                        .textFieldStyle(.roundedBorder)
+                        .textContentType(.URL)
+                        .autocorrectionDisabled()
+                    #endif
                 }
 
                 VStack(spacing: 10) {
@@ -77,13 +86,22 @@ struct SignInPage: View {
 
     // MARK: - Actions
 
+    private var effectiveHomeserver: String {
+        #if DEBUG
+        let trimmed = customHomeserver.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? matrixID.homeserver : trimmed
+        #else
+        return matrixID.homeserver
+        #endif
+    }
+
     private func signIn() {
         guard matrixID.isValid, !password.isEmpty else { return }
         Task {
             await matrixService.login(
                 username: matrixID.username,
                 password: password,
-                homeserver: matrixID.homeserver
+                homeserver: effectiveHomeserver
             )
             if case .error(let msg) = matrixService.authState {
                 errorReporter.report(.loginFailed(msg))
@@ -96,7 +114,7 @@ struct SignInPage: View {
         Task {
             do {
                 try await matrixService.startOAuthLogin(
-                    homeserver: matrixID.homeserver
+                    homeserver: effectiveHomeserver
                 ) { [webAuthenticationSession] url in
                     try await webAuthenticationSession.authenticate(
                         using: url,
