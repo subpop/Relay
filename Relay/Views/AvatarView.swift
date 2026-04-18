@@ -47,16 +47,14 @@ struct AvatarView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .task(id: mxcURL) {
-            guard let mxcURL else {
-                image = nil
-                return
-            }
-            image = await matrixService.avatarThumbnail(mxcURL: mxcURL, size: size)
-        }
-        .onChange(of: name) {
-            // When the view is reused for a different entity (e.g. switching rooms
-            // in the toolbar capsule), clear any stale image immediately.
+            // Clear any stale image immediately when the URL changes (e.g. switching
+            // rooms in the toolbar capsule). Doing this here instead of a separate
+            // onChange(of: name) avoids a race where the onChange fires *after* a
+            // cache-hit sets the image, wiping it back to nil.
             image = nil
+
+            guard let mxcURL else { return }
+            image = await matrixService.avatarThumbnail(mxcURL: mxcURL, size: size)
         }
     }
 
