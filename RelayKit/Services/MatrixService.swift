@@ -170,6 +170,44 @@ public final class MatrixService: MatrixServiceProtocol {
         pendingDeepLink = nil
     }
 
+    // MARK: - Clear Local Data
+
+    public func clearLocalData() async {
+        // Tear down sync and background tasks, but keep the keychain session.
+        syncTask?.cancel()
+        syncTask = nil
+        verificationObservationTask?.cancel()
+        verificationObservationTask = nil
+        verificationStateTask?.cancel()
+        verificationStateTask = nil
+
+        networkMonitor.stop()
+        await syncManager.stop()
+
+        // Release the current client so the SDK releases its file handles.
+        client = nil
+        verificationController = nil
+        isSessionVerified = false
+        hasCheckedVerificationState = false
+        isVerificationFlowActive = false
+        pendingVerificationRequest = nil
+        shouldPresentVerificationSheet = false
+        roomListManager.reset()
+        spaceListManager.reset()
+        media.reset()
+        timelineViewModels = [:]
+        cachedNotificationKeywords = []
+        pendingDeepLink = nil
+
+        // Delete the on-disk data and cache directories.
+        AuthenticationService.resetLocalSessionData()
+
+        // Restore the session from the keychain, rebuilding the client
+        // with a fresh data store, then restart sync.
+        await restoreSession()
+        startSyncIfNeeded()
+    }
+
     // MARK: - Sync
 
     public func startSyncIfNeeded() {

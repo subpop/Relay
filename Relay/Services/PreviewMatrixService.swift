@@ -41,6 +41,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
         openURL: @escaping @concurrent @Sendable (URL) async throws -> URL
     ) async throws {}
     func logout() async {}
+    func clearLocalData() async {}
     func startSyncIfNeeded() {}
     func userId() -> String? { "@preview:matrix.org" }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }

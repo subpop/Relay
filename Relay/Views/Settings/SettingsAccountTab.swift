@@ -25,6 +25,7 @@ struct SettingsAccountTab: View {
     @State private var savedDisplayName = ""
     @State private var avatarURL: String?
     @State private var showLogoutConfirmation = false
+    @State private var showClearCacheConfirmation = false
     @State private var displayNameSaveTask: Task<Void, Never>?
 
     private var userId: String? { matrixService.userId() }
@@ -83,6 +84,10 @@ struct SettingsAccountTab: View {
             }
 
             Section {
+                Button("Clear Cache…") {
+                    showClearCacheConfirmation = true
+                }
+
                 Button("Log Out…", role: .destructive) {
                     showLogoutConfirmation = true
                 }
@@ -118,6 +123,14 @@ struct SettingsAccountTab: View {
             }
         } message: {
             Text("Are you sure you want to log out? You will need to sign in again.")
+        }
+        .alert("Clear Cache", isPresented: $showClearCacheConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear Cache", role: .destructive) {
+                Task { await matrixService.clearLocalData() }
+            }
+        } message: {
+            Text("This will delete all locally cached data and resync from the server. You will remain logged in.")
         }
     }
 }

@@ -186,6 +186,12 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// Signs out, clears the session, and resets local data.
     func logout() async
 
+    /// Clears the local SDK data and cache, then restores the session.
+    ///
+    /// The user remains logged in, but all locally cached data (messages,
+    /// room state, media) is deleted and re-synced from the homeserver.
+    func clearLocalData() async
+
     /// Starts the background sync service if it is not already running.
     func startSyncIfNeeded()
 
@@ -718,6 +724,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
         openURL: @escaping @concurrent @Sendable (URL) async throws -> URL
     ) async throws {}
     func logout() async {}
+    func clearLocalData() async {}
     func startSyncIfNeeded() {}
     func userId() -> String? { nil }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
