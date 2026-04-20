@@ -38,42 +38,59 @@ public final class MatrixService: MatrixServiceProtocol {
     public private(set) var authState: AuthState = .unknown
     public var syncState: SyncState { syncManager.syncState }
     public var rooms: [RelayInterface.RoomSummary] { roomListManager.rooms }
+    public var spaces: [RelayInterface.RoomSummary] { spaceListManager.spaces }
 
     public var isSyncing: Bool { syncState == .syncing || syncState == .running }
     public var hasLoadedRooms: Bool { roomListManager.hasLoadedRooms }
 
     public private(set) var isSessionVerified: Bool = false
+    public private(set) var hasCheckedVerificationState: Bool = false
     public var pendingVerificationRequest: IncomingVerificationRequest?
     public var shouldPresentVerificationSheet: Bool = false
     public var pendingDeepLink: MatrixURI?
     public let errorReporter = ErrorReporter()
+
+    /// Callback invoked when a room has new notification-worthy unread activity.
+    ///
+    /// The app layer sets this to post system notifications. The callback
+    /// provides the room name, room ID, message body, and whether it's a mention.
+    public var onNotificationEvent: ((RoomNotificationEvent) -> Void)? {
+        didSet { roomListManager.onNotificationEvent = onNotificationEvent }
+    }
 
     // MARK: - Private State
 
     private var client: ClientProxy?
     private var syncTask: Task<Void, Never>?
     private var timelineViewModels: [String: TimelineViewModel] = [:]
+    private var cachedNotificationKeywords: [String] = []
     private var verificationController: SessionVerificationControllerProxy?
     private var verificationObservationTask: Task<Void, Never>?
     private var verificationStateTask: Task<Void, Never>?
 
+
     // MARK: - Sub-Services
 
     private let auth = AuthenticationService()
-    private let syncManager = SyncManager()
+    private let networkMonitor = NetworkMonitor()
+    private let syncManager: SyncManager
     private let roomListManager = RoomListManager()
+    private let spaceListManager = SpaceListManager()
     private let media = MediaService()
     private let directorySearch = DirectorySearchService()
 
     /// Creates a new ``MatrixService``. Call ``restoreSession()`` after initialization to
     /// attempt automatic sign-in from a previously saved keychain session.
-    public init() {}
+    public init() {
+        syncManager = SyncManager(networkMonitor: networkMonitor)
+    }
 
     // MARK: - Session Restore
 
     public func restoreSession() async {
         if let (restoredClient, userId) = await auth.restoreSession() {
             client = restoredClient
+            await restoredClient.loadProfile()
             authState = .loggedIn(userId: userId)
         } else {
             authState = .loggedOut
@@ -89,6 +106,7 @@ public final class MatrixService: MatrixServiceProtocol {
                 username: username, password: password, homeserver: homeserver
             )
             client = newClient
+            await newClient.loadProfile()
             authState = .loggedIn(userId: userId)
         } catch {
             authState = .error(error.localizedDescription)
@@ -108,6 +126,7 @@ public final class MatrixService: MatrixServiceProtocol {
                 openURL: openURL
             )
             client = newClient
+            await newClient.loadProfile()
             authState = .loggedIn(userId: userId)
         } catch {
             authState = .error(error.localizedDescription)
@@ -117,6 +136,12 @@ public final class MatrixService: MatrixServiceProtocol {
     // MARK: - Logout
 
     public func logout() async {
+        // Set authState first so SwiftUI immediately switches to LoginView.
+        // This prevents ContentView from seeing syncState == .idle (after
+        // syncManager.stop()) and re-triggering startSyncIfNeeded() on the
+        // old client while logout is still tearing down.
+        authState = .loggedOut
+
         syncTask?.cancel()
         syncTask = nil
         verificationObservationTask?.cancel()
@@ -124,6 +149,7 @@ public final class MatrixService: MatrixServiceProtocol {
         verificationStateTask?.cancel()
         verificationStateTask = nil
 
+        networkMonitor.stop()
         await syncManager.stop()
         try? await client?.logout()
 
@@ -132,12 +158,54 @@ public final class MatrixService: MatrixServiceProtocol {
         client = nil
         verificationController = nil
         isSessionVerified = false
+        hasCheckedVerificationState = false
         isVerificationFlowActive = false
         pendingVerificationRequest = nil
         shouldPresentVerificationSheet = false
         roomListManager.reset()
+        spaceListManager.reset()
+        media.reset()
         timelineViewModels = [:]
-        authState = .loggedOut
+        cachedNotificationKeywords = []
+        pendingDeepLink = nil
+    }
+
+    // MARK: - Clear Local Data
+
+    public func clearLocalData() async {
+        // Tear down sync and background tasks, but keep the keychain session.
+        syncTask?.cancel()
+        syncTask = nil
+        verificationObservationTask?.cancel()
+        verificationObservationTask = nil
+        verificationStateTask?.cancel()
+        verificationStateTask = nil
+
+        networkMonitor.stop()
+        await syncManager.stop()
+
+        // Release the current client so the SDK releases its file handles.
+        client = nil
+        verificationController = nil
+        isSessionVerified = false
+        hasCheckedVerificationState = false
+        isVerificationFlowActive = false
+        pendingVerificationRequest = nil
+        shouldPresentVerificationSheet = false
+        roomListManager.reset()
+        spaceListManager.reset()
+        media.reset()
+        timelineViewModels = [:]
+        cachedNotificationKeywords = []
+        pendingDeepLink = nil
+
+        // Delete the on-disk data and cache directories.
+        AuthenticationService.resetLocalSessionData()
+
+        // Restore the session from the keychain, rebuilding the client
+        // with a fresh data store, then restart sync.
+        await restoreSession()
+        startSyncIfNeeded()
     }
 
     // MARK: - Sync
@@ -151,6 +219,19 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let client else { return }
 
         do {
+            // Start network monitoring before sync so the SyncManager can
+            // react to connectivity changes from the very beginning.
+            networkMonitor.start()
+
+            // Wire the restart callback so SyncManager can notify us when
+            // the sync service is rebuilt after a connectivity restoration.
+            // RoomListManager re-subscribes to the new service's room list,
+            // preserving existing room state and receiving incremental diffs.
+            syncManager.onSyncServiceRestarted = { [weak self] syncService in
+                guard let self else { return }
+                try await self.roomListManager.restart(syncService: syncService)
+            }
+
             try await syncManager.startSync(client: client)
             try await client.startObserving()
             if let sdkController = try? await client.getSessionVerificationController() {
@@ -161,6 +242,11 @@ public final class MatrixService: MatrixServiceProtocol {
             if let syncService = syncManager.syncService {
                 try await roomListManager.start(syncService: syncService)
             }
+            observeSpaceDescendants()
+            await spaceListManager.start(client: client)
+            cachedNotificationKeywords = (try? await getNotificationKeywords()) ?? []
+            roomListManager.notificationKeywords = cachedNotificationKeywords
+            roomListManager.currentUserId = client.userID
         } catch is CancellationError {
             // Logout cancelled the sync — don't overwrite state
         } catch {
@@ -211,6 +297,7 @@ public final class MatrixService: MatrixServiceProtocol {
     private func observeVerificationState(client: ClientProxy) {
         verificationStateTask?.cancel()
         isSessionVerified = client.encryption().verificationState() == .verified
+        hasCheckedVerificationState = true
         verificationStateTask = Task { [weak self] in
             let encryption = client.encryption()
             let listener = SDKListener<MatrixRustSDK.VerificationState> { [weak self] state in
@@ -224,6 +311,50 @@ public final class MatrixService: MatrixServiceProtocol {
                 try? await Task.sleep(for: .seconds(60))
             }
             handle.cancel()
+        }
+    }
+
+    // MARK: - Space Descendants
+
+    /// Observes changes to the space-to-room mapping and propagates `parentSpaceIds`
+    /// to each room's ``RoomSummary``.
+    ///
+    /// When the ``SpaceListManager`` updates its ``SpaceListManager/spaceDescendants``
+    /// mapping (due to rooms being added/removed from spaces), this method iterates
+    /// through all rooms and updates their `parentSpaceIds` accordingly.
+    private func observeSpaceDescendants() {
+        spaceListManager.onDescendantsChanged = { [weak self] in
+            self?.applySpaceDescendantsToRooms()
+        }
+        roomListManager.onRoomsRebuilt = { [weak self] in
+            self?.applySpaceDescendantsToRooms()
+        }
+    }
+
+    /// Updates each room and space summary's `parentSpaceIds` from the current space descendants map.
+    private func applySpaceDescendantsToRooms() {
+        let descendants = spaceListManager.spaceDescendants
+
+        // Apply to rooms
+        for room in roomListManager.rooms {
+            var newParents = Set<String>()
+            for (spaceId, childIds) in descendants where childIds.contains(room.id) {
+                newParents.insert(spaceId)
+            }
+            if room.parentSpaceIds != newParents {
+                room.parentSpaceIds = newParents
+            }
+        }
+
+        // Apply to spaces (so sub-spaces know their parent)
+        for space in spaceListManager.spaces {
+            var newParents = Set<String>()
+            for (spaceId, childIds) in descendants where childIds.contains(space.id) {
+                newParents.insert(spaceId)
+            }
+            if space.parentSpaceIds != newParents {
+                space.parentSpaceIds = newParents
+            }
         }
     }
 
@@ -263,7 +394,9 @@ public final class MatrixService: MatrixServiceProtocol {
         // swiftlint:disable:next identifier_name
         let vm = TimelineViewModel(
             room: room, currentUserId: userId(),
-            unreadCount: Int(unreadCount), errorReporter: errorReporter
+            unreadCount: Int(unreadCount),
+            notificationKeywords: cachedNotificationKeywords,
+            errorReporter: errorReporter
         )
         timelineViewModels[roomId] = vm
 
@@ -304,6 +437,16 @@ public final class MatrixService: MatrixServiceProtocol {
         ]
     )
 
+    public func acceptInvite(roomId: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.join()
+    }
+
+    public func declineInvite(roomId: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.leave()
+    }
+
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
         guard let client else { throw RelayError.notLoggedIn }
         let params = CreateRoomParameters(
@@ -328,7 +471,8 @@ public final class MatrixService: MatrixServiceProtocol {
             visibility: options.isPublic ? .public : .private,
             preset: options.isPublic ? .publicChat : .privateChat,
             powerLevelContentOverride: Self.callPowerLevels,
-            canonicalAlias: options.address
+            canonicalAlias: options.address,
+            isSpace: options.isSpace
         )
         return try await client.createRoom(parameters: params)
     }
@@ -364,10 +508,106 @@ public final class MatrixService: MatrixServiceProtocol {
         return RoomPreviewViewModel(roomId: roomId, client: client, errorReporter: errorReporter)
     }
 
+    public func makeSpaceHierarchyViewModel(spaceId: String) -> (any SpaceHierarchyViewModelProtocol)? {
+        guard let client else { return nil }
+        let spaceName = spaceListManager.spaces.first(where: { $0.id == spaceId })?.name ?? ""
+        return SpaceHierarchyViewModel(
+            spaceId: spaceId,
+            spaceName: spaceName,
+            client: client,
+            errorReporter: errorReporter
+        )
+    }
+
     public func leaveRoom(id: String) async throws {
         guard let room = room(id: id) else { return }
         try await room.leave()
         timelineViewModels.removeValue(forKey: id)
+    }
+
+    public func leaveSpace(spaceId: String) async throws -> [LeaveSpaceChild] {
+        guard let client else { return [] }
+        let service = await client.spaceService()
+        let handle = try await service.leaveSpace(spaceId: spaceId)
+        return handle.rooms().map { room in
+            LeaveSpaceChild(
+                roomId: room.spaceRoom.roomId,
+                name: room.spaceRoom.displayName,
+                avatarURL: room.spaceRoom.avatarUrl,
+                isLastOwner: room.isLastOwner,
+                memberCount: room.spaceRoom.numJoinedMembers,
+                isSpace: room.spaceRoom.roomType == .space
+            )
+        }
+    }
+
+    public func confirmLeaveSpace(spaceId: String, roomIds: [String]) async throws {
+        guard let client else { return }
+        let service = await client.spaceService()
+        let handle = try await service.leaveSpace(spaceId: spaceId)
+        var allIds = roomIds
+        if !allIds.contains(spaceId) {
+            allIds.append(spaceId)
+        }
+        try await handle.leave(roomIds: allIds)
+        for id in allIds {
+            timelineViewModels.removeValue(forKey: id)
+        }
+    }
+
+    public func inviteUser(roomId: String, userId: String) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.inviteUserById(userId: userId)
+    }
+
+    public func setRoomName(roomId: String, name: String) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.setName(name: name)
+    }
+
+    public func setRoomTopic(roomId: String, topic: String) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.setTopic(topic: topic)
+    }
+
+    public func uploadRoomAvatar(roomId: String, mimeType: String, data: Data) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.uploadAvatar(mimeType: mimeType, data: data, mediaInfo: nil)
+    }
+
+    public func removeRoomAvatar(roomId: String) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.removeAvatar()
+    }
+
+    public func editableSpaces() async -> [EditableSpace] {
+        guard let client else { return [] }
+        let service = await client.spaceService()
+        let sdkSpaces = await service.editableSpaces()
+        return sdkSpaces.map { spaceRoom in
+            EditableSpace(
+                roomId: spaceRoom.roomId,
+                name: spaceRoom.displayName,
+                avatarURL: spaceRoom.avatarUrl
+            )
+        }
+    }
+
+    public func addChildToSpace(childId: String, spaceId: String) async throws {
+        guard let client else { throw RelayError.notLoggedIn }
+        let service = await client.spaceService()
+        try await service.addChildToSpace(childId: childId, spaceId: spaceId)
+    }
+
+    public func removeChildFromSpace(childId: String, spaceId: String) async throws {
+        guard let client else { throw RelayError.notLoggedIn }
+        let service = await client.spaceService()
+        try await service.removeChildFromSpace(childId: childId, spaceId: spaceId)
+    }
+
+    public func setFavourite(roomId: String, isFavourite: Bool) async throws {
+        guard let room = room(id: roomId) else { return }
+        try await room.setIsFavourite(isFavourite: isFavourite, tagOrder: nil)
     }
 
     // MARK: - Read Receipts & Typing
@@ -380,6 +620,7 @@ public final class MatrixService: MatrixServiceProtocol {
         if let summary = rooms.first(where: { $0.id == roomId }) {
             summary.unreadMessages = 0
             summary.unreadMentions = 0
+            summary.hasKeywordHighlight = false
         }
 
         let receiptType: ReceiptType = sendPublicReceipt ? .read : .readPrivate
@@ -438,24 +679,47 @@ public final class MatrixService: MatrixServiceProtocol {
         if let membersIterator = try? await room.members() {
             let chunk = membersIterator.nextChunk(chunkSize: 200)
             if let chunk {
-                memberDetails = chunk.compactMap { member in
+                memberDetails = chunk.compactMap { member -> RoomMemberDetails? in
                     guard member.membership == .join else { return nil }
                     let role: RoomMemberDetails.Role = switch member.suggestedRoleForPowerLevel {
                     case .administrator: .administrator
                     case .moderator: .moderator
                     default: .user
                     }
+                    let pl: Int64 = switch member.powerLevel {
+                    case .value(let value): value
+                    case .infinite: 100
+                    }
                     return RoomMemberDetails(
                         userId: member.userId,
                         displayName: member.displayName,
                         avatarURL: member.avatarUrl,
-                        role: role
+                        role: role,
+                        powerLevel: pl
                     )
                 }
             }
         }
 
         let pinnedEventIds = info?.pinnedEventIds ?? []
+
+        let joinRuleString: String? = switch info?.joinRule {
+        case .public: "public"
+        case .invite: "invite"
+        case .knock: "knock"
+        case .restricted: "restricted"
+        case .knockRestricted: "knock_restricted"
+        case .custom(let rule): rule
+        default: nil
+        }
+
+        let histVisString: String? = switch info?.historyVisibility {
+        case .joined: "joined"
+        case .invited: "invited"
+        case .shared: "shared"
+        case .worldReadable: "world_readable"
+        default: nil
+        }
 
         return RoomDetails(
             id: room.id(),
@@ -468,8 +732,44 @@ public final class MatrixService: MatrixServiceProtocol {
             canonicalAlias: canonicalAlias,
             memberCount: memberCount,
             members: memberDetails,
-            pinnedEventIds: pinnedEventIds
+            pinnedEventIds: pinnedEventIds,
+            joinRule: joinRuleString,
+            historyVisibility: histVisString
         )
+    }
+
+    // MARK: - Room Members
+
+    public func roomMembers(roomId: String) async -> [RoomMemberDetails] {
+        guard let room = room(id: roomId) else { return [] }
+
+        var memberDetails: [RoomMemberDetails] = []
+        guard let membersIterator = try? await room.members() else { return [] }
+
+        while let chunk = membersIterator.nextChunk(chunkSize: 500) {
+            for member in chunk where member.membership == .join {
+                let role: RoomMemberDetails.Role = switch member.suggestedRoleForPowerLevel {
+                case .administrator: .administrator
+                case .moderator: .moderator
+                default: .user
+                }
+                let pl: Int64 = switch member.powerLevel {
+                case .value(let value): value
+                case .infinite: 100
+                }
+                memberDetails.append(
+                    RoomMemberDetails(
+                        userId: member.userId,
+                        displayName: member.displayName,
+                        avatarURL: member.avatarUrl,
+                        role: role,
+                        powerLevel: pl
+                    )
+                )
+            }
+        }
+
+        return memberDetails
     }
 
     // MARK: - Pinned Messages
@@ -573,7 +873,7 @@ public final class MatrixService: MatrixServiceProtocol {
         return await client.getNotificationSettings()
     }
 
-    private func sdkMode(from mode: DefaultNotificationMode) -> RoomNotificationMode {
+    private func sdkMode(from mode: DefaultNotificationMode) -> MatrixRustSDK.RoomNotificationMode {
         switch mode {
         case .allMessages: .allMessages
         case .mentionsAndKeywordsOnly: .mentionsAndKeywordsOnly
@@ -581,7 +881,27 @@ public final class MatrixService: MatrixServiceProtocol {
         }
     }
 
-    private func appMode(from mode: RoomNotificationMode) -> DefaultNotificationMode {
+    private func appMode(from mode: MatrixRustSDK.RoomNotificationMode) -> DefaultNotificationMode {
+        switch mode {
+        case .allMessages: .allMessages
+        case .mentionsAndKeywordsOnly: .mentionsAndKeywordsOnly
+        case .mute: .mute
+        }
+    }
+
+    private func sdkRoomMode(
+        from mode: RelayInterface.RoomNotificationMode
+    ) -> MatrixRustSDK.RoomNotificationMode {
+        switch mode {
+        case .allMessages: .allMessages
+        case .mentionsAndKeywordsOnly: .mentionsAndKeywordsOnly
+        case .mute: .mute
+        }
+    }
+
+    private func appRoomMode(
+        from mode: MatrixRustSDK.RoomNotificationMode
+    ) -> RelayInterface.RoomNotificationMode {
         switch mode {
         case .allMessages: .allMessages
         case .mentionsAndKeywordsOnly: .mentionsAndKeywordsOnly
@@ -600,6 +920,34 @@ public final class MatrixService: MatrixServiceProtocol {
         let sdkMode = sdkMode(from: mode)
         try await settings.setDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: isOneToOne, mode: sdkMode)
         try await settings.setDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: isOneToOne, mode: sdkMode)
+    }
+
+    public func hasConsistentNotificationSettings() async throws -> Bool {
+        let settings = try await notificationSettings()
+
+        let directEncrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: true)
+        let directUnencrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: true)
+        let groupEncrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: false)
+        let groupUnencrypted = await settings.getDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: false)
+
+        return directEncrypted == directUnencrypted && groupEncrypted == groupUnencrypted
+    }
+
+    public func fixInconsistentNotificationSettings() async throws {
+        let settings = try await notificationSettings()
+
+        // For each chat type, read the encrypted mode and apply it to unencrypted as well
+        let directMode = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: true)
+        try await settings.setDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: true, mode: directMode)
+
+        let groupMode = await settings.getDefaultRoomNotificationMode(isEncrypted: true, isOneToOne: false)
+        try await settings.setDefaultRoomNotificationMode(isEncrypted: false, isOneToOne: false, mode: groupMode)
+    }
+
+    public func roomsWithCustomNotificationSettings() async throws -> [String] {
+        let settings = try await notificationSettings()
+        let ids = await settings.getRoomsWithUserDefinedRules(enabled: true)
+        return Array(Set(ids))
     }
 
     public func isCallNotificationEnabled() async throws -> Bool {
@@ -632,6 +980,219 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public func setUserMentionEnabled(_ enabled: Bool) async throws {
         try await notificationSettings().setUserMentionEnabled(enabled: enabled)
+    }
+
+    // MARK: - Keyword Notification Settings
+
+    public func getNotificationKeywords() async throws -> [String] {
+        guard let client else { throw RelayError.notLoggedIn }
+        let session = try client.session()
+
+        var request = URLRequest(
+            url: URL(string: "\(client.homeserver)_matrix/client/v3/pushrules/global/")!
+        )
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let ruleset = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = ruleset["content"] as? [[String: Any]]
+        else {
+            return []
+        }
+
+        var keywords: [String] = []
+
+        for rule in content {
+            guard let isDefault = rule["default"] as? Bool, !isDefault,
+                  let enabled = rule["enabled"] as? Bool, enabled,
+                  let actions = rule["actions"] as? [Any], !actions.isEmpty,
+                  let pattern = rule["pattern"] as? String
+            else { continue }
+            keywords.append(pattern)
+        }
+
+        return keywords
+    }
+
+    /// The request body for creating a content-type push rule via the Matrix
+    /// REST API. Uses `Codable` for type-safe JSON serialization.
+    private struct ContentPushRuleBody: Encodable {
+        enum Action: Encodable {
+            case notify
+            case setTweak(name: String, value: String? = nil)
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                switch self {
+                case .notify:
+                    try container.encode("notify")
+                case .setTweak(let name, let value):
+                    var tweakDict: [String: String] = ["set_tweak": name]
+                    if let value { tweakDict["value"] = value }
+                    try container.encode(tweakDict)
+                }
+            }
+        }
+
+        let pattern: String
+        let actions: [Action]
+    }
+
+    public func addNotificationKeyword(_ keyword: String) async throws {
+        guard let client else { throw RelayError.notLoggedIn }
+        let session = try client.session()
+
+        let encodedKeyword = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+        let url = URL(string: "\(client.homeserver)_matrix/client/v3/pushrules/global/content/\(encodedKeyword)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ContentPushRuleBody(
+            pattern: keyword,
+            actions: [.notify, .setTweak(name: "highlight"), .setTweak(name: "sound", value: "default")]
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode)
+        else {
+            let serverMessage = String(data: data, encoding: .utf8) ?? ""
+            throw RelayError.notificationSettingsFailed("Failed to add keyword rule: \(serverMessage)")
+        }
+
+        if !cachedNotificationKeywords.contains(keyword) {
+            cachedNotificationKeywords.append(keyword)
+        }
+        roomListManager.notificationKeywords = cachedNotificationKeywords
+    }
+
+    public func removeNotificationKeyword(_ keyword: String) async throws {
+        guard let client else { throw RelayError.notLoggedIn }
+        let session = try client.session()
+
+        let encodedKeyword = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+        let url = URL(string: "\(client.homeserver)_matrix/client/v3/pushrules/global/content/\(encodedKeyword)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode)
+        else {
+            let serverMessage = String(data: data, encoding: .utf8) ?? ""
+            throw RelayError.notificationSettingsFailed("Failed to remove keyword rule: \(serverMessage)")
+        }
+
+        cachedNotificationKeywords.removeAll { $0 == keyword }
+        roomListManager.notificationKeywords = cachedNotificationKeywords
+    }
+
+    // MARK: - Per-Room Notification Settings
+
+    public func getRoomNotificationMode(roomId: String) async throws -> RelayInterface.RoomNotificationMode? {
+        guard let sdkRoom = room(id: roomId) else { return nil }
+        let settings = try await notificationSettings()
+        let info = try? await sdkRoom.roomInfo()
+        let isEncrypted = info?.encryptionState != .notEncrypted
+        let isOneToOne = info?.isDirect ?? false
+        let roomSettings = try await settings.getRoomNotificationSettings(
+            roomId: roomId,
+            isEncrypted: isEncrypted,
+            isOneToOne: isOneToOne
+        )
+        guard !roomSettings.isDefault else { return nil }
+        return appRoomMode(from: roomSettings.mode)
+    }
+
+    public func setRoomNotificationMode(
+        roomId: String,
+        mode: RelayInterface.RoomNotificationMode
+    ) async throws {
+        let settings = try await notificationSettings()
+        try await settings.setRoomNotificationMode(roomId: roomId, mode: sdkRoomMode(from: mode))
+    }
+
+    public func restoreDefaultRoomNotificationMode(roomId: String) async throws {
+        let settings = try await notificationSettings()
+        try await settings.restoreDefaultRoomNotificationMode(roomId: roomId)
+    }
+
+    // MARK: - Power Levels
+
+    public func setMemberPowerLevel(roomId: String, userId: String, powerLevel: Int64) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        let update = UserPowerLevelUpdate(userId: userId, powerLevel: powerLevel)
+        try await sdkRoom.updatePowerLevelsForUsers(updates: [update])
+    }
+
+    // MARK: - Room Access Settings
+
+    public func updateJoinRule(roomId: String, rule: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        let joinRule: JoinRule = switch rule {
+        case "public": .public
+        case "invite": .invite
+        case "knock": .knock
+        default: .invite
+        }
+        try await sdkRoom.updateJoinRules(newRule: joinRule)
+    }
+
+    public func updateHistoryVisibility(roomId: String, visibility: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        let histVis: MatrixRustSDK.RoomHistoryVisibility = switch visibility {
+        case "joined": .joined
+        case "invited": .invited
+        case "shared": .shared
+        case "world_readable": .worldReadable
+        default: .shared
+        }
+        try await sdkRoom.updateHistoryVisibility(visibility: histVis)
+    }
+
+    public func updateRoomVisibility(roomId: String, isPublic: Bool) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        let visibility: RoomVisibility = isPublic ? .public : .private
+        try await sdkRoom.updateRoomVisibility(visibility: visibility)
+    }
+
+    // MARK: - Member Moderation
+
+    public func kickMember(roomId: String, userId: String, reason: String?) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.kickUser(userId: userId, reason: reason)
+    }
+
+    public func banMember(roomId: String, userId: String, reason: String?) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.banUser(userId: userId, reason: reason)
+    }
+
+    public func unbanMember(roomId: String, userId: String) async throws {
+        guard let sdkRoom = room(id: roomId) else { return }
+        try await sdkRoom.unbanUser(userId: userId, reason: nil)
+    }
+
+    // MARK: - Ignore List
+
+    public func isUserIgnored(userId: String) async throws -> Bool {
+        guard let client else { return false }
+        let ignored = try await client.ignoredUsers()
+        return ignored.contains(userId)
+    }
+
+    public func ignoreUser(userId: String) async throws {
+        guard let client else { throw RelayError.notLoggedIn }
+        try await client.ignoreUser(userId: userId)
+    }
+
+    public func unignoreUser(userId: String) async throws {
+        guard let client else { throw RelayError.notLoggedIn }
+        try await client.unignoreUser(userId: userId)
     }
 
     // MARK: - Session Verification

@@ -42,6 +42,12 @@ public struct CreateRoomOptions: Sendable {
     /// explicitly specified by the user.
     public let isEncrypted: Bool
 
+    /// Whether to create a Matrix space instead of a regular room.
+    ///
+    /// Spaces are containers for organizing rooms and sub-spaces. They do not
+    /// support encryption or message timelines.
+    public let isSpace: Bool
+
     /// Creates a new ``CreateRoomOptions`` value.
     ///
     /// - Parameters:
@@ -50,17 +56,20 @@ public struct CreateRoomOptions: Sendable {
     ///   - address: An optional local alias for the room.
     ///   - isPublic: Whether the room is publicly joinable.
     ///   - isEncrypted: Whether E2EE is enabled.
+    ///   - isSpace: Whether to create a space instead of a room.
     public init(
         name: String,
         topic: String? = nil,
         address: String? = nil,
         isPublic: Bool = false,
-        isEncrypted: Bool = true
+        isEncrypted: Bool = true,
+        isSpace: Bool = false
     ) {
         self.name = name
         self.topic = topic
         self.address = address
         self.isPublic = isPublic
         self.isEncrypted = isEncrypted
+        self.isSpace = isSpace
     }
 }

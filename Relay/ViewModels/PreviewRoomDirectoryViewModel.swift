@@ -48,6 +48,12 @@ final class PreviewRoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
             isWorldReadable: true
         ),
         DirectoryRoom(
+            roomId: "!community-space:matrix.org", name: "Matrix Community",
+            topic: "The official Matrix community space",
+            alias: "#community:matrix.org", memberCount: 12000,
+            isSpace: true
+        ),
+        DirectoryRoom(
             roomId: "!swift:matrix.org", name: "Swift Developers",
             topic: "All things Swift programming language",
             alias: "#swift:matrix.org", memberCount: 1200,
@@ -57,6 +63,12 @@ final class PreviewRoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
             roomId: "!design:matrix.org", name: "Design Team",
             topic: "UI/UX design discussion and feedback",
             alias: "#design:matrix.org", memberCount: 42
+        ),
+        DirectoryRoom(
+            roomId: "!opensource-space:matrix.org", name: "Open Source",
+            topic: "Open source projects and collaboration",
+            alias: "#opensource:matrix.org", memberCount: 5400,
+            isSpace: true
         ),
         DirectoryRoom(
             roomId: "!rust:matrix.org", name: "Rust Programming",

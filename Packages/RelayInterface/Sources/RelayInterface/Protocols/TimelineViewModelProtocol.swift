@@ -33,6 +33,12 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     /// The ordered list of messages in the timeline, from oldest to newest.
     var messages: [TimelineMessage] { get }
 
+    /// A monotonically increasing counter that is bumped each time ``messages``
+    /// is replaced with a new value. Use this in `onChange` modifiers instead
+    /// of comparing the full array, which avoids an O(n) equality check on
+    /// every SwiftUI body evaluation.
+    var messagesVersion: UInt { get }
+
     /// Whether the timeline is performing its initial load (before any messages are available).
     var isLoading: Bool { get }
 

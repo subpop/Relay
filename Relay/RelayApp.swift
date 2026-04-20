@@ -28,19 +28,26 @@ private let logger = Logger(subsystem: "Relay", category: "DeepLink")
 @main
 struct RelayApp: App {
     @State private var matrixService = MatrixService()
-    @State private var gifSearchService = GiphyService()
+    @State private var gifSearchService = GiphyService(apiKey: Secrets.giphyAPIKey ?? "")
     @State private var callManager = CallManager()
     @State private var notificationDelegate = NotificationDelegate()
+    @State private var appActions = AppActions()
+    @State private var showClearCacheConfirmation = false
+
+    @Environment(\.openWindow) private var openWindow
+
+    @AppStorage("selectedRoomId") private var selectedRoomId: String?
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView()
                 .environment(\.matrixService, matrixService)
                 .environment(\.gifSearchService, gifSearchService)
                 .environment(\.callManager, callManager)
                 .environment(\.errorReporter, matrixService.errorReporter)
-                .onChange(of: matrixService.rooms.map(\.id)) {
-                    updateDockBadge(rooms: matrixService.rooms)
+                .environment(appActions)
+                .onChange(of: dockBadgeCount) { _, newCount in
+                    NSApp.dockTile.badgeLabel = newCount > 0 ? "\(newCount)" : nil
                 }
                 .onChange(of: matrixService.pendingVerificationRequest?.id) { _, newValue in
                     if newValue != nil, let request = matrixService.pendingVerificationRequest {
@@ -55,9 +62,44 @@ struct RelayApp: App {
                 }
                 .task {
                     await setupNotifications()
+                    matrixService.onNotificationEvent = { event in
+                        Task { @MainActor in
+                            self.handleNotificationEvent(event)
+                        }
+                    }
+                }
+                .alert("Clear Cache", isPresented: $showClearCacheConfirmation) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Clear Cache", role: .destructive) {
+                        Task { await matrixService.clearLocalData() }
+                    }
+                } message: {
+                    Text("This will delete all locally cached data and resync from the server. You will remain logged in.")
                 }
         }
         .defaultSize(width: 880, height: 560)
+        .commands {
+            FileMenuCommands(appActions: appActions)
+            SidebarCommands()
+            CommandGroup(before: .appTermination) {
+                Button("Clear Cache…") {
+                    showClearCacheConfirmation = true
+                }
+            }
+            CommandGroup(after: .windowArrangement) {
+                Button("Relay") {
+                    NSApp.activate()
+                    if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain }) {
+                        window.deminiaturize(nil)
+                        window.makeKeyAndOrderFront(nil)
+                        NSApplication.shared.activate()
+                    } else {
+                        openWindow(id: "main")
+                    }
+                }
+                .keyboardShortcut("0", modifiers: .command)
+            }
+        }
 
         Settings {
             SettingsView()
@@ -92,30 +134,91 @@ struct RelayApp: App {
             title: "Accept",
             options: [.foreground]
         )
-        let category = UNNotificationCategory(
+        let verificationCategory = UNNotificationCategory(
             identifier: NotificationDelegate.verificationCategoryIdentifier,
             actions: [acceptAction],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([category])
+        let roomMessageCategory = UNNotificationCategory(
+            identifier: NotificationDelegate.roomMessageCategoryIdentifier,
+            actions: [],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([verificationCategory, roomMessageCategory])
     }
 
-    private func updateDockBadge(rooms: [RelayInterface.RoomSummary]) {
-        let count = rooms.reduce(0 as UInt) { total, room in
-            room.isDirect ? total + room.unreadMessages : total + room.unreadMentions
+    /// The total dock badge count, computed from every room's notification-worthy unread state.
+    ///
+    /// Because ``RoomSummary`` is `@Observable`, SwiftUI tracks each property
+    /// access and re-evaluates this whenever any room's unread state changes.
+    /// The count respects each room's effective notification mode:
+    /// - All Messages: counts all unread messages
+    /// - Mentions & Keywords Only: counts only unread mentions
+    /// - Mute: counts nothing
+    private var dockBadgeCount: UInt {
+        matrixService.rooms.reduce(0 as UInt) { total, room in
+            switch room.notificationMode {
+            case .mute:
+                return total
+            case .mentionsAndKeywordsOnly:
+                return total + room.unreadMentions
+            case .allMessages:
+                return total + room.unreadMessages
+            case nil:
+                // Default: DMs count all messages, groups count mentions only
+                return room.isDirect ? total + room.unreadMessages : total + room.unreadMentions
+            }
         }
-        NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
     }
 
-    private func postNotification(roomName: String, roomId: String, body: String) {
+    /// Handles a notification event from the room list manager.
+    ///
+    /// Posts a system notification banner and/or plays a sound when a room has new
+    /// unread activity, respecting the room's effective notification mode:
+    /// - **All Messages**: sound + banner for every message.
+    /// - **Mentions & Keywords Only**: sound + banner only for mentions.
+    /// - **Mute**: no sound or banner.
+    /// - **Default** (`nil`): DMs behave as All Messages; groups as Mentions & Keywords Only.
+    ///
+    /// When the user is actively viewing the room, the banner is suppressed but
+    /// the sound still plays (if warranted by the notification mode).
+    private func handleNotificationEvent(_ event: RoomNotificationEvent) {
+        // Determine the effective notification mode for this room.
+        // When there is no per-room override, DMs default to "All Messages"
+        // and groups default to "Mentions & Keywords Only".
+        let effectiveMode: RelayInterface.RoomNotificationMode = event.notificationMode
+            ?? (event.isDirect ? .allMessages : .mentionsAndKeywordsOnly)
+
+        // Muted rooms produce no sound, banner, or other system notification.
+        guard effectiveMode != .mute else { return }
+
+        // For "Mentions & Keywords Only", only notify when the message is a mention.
+        if effectiveMode == .mentionsAndKeywordsOnly, !event.isMention {
+            return
+        }
+
         let content = UNMutableNotificationContent()
-        content.title = roomName
-        content.body = body
+
+        if event.isDirect {
+            content.title = event.roomName
+        } else {
+            content.title = "\(event.messageAuthor ?? "Unknown sender") in \(event.roomName)"
+        }
+
+        content.body = event.messageBody ?? "New message"
         content.sound = .default
-        content.threadIdentifier = roomId
+        content.threadIdentifier = event.roomId
+        content.userInfo = ["roomId": event.roomId]
+        content.categoryIdentifier = NotificationDelegate.roomMessageCategoryIdentifier
+
+        // Suppress the banner when the user is actively viewing this room,
+        // but still deliver the notification so the sound plays.
+        if NSApp.isActive, selectedRoomId == event.roomId {
+            content.interruptionLevel = .passive
+        }
 
         let request = UNNotificationRequest(
-            identifier: "room-\(roomId)-\(Date.now.timeIntervalSince1970)",
+            identifier: "room-\(event.roomId)-\(Date.now.timeIntervalSince1970)",
             content: content,
             trigger: nil
         )
@@ -139,6 +242,56 @@ struct RelayApp: App {
     }
 }
 
+// MARK: - App Actions
+
+/// Shared observable state that bridges menu commands with the main view hierarchy.
+///
+/// ``AppActions`` is created at the app level and injected into both the SwiftUI
+/// environment (for views) and the ``FileMenuCommands`` struct. ``MainView``
+/// observes these flags and presents the corresponding UI.
+@Observable
+final class AppActions {
+    var showCreateRoom = false
+    var showCreateSpace = false
+    var showJoinRoom = false
+    var showRoomDirectory = false
+}
+
+// MARK: - File Menu Commands
+
+/// Replaces the default File menu items with room-related commands.
+///
+/// The standard "New Window" item is removed since Relay supports only a single window.
+struct FileMenuCommands: Commands {
+    let appActions: AppActions
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Create Room…") {
+                appActions.showCreateRoom = true
+            }
+            .keyboardShortcut("n", modifiers: .command)
+
+            Button("Create Space…") {
+                appActions.showCreateSpace = true
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Join Room…") {
+                appActions.showJoinRoom = true
+            }
+            .keyboardShortcut("j", modifiers: .command)
+
+            Button("Room Directory") {
+                appActions.showRoomDirectory = true
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+        }
+    }
+}
+
 // MARK: - Notification Delegate
 
 /// Handles notification presentation and user interactions for local notifications.
@@ -146,31 +299,57 @@ struct RelayApp: App {
 /// When the user taps the verification notification or its "Accept" action,
 /// the delegate creates a ``SessionVerificationViewModel`` and presents the
 /// verification sheet via ``MatrixService/showVerificationSheet``.
+/// When the user taps a room message notification, the delegate navigates to
+/// that room by setting the `selectedRoomId` in `UserDefaults`.
 @Observable
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     nonisolated static let verificationCategoryIdentifier = "VERIFICATION_REQUEST"
     nonisolated static let acceptActionIdentifier = "ACCEPT_VERIFICATION"
+    nonisolated static let roomMessageCategoryIdentifier = "ROOM_MESSAGE"
 
     weak var matrixService: MatrixService?
 
     /// Show notifications even when the app is in the foreground.
+    ///
+    /// When a notification has `.passive` interruption level (set when the user is
+    /// actively viewing the room), the banner is suppressed but the sound still plays.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        if notification.request.content.interruptionLevel == .passive {
+            return [.sound]
+        }
+        return [.banner, .sound]
     }
 
-    /// Handle the user tapping the notification or the Accept action.
+    /// Handle the user tapping a notification.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let categoryIdentifier = response.notification.request.content.categoryIdentifier
-        guard categoryIdentifier == Self.verificationCategoryIdentifier else { return }
+        let content = response.notification.request.content
 
-        await MainActor.run {
-            matrixService?.shouldPresentVerificationSheet = true
+        if content.categoryIdentifier == Self.verificationCategoryIdentifier {
+            await MainActor.run {
+                matrixService?.shouldPresentVerificationSheet = true
+            }
+            return
+        }
+
+        if content.categoryIdentifier == Self.roomMessageCategoryIdentifier {
+            let roomId = content.userInfo["roomId"] as? String
+            await MainActor.run {
+                if let roomId {
+                    UserDefaults.standard.set(roomId, forKey: "selectedRoomId")
+                }
+                NSApp.activate()
+                if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain }) {
+                    window.deminiaturize(nil)
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+            return
         }
     }
 }

@@ -60,6 +60,20 @@ public enum MatrixURI: Equatable, Sendable {
         }
     }
 
+    /// Whether this URI references a user (`@user:server`).
+    public var isUser: Bool {
+        if case .user = self { return true }
+        return false
+    }
+
+    /// Whether this URI references a room (by alias or ID).
+    public var isRoom: Bool {
+        switch self {
+        case .room, .roomId: return true
+        default: return false
+        }
+    }
+
     /// Attempts to parse a URL as a `matrix:` URI or `https://matrix.to` link.
     ///
     /// - Parameter url: The URL to parse.

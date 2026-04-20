@@ -133,6 +133,11 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
     /// - Throws: `ClientError` if joining fails.
     func joinRoom(id: String) async throws -> Room
 
+    // MARK: - Spaces
+
+    /// Returns the SDK's space service for querying space hierarchies and membership.
+    func spaceService() async -> SpaceService
+
     // MARK: - Media
 
     /// Uploads media data to the homeserver's content repository.
@@ -269,6 +274,17 @@ public protocol ClientProxyProtocol: AnyObject, Sendable {
     ///
     /// - Returns: The encryption proxy.
     func encryption() -> Encryption
+
+    // MARK: - Send Queue
+
+    /// Enables or disables all room send queues at once.
+    ///
+    /// When connectivity is lost, the send queues should be disabled so the SDK
+    /// stops attempting to deliver messages. When connectivity is restored, they
+    /// should be re-enabled so queued messages are flushed to the server.
+    ///
+    /// - Parameter enable: `true` to enable send queues, `false` to disable them.
+    func enableAllSendQueues(enable: Bool) async
 
     // MARK: - Sync
 

@@ -26,10 +26,10 @@ private let logger = Logger(subsystem: "RelayKit", category: "GiphyService")
 public final class GiphyService: GIFSearchServiceProtocol {
     // MARK: - Configuration
 
-    /// The GIPHY API key, read from the app bundle's Info.plist at init time.
+    /// The GIPHY API key, provided at init time.
     ///
-    /// Set the `GIPHY_API_KEY` build setting (via `Secrets.xcconfig`) to inject
-    /// the key into Info.plist at compile time without committing it to source control.
+    /// Use the build-time generated `Secrets.giphyAPIKey` from the app target
+    /// to pass the XOR-obfuscated key without committing it to source control.
     private let apiKey: String
 
     /// Content rating filter. Defaults to PG for safe content.
@@ -38,15 +38,13 @@ public final class GiphyService: GIFSearchServiceProtocol {
     private let session: URLSession
     private let baseURL = "https://api.giphy.com/v1/gifs"
 
-    /// Creates a GIPHY service that reads its API key from the given bundle's
-    /// `GiphyAPIKey` Info.plist entry.
+    /// Creates a GIPHY service with the given API key.
     ///
     /// - Parameters:
-    ///   - bundle: The bundle containing the `GiphyAPIKey` Info.plist entry.
-    ///             Defaults to `.main`.
+    ///   - apiKey: The GIPHY API key.
     ///   - rating: Content rating filter (default: `"pg"`).
-    public init(bundle: Bundle = .main, rating: String = "pg") {
-        self.apiKey = bundle.object(forInfoDictionaryKey: "GiphyAPIKey") as? String ?? ""
+    public init(apiKey: String = "", rating: String = "pg") {
+        self.apiKey = apiKey
         self.rating = rating
         self.session = URLSession.shared
     }

@@ -53,6 +53,12 @@ public struct RoomDetails: Sendable {
     /// The event IDs of messages currently pinned in this room.
     public let pinnedEventIds: [String]
 
+    /// The room's join rule (e.g. `"public"`, `"invite"`, `"knock"`, `"restricted"`).
+    public let joinRule: String?
+
+    /// Who can read the room's history (e.g. `"joined"`, `"invited"`, `"shared"`, `"world_readable"`).
+    public let historyVisibility: String?
+
     /// Creates a new ``RoomDetails`` value.
     ///
     /// - Parameters:
@@ -67,6 +73,8 @@ public struct RoomDetails: Sendable {
     ///   - memberCount: The total number of joined members.
     ///   - members: The detailed member list.
     ///   - pinnedEventIds: The event IDs of pinned messages.
+    ///   - joinRule: The room's join rule string.
+    ///   - historyVisibility: The room's history visibility string.
     nonisolated public init(
         id: String,
         name: String,
@@ -78,7 +86,9 @@ public struct RoomDetails: Sendable {
         canonicalAlias: String? = nil,
         memberCount: UInt64 = 0,
         members: [RoomMemberDetails] = [],
-        pinnedEventIds: [String] = []
+        pinnedEventIds: [String] = [],
+        joinRule: String? = nil,
+        historyVisibility: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -91,6 +101,8 @@ public struct RoomDetails: Sendable {
         self.memberCount = memberCount
         self.members = members
         self.pinnedEventIds = pinnedEventIds
+        self.joinRule = joinRule
+        self.historyVisibility = historyVisibility
     }
 }
 
@@ -111,6 +123,9 @@ public struct RoomMemberDetails: Identifiable, Sendable {
     /// The member's power-level role within this room.
     public let role: Role
 
+    /// The member's raw power level within this room (e.g. 100 for admin, 50 for moderator, 0 for user).
+    public let powerLevel: Int64
+
     /// The power-level role a member holds within a room.
     public enum Role: String, Sendable {
         /// Full administrative privileges (power level 100).
@@ -128,15 +143,18 @@ public struct RoomMemberDetails: Identifiable, Sendable {
     ///   - displayName: The member's display name.
     ///   - avatarURL: The `mxc://` URL for the member's avatar.
     ///   - role: The member's power-level role. Defaults to `.user`.
+    ///   - powerLevel: The member's raw power level. Defaults to `0`.
     nonisolated public init(
         userId: String,
         displayName: String? = nil,
         avatarURL: String? = nil,
-        role: Role = .user
+        role: Role = .user,
+        powerLevel: Int64 = 0
     ) {
         self.userId = userId
         self.displayName = displayName
         self.avatarURL = avatarURL
         self.role = role
+        self.powerLevel = powerLevel
     }
 }

@@ -40,6 +40,28 @@ public enum SessionVerificationFlowState: Sendable {
     case failed
     /// The verification completed successfully.
     case finished
+
+    /// A tag that identifies the case without comparing associated values.
+    /// Used by the observation loop to detect state transitions.
+    var tag: Int {
+        switch self {
+        case .idle: 0
+        case .requested: 1
+        case .receivedRequest: 2
+        case .accepted: 3
+        case .sasStarted: 4
+        case .receivedData: 5
+        case .cancelled: 6
+        case .failed: 7
+        case .finished: 8
+        }
+    }
+
+    /// Returns `true` when this state represents the same case as `other`.
+    func isEqual(to other: SessionVerificationFlowState?) -> Bool {
+        guard let other else { return false }
+        return tag == other.tag
+    }
 }
 
 /// Controls an interactive session verification flow (SAS emoji/decimal).

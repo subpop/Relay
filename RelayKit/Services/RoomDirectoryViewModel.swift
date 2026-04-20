@@ -57,17 +57,17 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
             self.searchProxy = proxy
 
             let filter = (query ?? "").trimmingCharacters(in: .whitespaces)
+            let counterBefore = proxy.updateCounter
             try await proxy.search(
                 filter: filter.isEmpty ? nil : filter,
                 batchSize: 20,
                 viaServerName: nil
             )
 
-            // Allow time for the SDK listener to deliver results.
-            try await Task.sleep(for: .milliseconds(500))
-
-            rooms = proxy.results.map { $0.toDirectoryRoom() }
-            isAtEnd = (try? await proxy.isAtLastPage()) ?? true
+            // Wait for the SDK listener to deliver results.
+            let snapshot = await proxy.waitForNextUpdate(after: counterBefore)
+            rooms = snapshot.map { $0.toDirectoryRoom() }
+            isAtEnd = await checkIsAtLastPage(proxy)
         } catch is CancellationError {
             // Ignore cancellation
         } catch {
@@ -83,13 +83,13 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
         isSearching = true
 
         do {
+            let counterBefore = proxy.updateCounter
             try await proxy.nextPage()
 
-            // Allow time for updated results to arrive.
-            try await Task.sleep(for: .milliseconds(300))
-
-            rooms = proxy.results.map { $0.toDirectoryRoom() }
-            isAtEnd = (try? await proxy.isAtLastPage()) ?? true
+            // Wait for the SDK listener to deliver updated results.
+            let snapshot = await proxy.waitForNextUpdate(after: counterBefore)
+            rooms = snapshot.map { $0.toDirectoryRoom() }
+            isAtEnd = await checkIsAtLastPage(proxy)
         } catch is CancellationError {
             // Ignore cancellation
         } catch {
@@ -98,6 +98,16 @@ public final class RoomDirectoryViewModel: RoomDirectoryViewModelProtocol {
         }
 
         isSearching = false
+    }
+
+    /// Checks whether the proxy has reached the last page of results.
+    ///
+    /// The SDK updates its pagination state asynchronously after the listener
+    /// delivers result entries. A brief yield gives the SDK time to process
+    /// the server's pagination token before we query `isAtLastPage()`.
+    private func checkIsAtLastPage(_ proxy: RoomDirectorySearchProxy) async -> Bool {
+        try? await Task.sleep(for: .milliseconds(100))
+        return (try? await proxy.isAtLastPage()) ?? true
     }
 }
 

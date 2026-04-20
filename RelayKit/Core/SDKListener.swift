@@ -213,3 +213,50 @@ extension SDKListener: UnableToDecryptDelegate where T == UnableToDecryptInfo {
         onUpdateClosure(info)
     }
 }
+
+// MARK: - Spaces
+
+extension SDKListener: SpaceServiceJoinedSpacesListener where T == [SpaceListUpdate] {
+    nonisolated public func onUpdate(roomUpdates: [SpaceListUpdate]) {
+        onUpdateClosure(roomUpdates)
+    }
+}
+
+extension SDKListener: SpaceServiceSpaceFiltersListener where T == [SpaceFilterUpdate] {
+    nonisolated public func onUpdate(filterUpdates: [SpaceFilterUpdate]) {
+        onUpdateClosure(filterUpdates)
+    }
+}
+
+// MARK: - Space Room List
+
+/// A dedicated listener for ``SpaceRoomList`` entry updates.
+///
+/// This cannot reuse ``SDKListener`` because ``SpaceRoomListEntriesListener`` and
+/// ``SpaceServiceJoinedSpacesListener`` share the same payload type (`[SpaceListUpdate]`)
+/// but have different method signatures (`rooms:` vs `roomUpdates:`), making it
+/// impossible for a single generic class to conform to both.
+final class SpaceRoomListEntriesListenerProxy: SpaceRoomListEntriesListener, @unchecked Sendable {
+    private let onUpdateClosure: @Sendable ([SpaceListUpdate]) -> Void
+
+    init(onUpdate: @escaping @Sendable ([SpaceListUpdate]) -> Void) {
+        self.onUpdateClosure = onUpdate
+    }
+
+    nonisolated func onUpdate(rooms: [SpaceListUpdate]) {
+        onUpdateClosure(rooms)
+    }
+}
+
+/// A dedicated listener for ``SpaceRoomList`` pagination state updates.
+final class SpaceRoomListPaginationStateListenerProxy: SpaceRoomListPaginationStateListener, @unchecked Sendable {
+    private let onUpdateClosure: @Sendable (SpaceRoomListPaginationState) -> Void
+
+    init(onUpdate: @escaping @Sendable (SpaceRoomListPaginationState) -> Void) {
+        self.onUpdateClosure = onUpdate
+    }
+
+    nonisolated func onUpdate(paginationState: SpaceRoomListPaginationState) {
+        onUpdateClosure(paginationState)
+    }
+}

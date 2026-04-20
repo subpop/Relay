@@ -26,13 +26,23 @@ import Observation
 /// with observable results updated via SDK listener callbacks.
 ///
 /// Call ``startListening()`` after initialization to begin receiving
-/// results updates from the SDK.
+/// results updates from the SDK. Use ``waitForNextUpdate(after:)`` to
+/// suspend until the SDK delivers the next batch of results.
 @Observable
 public final class RoomDirectorySearchProxy: RoomDirectorySearchProxyProtocol, @unchecked Sendable {
     private let search: RoomDirectorySearch
     @ObservationIgnored nonisolated(unsafe) private var resultsHandle: TaskHandle?
     private let lock = NSLock()
     @ObservationIgnored nonisolated(unsafe) private var _storage: [RoomDescription] = []
+
+    /// Monotonically increasing counter bumped on every non-empty listener delivery.
+    @ObservationIgnored nonisolated(unsafe) private var _updateCounter: UInt64 = 0
+
+    /// A pending continuation installed by ``waitForNextUpdate(after:)``.
+    /// The listener resumes it when ``_updateCounter`` advances past the
+    /// caller's recorded value.
+    @ObservationIgnored nonisolated(unsafe) private var pendingContinuation: CheckedContinuation<[RoomDescription], Never>?
+    @ObservationIgnored nonisolated(unsafe) private var pendingAfterCounter: UInt64 = 0
 
     /// The current list of room descriptions from the search.
     public private(set) var results: [RoomDescription] = []
@@ -82,12 +92,61 @@ public final class RoomDirectorySearchProxy: RoomDirectorySearchProxyProtocol, @
                 }
             }
             let snapshot = _storage
+            // Bump the counter on every non-empty delivery so waiters can
+            // distinguish new results from stale data or intermediate clears.
+            if !snapshot.isEmpty {
+                _updateCounter += 1
+            }
+            let waiter: CheckedContinuation<[RoomDescription], Never>?
+            if !snapshot.isEmpty, let pending = pendingContinuation, _updateCounter > pendingAfterCounter {
+                waiter = pending
+                pendingContinuation = nil
+            } else {
+                waiter = nil
+            }
             lock.unlock()
+            waiter?.resume(returning: snapshot)
             Task { @MainActor [weak self] in
                 self?.results = snapshot
             }
         }
         resultsHandle = await search.results(listener: listener)
+    }
+
+    /// Returns the current update counter.
+    ///
+    /// Record this value before calling ``search(filter:batchSize:viaServerName:)``
+    /// or ``nextPage()``, then pass it to ``waitForNextUpdate(after:)`` to wait for
+    /// results that arrive after the operation.
+    public var updateCounter: UInt64 {
+        lock.lock()
+        let value = _updateCounter
+        lock.unlock()
+        return value
+    }
+
+    /// Suspends until the SDK listener delivers a non-empty results snapshot
+    /// with an update counter greater than `previousCounter`.
+    ///
+    /// This ensures the caller receives genuinely new results rather than
+    /// stale data that was already present before the operation.
+    ///
+    /// - Parameter previousCounter: The counter value recorded before the
+    ///   search or pagination operation.
+    /// - Returns: The latest results snapshot from the SDK.
+    public func waitForNextUpdate(after previousCounter: UInt64) async -> [RoomDescription] {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if _updateCounter > previousCounter, !_storage.isEmpty {
+                let snapshot = _storage
+                lock.unlock()
+                continuation.resume(returning: snapshot)
+            } else {
+                pendingContinuation = continuation
+                pendingAfterCounter = previousCounter
+                lock.unlock()
+            }
+        }
     }
 
     public func search(filter: String?, batchSize: UInt32, viaServerName: String?) async throws {

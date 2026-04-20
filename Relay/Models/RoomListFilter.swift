@@ -18,6 +18,20 @@ import Foundation
 enum RoomSortOrder: String, CaseIterable {
     case lastMessage
     case name
+
+    var label: String {
+        switch self {
+        case .lastMessage: "Last Message"
+        case .name: "Name"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .lastMessage: "clock"
+        case .name: "textformat"
+        }
+    }
 }
 
 /// The direction in which to sort the room list.
@@ -31,4 +45,20 @@ enum RoomTypeFilter: String, CaseIterable {
     case all
     case rooms
     case directMessages
+
+    var label: String {
+        switch self {
+        case .all: "All"
+        case .rooms: "Rooms"
+        case .directMessages: "Direct Messages"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .all: "tray.2"
+        case .rooms: "bubble.left.and.bubble.right"
+        case .directMessages: "person.2"
+        }
+    }
 }

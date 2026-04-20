@@ -47,6 +47,11 @@ public struct DirectoryRoom: Identifiable, Hashable, Sendable {
     /// browse the timeline without committing to membership.
     public let isWorldReadable: Bool
 
+    /// Whether this entry is a space rather than a regular room.
+    ///
+    /// Spaces use rounded-rectangle avatars while rooms use circular avatars.
+    public let isSpace: Bool
+
     /// Creates a new ``DirectoryRoom`` value.
     ///
     /// - Parameters:
@@ -57,6 +62,7 @@ public struct DirectoryRoom: Identifiable, Hashable, Sendable {
     ///   - avatarURL: The `mxc://` URL for the room avatar.
     ///   - memberCount: The number of joined members.
     ///   - isWorldReadable: Whether the room has world-readable history.
+    ///   - isSpace: Whether this entry is a space.
     nonisolated public init(
         roomId: String,
         name: String? = nil,
@@ -64,7 +70,8 @@ public struct DirectoryRoom: Identifiable, Hashable, Sendable {
         alias: String? = nil,
         avatarURL: String? = nil,
         memberCount: UInt64 = 0,
-        isWorldReadable: Bool = false
+        isWorldReadable: Bool = false,
+        isSpace: Bool = false
     ) {
         self.roomId = roomId
         self.name = name
@@ -73,5 +80,6 @@ public struct DirectoryRoom: Identifiable, Hashable, Sendable {
         self.avatarURL = avatarURL
         self.memberCount = memberCount
         self.isWorldReadable = isWorldReadable
+        self.isSpace = isSpace
     }
 }

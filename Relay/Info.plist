@@ -15,7 +15,7 @@
 			<string>OAuth Callback</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.github.subpop.relay</string>
+				<string>io.github.subpop.relay</string>
 			</array>
 		</dict>
 		<dict>

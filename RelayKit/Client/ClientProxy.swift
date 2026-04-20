@@ -99,10 +99,20 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
         }
     }
 
+    /// Loads the authenticated user's profile (avatar URL and display name).
+    ///
+    /// Called eagerly after login so profile data is available before views
+    /// access it. Safe to call multiple times; each call refreshes the values.
+    public func loadProfile() async {
+        self.avatarURL = try? await client.avatarUrl()?.matrixURL
+        self.displayName = try? await client.displayName()
+    }
+
     /// Starts observing SDK events.
     ///
     /// Call this after initialization to begin receiving reactive updates.
-    /// This subscribes to send queue updates and other client-level events.
+    /// This subscribes to send queue updates and other client-level events,
+    /// and refreshes the user's profile.
     public func startObserving() async throws {
         if let listener = _sendQueueListener {
             sendQueueTaskHandle = try await client.subscribeToSendQueueUpdates(
@@ -110,9 +120,7 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
             )
         }
 
-        // Load initial profile
-        self.avatarURL = try? await client.avatarUrl()?.matrixURL
-        self.displayName = try? await client.displayName()
+        await loadProfile()
     }
 
     deinit {
@@ -260,8 +268,16 @@ public final class ClientProxy: ClientProxyProtocol, @unchecked Sendable {
         client.encryption()
     }
 
+    public func enableAllSendQueues(enable: Bool) async {
+        await client.enableAllSendQueues(enable: enable)
+    }
+
     public func syncService() -> SyncServiceBuilder {
         client.syncService()
+    }
+
+    public func spaceService() async -> SpaceService {
+        await client.spaceService()
     }
 
     public func getNotificationSettings() async -> NotificationSettings {

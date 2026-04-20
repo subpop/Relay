@@ -31,8 +31,8 @@ private let logger = Logger(subsystem: "RelayKit", category: "SessionVerificatio
 /// - **Incoming (Relay approves):** When the proxy transitions to
 ///   `.receivedRequest`, this class acknowledges and accepts the request
 ///   automatically if the flow hasn't progressed past the waiting stage.
-///   The SDK then starts SAS on its own — no explicit `startSasVerification()`
-///   call is needed for the incoming path.
+///   Once the SDK confirms acceptance via `.accepted`, this class starts
+///   SAS negotiation explicitly — the same as the outgoing path.
 @Observable
 public final class SessionVerificationViewModel: SessionVerificationViewModelProtocol {
     /// The current phase of the verification flow.
@@ -134,7 +134,24 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
     /// transitions to ``VerificationState`` updates. Certain transitions trigger
     /// follow-up actions (auto-accepting incoming requests, starting SAS for outgoing).
     private func observeFlowState() async {
+        var lastProcessedState: SessionVerificationFlowState?
+
         while !Task.isCancelled {
+            let currentState = controller.flowState
+
+            // Process the current state if it differs from the last one we handled.
+            // This catches states that changed during an earlier async handler
+            // (e.g. `.accepted` arriving while `handleIncomingRequest` was awaiting)
+            // without requiring a new observation cycle.
+            if !currentState.isEqual(to: lastProcessedState) {
+                lastProcessedState = currentState
+                await handleFlowState(currentState)
+                // After handling, loop back to re-check — the handler may have
+                // triggered further state changes via async SDK calls.
+                continue
+            }
+
+            // Wait for the next state change.
             let flowState = await withCheckedContinuation { continuation in
                 withObservationTracking {
                     _ = controller.flowState
@@ -146,6 +163,7 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
                 }
             }
 
+            lastProcessedState = flowState
             await handleFlowState(flowState)
         }
     }
@@ -193,9 +211,9 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
     /// Handles an incoming verification request from another device.
     ///
     /// Accepts the request automatically when the current state is idle
-    /// (no outgoing flow in progress). The SDK starts SAS negotiation
-    /// itself after acceptance — calling `startSasVerification()` here would
-    /// conflict and cause the SDK to cancel the flow.
+    /// (no outgoing flow in progress). After acceptance, the SDK fires
+    /// `didAcceptVerificationRequest`, which transitions to `.accepted`
+    /// and triggers ``handleAccepted()`` to start SAS negotiation.
     @MainActor
     private func handleIncomingRequest(_ details: SessionVerificationRequestDetails) async {
         logger.info("Incoming verification request from \(details.deviceId)")
@@ -217,8 +235,8 @@ public final class SessionVerificationViewModel: SessionVerificationViewModelPro
         }
     }
 
-    /// Called when the other device accepts our outgoing request.
-    /// Explicitly starts SAS negotiation — required only for the outgoing path.
+    /// Called when the verification request has been accepted (by either side).
+    /// Explicitly starts SAS negotiation — required for both outgoing and incoming paths.
     @MainActor
     private func handleAccepted() async {
         do {

@@ -1,4 +1,6 @@
-Relay (working title) is a Matrix client that doesn't look like a Matrix client.
+Relay - All the power of Matrix. None of the complexity.
+
+![Main app screenshot](./docs/Screenshot.png)
 
 A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) via UniFFI-generated Swift bindings. Relay aims to feel like a first-class Mac app — fast, simple, and user-friendly — while speaking the Matrix protocol under the hood.
 
@@ -32,6 +34,11 @@ A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](http
 - 🧵 Thread support
 - 🔔 Notification sync
 
+# Try It Out
+
+Relay is currently delivering prerelease builds through Test Flight. Join the
+[Matrix room](https://matrix.to/#/#relayapp:matrix.org) to get an invite URL.
+
 # Get Involved
 
 Join us in the Matrix room to ask questions, discuss ideas, or just say hello:
@@ -40,7 +47,8 @@ Join us in the Matrix room to ask questions, discuss ideas, or just say hello:
 
 # License
 
-Apache 2.0. See the [LICENSE](./LICENSE) file for details.
+Code is licensed under the Apache 2.0 license. See the [LICENSE](./LICENSE) file for details.
+Digital artwork is licensed under the Creative Commons Attribution-ShareAlike 4.0 International license. See the [LICENSE-CC-BY-SA](./LICENSE-CC-BY-SA) for details.
 
 ---
 

@@ -20,22 +20,34 @@ import SwiftUI
 /// ``MainView`` uses a `NavigationSplitView` with the room list in the sidebar and the
 /// selected room's detail view (or compose view) in the detail area. An optional inspector
 /// panel on the trailing edge shows room info or a selected user's profile.
+/// Identifies a space the user wants to leave, carrying the children for confirmation.
+struct LeaveSpaceItem: Identifiable {
+    let id: String
+    let name: String
+    let children: [LeaveSpaceChild]
+}
+
 struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.callManager) private var callManager
     @Environment(\.openWindow) private var openWindow
-    @State private var selectedRoomId: String?
+    @Environment(AppActions.self) private var appActions
+    @AppStorage("selectedRoomId") private var selectedRoomId: String?
+    @State private var selectedSpaceId: String?
+    @State private var leaveSpaceItem: LeaveSpaceItem?
     @State private var searchText = ""
-    @State private var showingCreateRoom = false
-    @State private var isBrowsingDirectory = false
     @State private var showingInspector = false
-    @State private var inspectorProfile: UserProfile?
     @State private var showingPinnedMessages = false
     @State private var focusedMessageId: String?
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
+    @State private var previewingDirectoryRoom: DirectoryRoom?
+    @State private var previewingInvite: RoomSummary?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var isJoiningLinkedRoom = false
+    @State private var inspectorSelectedProfile: UserProfile?
+    @State private var inspectorInitialTab: InspectorTab?
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -43,30 +55,106 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     }
 
     private func showUserProfile(_ profile: UserProfile) {
+        inspectorSelectedProfile = profile
         withAnimation(.easeInOut(duration: 0.25)) {
-            inspectorProfile = profile
             showingInspector = true
         }
     }
 
     var body: some View {
-        let _ = Self._printChanges()
-        NavigationSplitView {
-            RoomListView(
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            HStack(spacing: 0) {
+                if !matrixService.spaces.isEmpty {
+                    SpaceRail(selectedSpaceId: $selectedSpaceId, onSpaceTapped: {
+                        selectedRoomId = nil
+                    }, onCreateSpace: {
+                        appActions.showCreateSpace = true
+                    }, onLeaveSpace: { space in
+                        Task {
+                            do {
+                                let children = try await matrixService.leaveSpace(spaceId: space.id)
+                                leaveSpaceItem = LeaveSpaceItem(
+                                    id: space.id,
+                                    name: space.name,
+                                    children: children
+                                )
+                            } catch {
+                                errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+                            }
+                        }
+                    })
+                    Divider()
+                }
+                RoomListView(
                     selectedRoomId: $selectedRoomId,
-                    searchText: $searchText
+                    searchText: $searchText,
+                    selectedSpaceId: $selectedSpaceId,
+                    previewingInvite: $previewingInvite
                 )
-                .navigationSplitViewColumnWidth(min: 116, ideal: 260, max: 360)
+            }
+                .navigationSplitViewColumnWidth(
+                    min: matrixService.spaces.isEmpty ? 116 : 168,
+                    ideal: matrixService.spaces.isEmpty ? 240 : 280,
+                    max: matrixService.spaces.isEmpty ? 340 : 380
+                )
                 .onChange(of: selectedRoomId) {
                     if selectedRoomId != nil {
-                        isBrowsingDirectory = false
-                        inspectorProfile = nil
+                        appActions.showRoomDirectory = false
+                        previewingDirectoryRoom = nil
+                        previewingInvite = nil
                         showingPinnedMessages = false
                     }
                 }
+                .onChange(of: selectedSpaceId) {
+                    if selectedSpaceId != nil {
+                        selectedRoomId = nil
+                    }
+                }
         } detail: {
-            if isBrowsingDirectory {
-                RoomDirectoryView(selectedRoomId: $selectedRoomId, isBrowsing: $isBrowsingDirectory)
+            if let previewingInvite, previewingInvite.isSpace {
+                SpaceInvitePreview(
+                    invite: previewingInvite,
+                    onAccept: { acceptInviteFromPreview(previewingInvite) },
+                    onDecline: {
+                        let invite = previewingInvite
+                        self.previewingInvite = nil
+                        declineInviteFromPreview(invite)
+                    }
+                )
+            } else if let previewingInvite {
+                RoomPreviewView(
+                    room: DirectoryRoom(
+                        roomId: previewingInvite.id,
+                        name: previewingInvite.name,
+                        topic: previewingInvite.topic,
+                        alias: previewingInvite.canonicalAlias,
+                        avatarURL: previewingInvite.avatarURL
+                    ),
+                    onJoin: { acceptInviteFromPreview(previewingInvite) },
+                    onClose: { self.previewingInvite = nil },
+                    inviterName: previewingInvite.inviterName,
+                    inviterAvatarURL: previewingInvite.inviterAvatarURL,
+                    onDecline: {
+                        let invite = previewingInvite
+                        self.previewingInvite = nil
+                        declineInviteFromPreview(invite)
+                    },
+                    showsHeader: false
+                )
+            } else if appActions.showRoomDirectory, let previewingDirectoryRoom {
+                RoomPreviewView(
+                    room: previewingDirectoryRoom,
+                    onJoin: { joinDirectoryRoom(previewingDirectoryRoom) },
+                    onClose: { self.previewingDirectoryRoom = nil },
+                    showsHeader: false
+                )
+            } else if appActions.showRoomDirectory {
+                RoomDirectoryView(
+                    previewingRoom: $previewingDirectoryRoom,
+                    onRoomJoined: { roomId in
+                        selectedRoomId = roomId
+                    }
+                )
             } else if let selectedRoomId,
                       let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
                       let viewModel = matrixService.makeTimelineViewModel(roomId: selectedRoomId) {
@@ -85,6 +173,24 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                         .id(selectedRoomId)
                         .inspectorColumnWidth(min: 200, ideal: 260, max: 320)
                 }
+            } else if let selectedSpaceId,
+                      let spaceSummary = matrixService.spaces.first(where: { $0.id == selectedSpaceId }) {
+                SpaceDetailView(
+                    spaceId: selectedSpaceId,
+                    spaceSummary: spaceSummary,
+                    selectedRoomId: $selectedRoomId,
+                    onOpenSettings: {
+                        inspectorInitialTab = .settings
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showingInspector = true
+                        }
+                    }
+                )
+                .inspector(isPresented: $showingInspector) {
+                    spaceInspectorPanel(spaceId: selectedSpaceId)
+                        .id(selectedSpaceId)
+                        .inspectorColumnWidth(min: 200, ideal: 260, max: 320)
+                }
             } else {
                 ContentUnavailableView(
                     "No Conversation Selected",
@@ -93,101 +199,8 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 )
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    showingCreateRoom = true
-                } label: {
-                    Image(systemName: "plus.bubble")
-                }
-                .help("Create Room")
-            }
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    selectedRoomId = nil
-                    isBrowsingDirectory = true
-                } label: {
-                    Image(systemName: "building.2")
-                }
-                .help("Room Directory")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                if let selectedRoomId,
-                   matrixService.rooms.first(where: { $0.id == selectedRoomId }) != nil {
-                    Button {
-                        startCall(roomId: selectedRoomId)
-                    } label: {
-                        Image(systemName: "phone.fill")
-                    }
-                    .help("Start Call")
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                if let selectedRoomId,
-                   let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }) {
-                    GlassEffectContainer {
-                        if !showingInspector {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    showingInspector = true
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    if summary.hasPinnedMessages {
-                                        Button {
-                                            showingPinnedMessages.toggle()
-                                        } label: {
-                                            Image(systemName: "pin.fill")
-                                                .foregroundStyle(.secondary)
-
-                                        }
-                                        .help("Pinned Messages")
-                                        .popover(isPresented: $showingPinnedMessages,
-                                                 arrowEdge: .bottom) {
-                                            PinnedMessagesView(
-                                                roomId: selectedRoomId,
-                                                onSelectMessage: scrollToMessage
-                                            )
-                                        }
-                                    }
-
-                                    Text(summary.name)
-                                        .fontWeight(.semibold)
-                                        .lineLimit(1)
-                                        .padding(.leading, 12)
-
-                                    AvatarView(name: summary.name, mxcURL: summary.avatarURL, size: 28)
-                                        .padding(2)
-                                }
-                                .frame(maxWidth: 200)
-                            }
-                            .buttonStyle(.plain)
-                            .glassEffect(in: .capsule)
-                            .help("Show Room Info")
-                        }
-
-                        if showingInspector {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    showingInspector = false
-                                    inspectorProfile = nil
-                                }
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.title2)
-                                    .foregroundStyle(.primary)
-                                    .frame(width: 36, height: 36)
-                                    .contentShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .glassEffect(in: .circle)
-                            .help("Hide Room Info")
-                        }
-                    }
-                }
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
+        .navigationTitle("")
+        .toolbar { windowToolbarContent }
         .onChange(of: matrixService.shouldPresentVerificationSheet) { _, shouldPresent in
             guard shouldPresent else { return }
             matrixService.shouldPresentVerificationSheet = false
@@ -202,8 +215,14 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         .sheet(item: $incomingVerificationItem) { item in
             VerificationSheet(viewModel: item.viewModel)
         }
-        .sheet(isPresented: $showingCreateRoom) {
+        .sheet(isPresented: Bindable(appActions).showCreateRoom) {
             CreateRoomSheet(selectedRoomId: $selectedRoomId)
+        }
+        .sheet(isPresented: Bindable(appActions).showCreateSpace) {
+            CreateSpaceSheet()
+        }
+        .sheet(isPresented: Bindable(appActions).showJoinRoom) {
+            JoinRoomSheet(selectedRoomId: $selectedRoomId)
         }
         .sheet(item: $previewingLinkedRoom) { room in
             RoomPreviewView(
@@ -212,6 +231,14 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 onClose: { previewingLinkedRoom = nil }
             )
             .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500)
+        }
+        .sheet(item: $leaveSpaceItem) { item in
+            LeaveSpaceSheet(spaceName: item.name, spaceId: item.id, children: item.children)
+        }
+        .onChange(of: matrixService.spaces.map(\.id)) {
+            if let selectedSpaceId, !matrixService.spaces.contains(where: { $0.id == selectedSpaceId }) {
+                self.selectedSpaceId = nil
+            }
         }
         .onChange(of: matrixService.pendingDeepLink) { _, deepLink in
             guard let deepLink else { return }
@@ -257,6 +284,189 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             }
             callManager.isPreparingCredentials = false
         }
+    }
+
+    // MARK: - Toolbar
+
+    private var currentRoom: RoomSummary? {
+        if selectedRoomId != nil, let room = matrixService.rooms.first(
+            where: { $0.id == selectedRoomId
+            }) {
+            room
+        } else {
+            nil
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var windowToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            roomDirectoryButton
+        }
+        contextualToolbarContent
+        primaryActionToolbarContent
+    }
+
+    private enum ContextualToolbarMode {
+        case invite, directoryPreview, roomTitle, none
+    }
+
+    private var contextualToolbarMode: ContextualToolbarMode {
+        if previewingInvite != nil {
+            return .invite
+        }
+        if appActions.showRoomDirectory, previewingDirectoryRoom != nil {
+            return .directoryPreview
+        }
+        if selectedRoomId != nil && !appActions.showRoomDirectory {
+            return .roomTitle
+        }
+        return .none
+    }
+
+    @ToolbarContentBuilder
+    private var contextualToolbarContent: some ToolbarContent {
+        switch contextualToolbarMode {
+        case .invite:
+            inviteToolbarContent
+        case .directoryPreview:
+            directoryPreviewToolbarContent
+        case .roomTitle:
+            ToolbarItem(placement: .secondaryAction) {
+                toolbarTitleCapsule
+            }
+        case .none:
+            ToolbarItem(placement: .secondaryAction) { EmptyView() }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var inviteToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button("Back", systemImage: "chevron.left") {
+                self.previewingInvite = nil
+            }
+            .help("Back to Room List")
+        }
+        ToolbarItem(placement: .secondaryAction) {
+            if let previewingInvite {
+                inviteToolbarCapsule(for: previewingInvite)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var directoryPreviewToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button("Back", systemImage: "chevron.left") {
+                self.previewingDirectoryRoom = nil
+            }
+            .help("Back to Directory")
+        }
+        ToolbarItem(placement: .secondaryAction) {
+            if let previewingDirectoryRoom {
+                previewToolbarCapsule(for: previewingDirectoryRoom)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var primaryActionToolbarContent: some ToolbarContent {
+        if !appActions.showRoomDirectory && previewingInvite == nil {
+            if let selectedRoomId, currentRoom != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    startCallButton(roomId: selectedRoomId)
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                showInspectorButton
+            }
+        }
+    }
+
+    private func startCallButton(roomId: String) -> some View {
+        Button {
+            startCall(roomId: roomId)
+        } label: {
+            Label("Start Call", systemImage: "phone.fill")
+        }
+        .help("Start Call")
+        .disabled(callManager.hasActiveCall)
+    }
+
+    private var toolbarTitleCapsule: some View {
+        HStack(spacing: 0) {
+            if let currentRoom {
+                AvatarView(name: currentRoom.name,
+                           mxcURL: currentRoom.avatarURL,
+                           size: 28)
+                .padding(.leading, 4)
+                Text(currentRoom.name)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func inviteToolbarCapsule(for invite: RoomSummary) -> some View {
+        HStack(spacing: 0) {
+            AvatarView(name: invite.name,
+                       mxcURL: invite.avatarURL,
+                       size: 28)
+            .padding(.leading, 4)
+            Text(invite.name)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+        }
+    }
+
+    private func previewToolbarCapsule(for room: DirectoryRoom) -> some View {
+        HStack(spacing: 0) {
+            AvatarView(name: room.name ?? room.roomId,
+                       mxcURL: room.avatarURL,
+                       size: 28)
+            .padding(.leading, 4)
+            Text(room.name ?? room.roomId)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private var roomDirectoryButton: some View {
+        Button {
+            appActions.showRoomDirectory.toggle()
+            if appActions.showRoomDirectory {
+                previewingInvite = nil
+            } else {
+                previewingDirectoryRoom = nil
+            }
+        } label: {
+            Label(
+                appActions.showRoomDirectory ? "Close Directory" : "Room Directory",
+                systemImage: appActions.showRoomDirectory ? "xmark" : "plus.bubble"
+            )
+        }
+        .help(appActions.showRoomDirectory ? "Close Directory" : "Room Directory")
+    }
+
+    @ViewBuilder
+    private var showInspectorButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showingInspector.toggle()
+            }
+        } label: {
+            Label("Toggle Inspector", systemImage: "sidebar.trailing")
+        }
+        .help(showingInspector ? "Hide Inspector" : "Show Inspector")
+        .disabled(selectedRoomId == nil && selectedSpaceId == nil)
     }
 
     // MARK: - Deep Link Handling
@@ -326,60 +536,104 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
     }
 
+    // MARK: - Invite Actions
+
+    /// Accepts an invitation from the inline preview and navigates to the room.
+    private func acceptInviteFromPreview(_ invite: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.acceptInvite(roomId: invite.id)
+                try? await Task.sleep(for: .milliseconds(500))
+                previewingInvite = nil
+                selectedRoomId = invite.id
+            } catch {
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
+            }
+        }
+    }
+
+    /// Declines an invitation from the inline preview.
+    private func declineInviteFromPreview(_ invite: RoomSummary) {
+        Task {
+            do {
+                try await matrixService.declineInvite(roomId: invite.id)
+            } catch {
+                errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+            }
+        }
+    }
+
+    // MARK: - Directory Room Join
+
+    /// Joins a room selected from the directory grid and navigates to it.
+    private func joinDirectoryRoom(_ room: DirectoryRoom) {
+        Task {
+            do {
+                let idOrAlias = room.alias ?? room.roomId
+                try await matrixService.joinRoom(idOrAlias: idOrAlias)
+
+                try? await Task.sleep(for: .milliseconds(500))
+                if let joined = matrixService.rooms.first(where: {
+                    $0.id == room.roomId || $0.canonicalAlias == room.alias
+                }) {
+                    selectedRoomId = joined.id
+                }
+                previewingDirectoryRoom = nil
+            } catch {
+                errorReporter.report(.roomJoinFailed(error.localizedDescription))
+            }
+        }
+    }
+
     // MARK: - Inspector Panel
 
-    @ViewBuilder
     private func inspectorPanel(roomId: String) -> some View {
-        if let profile = inspectorProfile {
-            VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            inspectorProfile = nil
+        TimelineInspectorView(
+            roomId: roomId,
+            context: .room,
+            selectedProfile: $inspectorSelectedProfile,
+            onMessageUser: { userId in
+                Task {
+                    do {
+                        let dmRoomId = try await matrixService.createDirectMessage(userId: userId)
+                        selectedRoomId = dmRoomId
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showingInspector = false
                         }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text("Room Info")
-                        }
-                        .font(.callout)
+                    } catch {
+                        errorReporter.report(.dmCreationFailed(error.localizedDescription))
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                    Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+            },
+            onScrollToMessage: scrollToMessage
+        )
+    }
 
-                Divider()
-
-                UserDetailView(profile: profile) {
-                    Task {
-                        do {
-                            let roomId = try await matrixService.createDirectMessage(userId: profile.userId)
-                            selectedRoomId = roomId
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                inspectorProfile = nil
-                                showingInspector = false
-                            }
-                        } catch {
-                            errorReporter.report(.dmCreationFailed(error.localizedDescription))
+    private func spaceInspectorPanel(spaceId: String) -> some View {
+        TimelineInspectorView(
+            roomId: spaceId,
+            context: .space,
+            initialTab: $inspectorInitialTab,
+            onMessageUser: { userId in
+                Task {
+                    do {
+                        let dmRoomId = try await matrixService.createDirectMessage(userId: userId)
+                        selectedRoomId = dmRoomId
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showingInspector = false
                         }
+                    } catch {
+                        errorReporter.report(.dmCreationFailed(error.localizedDescription))
                     }
                 }
             }
-        } else {
-            RoomInfoView(
-                roomId: roomId,
-                onMemberTap: { profile in showUserProfile(profile) },
-                onPinnedMessageTap: scrollToMessage
-            )
-        }
+        )
     }
 }
 
 #Preview {
     MainView()
         .environment(\.matrixService, PreviewMatrixService())
+        .environment(AppActions())
         .frame(width: 900, height: 600)
 }

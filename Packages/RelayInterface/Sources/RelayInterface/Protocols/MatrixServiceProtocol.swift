@@ -40,6 +40,10 @@ public enum SyncState: Equatable, Sendable {
     case syncing
     /// The sync service is running and continuously receiving updates.
     case running
+    /// The device has no network connectivity. Sync services are stopped and
+    /// cached data remains available. Sync will restart automatically when
+    /// connectivity is restored.
+    case offline
     /// The sync service encountered an error and stopped.
     /// The associated value is a human-readable error description.
     case error(String)
@@ -60,6 +64,34 @@ public enum DefaultNotificationMode: Sendable, Equatable, CaseIterable {
         case .allMessages: "All Messages"
         case .mentionsAndKeywordsOnly: "Mentions and Keywords Only"
         case .mute: "Mute"
+        }
+    }
+}
+
+/// The notification mode for a specific room, corresponding to Matrix push rule overrides.
+public enum RoomNotificationMode: Sendable, Equatable, CaseIterable {
+    /// Notify for every message in the room.
+    case allMessages
+    /// Notify only when the user is mentioned or a keyword matches.
+    case mentionsAndKeywordsOnly
+    /// Suppress all notifications from the room.
+    case mute
+
+    /// A human-readable label for display in settings UI.
+    nonisolated public var label: String {
+        switch self {
+        case .allMessages: "All Messages"
+        case .mentionsAndKeywordsOnly: "Mentions Only"
+        case .mute: "Mute"
+        }
+    }
+
+    /// An SF Symbol icon name suitable for display alongside the label.
+    nonisolated public var icon: String {
+        switch self {
+        case .allMessages: "bell.fill"
+        case .mentionsAndKeywordsOnly: "at"
+        case .mute: "bell.slash"
         }
     }
 }
@@ -107,6 +139,13 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// The list of joined rooms, sorted by most recent activity.
     var rooms: [RoomSummary] { get }
 
+    /// The list of top-level joined spaces, updated reactively via the SDK's ``SpaceService``.
+    ///
+    /// Space rooms are containers that organize other rooms and sub-spaces. This list
+    /// drives the space filter bar in the sidebar, allowing users to narrow the room list
+    /// to rooms belonging to a particular space.
+    var spaces: [RoomSummary] { get }
+
     /// Whether the client is actively syncing (`syncing` or `running`).
     var isSyncing: Bool { get }
 
@@ -146,6 +185,12 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     /// Signs out, clears the session, and resets local data.
     func logout() async
+
+    /// Clears the local SDK data and cache, then restores the session.
+    ///
+    /// The user remains logged in, but all locally cached data (messages,
+    /// room state, media) is deleted and re-synced from the homeserver.
+    func clearLocalData() async
 
     /// Starts the background sync service if it is not already running.
     func startSyncIfNeeded()
@@ -209,10 +254,57 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Returns: A ``RoomPreviewViewModelProtocol`` instance, or `nil` if not available.
     func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)?
 
+    /// Creates a view model for browsing the room hierarchy within a space.
+    ///
+    /// - Parameter spaceId: The Matrix room ID of the space to browse.
+    /// - Returns: A ``SpaceHierarchyViewModelProtocol`` instance, or `nil` if not available.
+    func makeSpaceHierarchyViewModel(spaceId: String) -> (any SpaceHierarchyViewModelProtocol)?
+
+    /// Accepts a pending room invitation and joins the room.
+    ///
+    /// - Parameter roomId: The Matrix room identifier of the invited room.
+    func acceptInvite(roomId: String) async throws
+
+    /// Declines a pending room invitation.
+    ///
+    /// - Parameter roomId: The Matrix room identifier of the invited room.
+    func declineInvite(roomId: String) async throws
+
     /// Leaves a room and removes it from the local room list.
     ///
     /// - Parameter id: The Matrix room identifier.
     func leaveRoom(id: String) async throws
+
+    /// Fetches the child rooms and sub-spaces of a space in preparation for leaving.
+    ///
+    /// Call this method to discover which rooms the user belongs to within the space.
+    /// The returned list drives the confirmation UI where the user selects which child
+    /// rooms to leave alongside the parent space.
+    ///
+    /// - Parameter spaceId: The Matrix room ID of the space.
+    /// - Returns: The list of child rooms and sub-spaces within the space.
+    func leaveSpace(spaceId: String) async throws -> [LeaveSpaceChild]
+
+    /// Confirms leaving a space and the selected child rooms.
+    ///
+    /// Performs a bulk leave of the specified rooms. The space itself is always included
+    /// in the leave operation even if not explicitly listed in `roomIds`.
+    ///
+    /// - Parameters:
+    ///   - spaceId: The Matrix room ID of the space.
+    ///   - roomIds: The room IDs selected by the user to leave alongside the space.
+    func confirmLeaveSpace(spaceId: String, roomIds: [String]) async throws
+
+    /// Sets or clears the favourite (pinned) state for a room.
+    ///
+    /// This updates the Matrix `m.favourite` room tag on the server, which
+    /// syncs across all clients. Favourite rooms appear in the "Pinned" section
+    /// at the top of the room list sidebar.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - isFavourite: `true` to pin the room, `false` to unpin it.
+    func setFavourite(roomId: String, isFavourite: Bool) async throws
 
     /// Searches the public room directory for rooms matching the query.
     ///
@@ -248,6 +340,17 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Parameter roomId: The Matrix room identifier.
     /// - Returns: A ``RoomDetails`` snapshot, or `nil` if the room is not found.
     func roomDetails(roomId: String) async -> RoomDetails?
+
+    /// Fetches the joined members of a room.
+    ///
+    /// Unlike ``roomDetails(roomId:)``, this method iterates through all chunks
+    /// returned by the SDK's member iterator so rooms with more than 200 members
+    /// are fully covered.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    /// - Returns: The list of joined room members, or an empty array if the room
+    ///   is not found.
+    func roomMembers(roomId: String) async -> [RoomMemberDetails]
 
     /// Fetches the pinned messages for a room.
     ///
@@ -291,6 +394,14 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// This property is updated reactively as the SDK's verification state changes,
     /// so views can bind to it directly.
     var isSessionVerified: Bool { get }
+
+    /// Whether the verification state has been checked at least once since login.
+    ///
+    /// Because ``isSessionVerified`` defaults to `false`, UI that hides or shows
+    /// based on `!isSessionVerified` would briefly flash on launch before the SDK
+    /// reports the real state. Gates like the session-verification banner should
+    /// wait until this property is `true` before interpreting ``isSessionVerified``.
+    var hasCheckedVerificationState: Bool { get }
 
     /// An incoming verification request from another device, if one is pending.
     ///
@@ -363,6 +474,25 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     ///   - mode: The notification mode to apply.
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws
 
+    /// Checks whether the encrypted and unencrypted push rules are consistent
+    /// for both direct and group chats.
+    ///
+    /// Old Matrix clients sometimes set different notification modes for encrypted
+    /// vs unencrypted rooms. When a mismatch is detected, the user should be
+    /// prompted to fix it.
+    ///
+    /// - Returns: `true` if the settings are consistent, `false` if there is a mismatch.
+    func hasConsistentNotificationSettings() async throws -> Bool
+
+    /// Repairs inconsistent notification settings by aligning encrypted and
+    /// unencrypted push rules to the same mode.
+    func fixInconsistentNotificationSettings() async throws
+
+    /// Returns the room IDs that have user-defined (per-room) notification overrides.
+    ///
+    /// - Returns: An array of room IDs with custom notification settings.
+    func roomsWithCustomNotificationSettings() async throws -> [String]
+
     /// Returns whether notifications for incoming calls are enabled.
     func isCallNotificationEnabled() async throws -> Bool
 
@@ -386,6 +516,195 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     /// Enables or disables notifications for `@user` mentions.
     func setUserMentionEnabled(_ enabled: Bool) async throws
+
+    // MARK: Keyword Notification Settings
+
+    /// Returns the list of user-defined notification keywords.
+    ///
+    /// Keywords are extracted from the `content` push rules in the user's
+    /// push ruleset. Only non-default, enabled rules are returned.
+    func getNotificationKeywords() async throws -> [String]
+
+    /// Adds a keyword to the notification push rules.
+    ///
+    /// Creates a `content`-type push rule where the keyword pattern triggers
+    /// a notification with sound.
+    /// - Parameter keyword: The keyword pattern to match against message bodies.
+    func addNotificationKeyword(_ keyword: String) async throws
+
+    /// Removes a keyword from the notification push rules.
+    ///
+    /// Deletes the `content`-type push rule for the given keyword from the
+    /// server's push ruleset.
+    /// - Parameter keyword: The keyword pattern to remove.
+    func removeNotificationKeyword(_ keyword: String) async throws
+
+    // MARK: Per-Room Notification Settings
+
+    /// Returns the notification mode for a specific room.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    /// - Returns: The room's notification mode, or `nil` if the room uses the default.
+    func getRoomNotificationMode(roomId: String) async throws -> RoomNotificationMode?
+
+    /// Sets the notification mode for a specific room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - mode: The notification mode to apply.
+    func setRoomNotificationMode(roomId: String, mode: RoomNotificationMode) async throws
+
+    /// Restores the default notification mode for a room, removing any per-room override.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    func restoreDefaultRoomNotificationMode(roomId: String) async throws
+
+    // MARK: Power Levels
+
+    /// Sets a member's power level in a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - userId: The user ID whose power level to change.
+    ///   - powerLevel: The new power level value.
+    func setMemberPowerLevel(roomId: String, userId: String, powerLevel: Int64) async throws
+
+    // MARK: Room Access Settings
+
+    /// Updates the join rule for a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - rule: The join rule string (`"public"`, `"invite"`, `"knock"`).
+    func updateJoinRule(roomId: String, rule: String) async throws
+
+    /// Updates the history visibility for a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - visibility: The history visibility string (`"joined"`, `"invited"`, `"shared"`, `"world_readable"`).
+    func updateHistoryVisibility(roomId: String, visibility: String) async throws
+
+    /// Updates the room directory visibility.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - isPublic: Whether the room should be listed in the public directory.
+    func updateRoomVisibility(roomId: String, isPublic: Bool) async throws
+
+    // MARK: Member Moderation
+
+    /// Kicks a user from a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - userId: The user to kick.
+    ///   - reason: An optional reason for the kick.
+    func kickMember(roomId: String, userId: String, reason: String?) async throws
+
+    /// Bans a user from a room, preventing them from rejoining.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - userId: The user to ban.
+    ///   - reason: An optional reason for the ban.
+    func banMember(roomId: String, userId: String, reason: String?) async throws
+
+    /// Unbans a user from a room, allowing them to rejoin.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - userId: The user to unban.
+    func unbanMember(roomId: String, userId: String) async throws
+
+    // MARK: Ignore List
+
+    /// Returns whether a user is on the ignore list.
+    ///
+    /// - Parameter userId: The user to check.
+    func isUserIgnored(userId: String) async throws -> Bool
+
+    /// Adds a user to the ignore list. Ignored users' messages are hidden.
+    ///
+    /// - Parameter userId: The user to ignore.
+    func ignoreUser(userId: String) async throws
+
+    /// Removes a user from the ignore list.
+    ///
+    /// - Parameter userId: The user to unignore.
+    func unignoreUser(userId: String) async throws
+
+    // MARK: Room Invites
+
+    /// Invites a user to a room by their Matrix user ID.
+    ///
+    /// The user will receive an invitation that they can accept or decline.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier of the room to invite into.
+    ///   - userId: The Matrix user ID to invite (e.g. `"@alice:matrix.org"`).
+    func inviteUser(roomId: String, userId: String) async throws
+
+    // MARK: Room Editing
+
+    /// Updates the display name of a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - name: The new display name.
+    func setRoomName(roomId: String, name: String) async throws
+
+    /// Updates the topic of a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - topic: The new topic string.
+    func setRoomTopic(roomId: String, topic: String) async throws
+
+    /// Uploads and sets a new avatar image for a room.
+    ///
+    /// - Parameters:
+    ///   - roomId: The Matrix room identifier.
+    ///   - mimeType: The MIME type of the image (e.g. `"image/png"`).
+    ///   - data: The raw image data.
+    func uploadRoomAvatar(roomId: String, mimeType: String, data: Data) async throws
+
+    /// Removes the avatar from a room.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    func removeRoomAvatar(roomId: String) async throws
+
+    // MARK: Space Management
+
+    /// Returns the list of spaces where the current user has permission to
+    /// add or remove child rooms (i.e. can send `m.space.child` state events).
+    ///
+    /// Use this to determine which spaces appear in the "Add to Space" picker
+    /// and to gate admin-only actions in the space detail view.
+    ///
+    /// - Returns: An array of ``EditableSpace`` representing manageable spaces.
+    func editableSpaces() async -> [EditableSpace]
+
+    /// Adds a room or sub-space as a child of a space.
+    ///
+    /// Sends an `m.space.child` state event in the parent space pointing to
+    /// the child room. The child will appear in the space's hierarchy for all
+    /// members.
+    ///
+    /// - Parameters:
+    ///   - childId: The Matrix room ID of the room or sub-space to add.
+    ///   - spaceId: The Matrix room ID of the parent space.
+    func addChildToSpace(childId: String, spaceId: String) async throws
+
+    /// Removes a child room or sub-space from a space.
+    ///
+    /// Removes the `m.space.child` state event for the child from the parent
+    /// space. The child will no longer appear in the space's hierarchy.
+    ///
+    /// - Parameters:
+    ///   - childId: The Matrix room ID of the child to remove.
+    ///   - spaceId: The Matrix room ID of the parent space.
+    func removeChildFromSpace(childId: String, spaceId: String) async throws
 }
 
 // MARK: - Environment Key
@@ -410,9 +729,11 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var authState: AuthState = .unknown
     var syncState: SyncState = .idle
     var rooms: [RoomSummary] = []
+    var spaces: [RoomSummary] = []
     var isSyncing: Bool { false }
     var hasLoadedRooms: Bool = false
     var isSessionVerified: Bool = false
+    var hasCheckedVerificationState: Bool = false
     var pendingVerificationRequest: IncomingVerificationRequest?
     var shouldPresentVerificationSheet: Bool = false
     var pendingDeepLink: MatrixURI?
@@ -424,6 +745,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
         openURL: @escaping @concurrent @Sendable (URL) async throws -> URL
     ) async throws {}
     func logout() async {}
+    func clearLocalData() async {}
     func startSyncIfNeeded() {}
     func userId() -> String? { nil }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
@@ -434,12 +756,19 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func createDirectMessage(userId: String) async throws -> String { "" }
     func makeRoomDirectoryViewModel() -> (any RoomDirectoryViewModelProtocol)? { nil }
     func makeRoomPreviewViewModel(roomId: String) -> (any RoomPreviewViewModelProtocol)? { nil }
+    func makeSpaceHierarchyViewModel(spaceId: String) -> (any SpaceHierarchyViewModelProtocol)? { nil }
+    func acceptInvite(roomId: String) async throws {}
+    func declineInvite(roomId: String) async throws {}
     func leaveRoom(id: String) async throws {}
+    func leaveSpace(spaceId: String) async throws -> [LeaveSpaceChild] { [] }
+    func confirmLeaveSpace(spaceId: String, roomIds: [String]) async throws {}
+    func setFavourite(roomId: String, isFavourite: Bool) async throws {}
     func searchDirectory(query: String) async throws -> [DirectoryRoom] { [] }
     func markAsRead(roomId: String, sendPublicReceipt: Bool) async {}
     func fullyReadEventId(roomId: String) async -> String? { nil }
     func sendTypingNotice(roomId: String, isTyping: Bool) async {}
     func roomDetails(roomId: String) async -> RoomDetails? { nil }
+    func roomMembers(roomId: String) async -> [RoomMemberDetails] { [] }
     func pinnedMessages(roomId: String) async -> [TimelineMessage] { [] }
     func mediaContent(mxcURL: String) async -> Data? { nil }
     func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data? { nil }
@@ -458,6 +787,9 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
         isOneToOne: Bool
     ) async throws -> DefaultNotificationMode { .mentionsAndKeywordsOnly }
     func setDefaultNotificationMode(isOneToOne: Bool, mode: DefaultNotificationMode) async throws {}
+    func hasConsistentNotificationSettings() async throws -> Bool { true }
+    func fixInconsistentNotificationSettings() async throws {}
+    func roomsWithCustomNotificationSettings() async throws -> [String] { [] }
     func isCallNotificationEnabled() async throws -> Bool { true }
     func setCallNotificationEnabled(_ enabled: Bool) async throws {}
     func isInviteNotificationEnabled() async throws -> Bool { true }
@@ -466,4 +798,28 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func setRoomMentionEnabled(_ enabled: Bool) async throws {}
     func isUserMentionEnabled() async throws -> Bool { true }
     func setUserMentionEnabled(_ enabled: Bool) async throws {}
+    func getNotificationKeywords() async throws -> [String] { [] }
+    func addNotificationKeyword(_ keyword: String) async throws {}
+    func removeNotificationKeyword(_ keyword: String) async throws {}
+    func getRoomNotificationMode(roomId: String) async throws -> RoomNotificationMode? { nil }
+    func setRoomNotificationMode(roomId: String, mode: RoomNotificationMode) async throws {}
+    func restoreDefaultRoomNotificationMode(roomId: String) async throws {}
+    func setMemberPowerLevel(roomId: String, userId: String, powerLevel: Int64) async throws {}
+    func updateJoinRule(roomId: String, rule: String) async throws {}
+    func updateHistoryVisibility(roomId: String, visibility: String) async throws {}
+    func updateRoomVisibility(roomId: String, isPublic: Bool) async throws {}
+    func kickMember(roomId: String, userId: String, reason: String?) async throws {}
+    func banMember(roomId: String, userId: String, reason: String?) async throws {}
+    func unbanMember(roomId: String, userId: String) async throws {}
+    func isUserIgnored(userId: String) async throws -> Bool { false }
+    func ignoreUser(userId: String) async throws {}
+    func unignoreUser(userId: String) async throws {}
+    func inviteUser(roomId: String, userId: String) async throws {}
+    func setRoomName(roomId: String, name: String) async throws {}
+    func setRoomTopic(roomId: String, topic: String) async throws {}
+    func uploadRoomAvatar(roomId: String, mimeType: String, data: Data) async throws {}
+    func removeRoomAvatar(roomId: String) async throws {}
+    func editableSpaces() async -> [EditableSpace] { [] }
+    func addChildToSpace(childId: String, spaceId: String) async throws {}
+    func removeChildFromSpace(childId: String, spaceId: String) async throws {}
 }
