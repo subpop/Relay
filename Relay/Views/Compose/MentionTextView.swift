@@ -119,4 +119,23 @@ final class MentionTextView: NSTextView {
         invalidateIntrinsicContentSize()
         owningScrollView?.invalidateIntrinsicContentSize()
     }
+
+    // MARK: - Persisting spell-check / grammar-check preferences
+
+    // NSTextView auto-persists these settings only in NSDocument-based apps.
+    // Since we create the text view manually inside NSViewRepresentable, we
+    // override the toggle actions to save the resulting state to UserDefaults.
+
+    static let continuousSpellCheckingKey = "compose.continuousSpellChecking"
+    static let grammarCheckingKey = "compose.grammarChecking"
+
+    override func toggleContinuousSpellChecking(_ sender: Any?) {
+        super.toggleContinuousSpellChecking(sender)
+        UserDefaults.standard.set(isContinuousSpellCheckingEnabled, forKey: Self.continuousSpellCheckingKey)
+    }
+
+    override func toggleGrammarChecking(_ sender: Any?) {
+        super.toggleGrammarChecking(sender)
+        UserDefaults.standard.set(isGrammarCheckingEnabled, forKey: Self.grammarCheckingKey)
+    }
 }

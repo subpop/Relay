@@ -88,9 +88,25 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
         textView.font = .systemFont(ofSize: NSFont.systemFontSize)
         textView.textColor = .labelColor
         textView.insertionPointColor = .controlAccentColor
-        textView.isAutomaticSpellingCorrectionEnabled = true
-        textView.isContinuousSpellCheckingEnabled = true
-        textView.isGrammarCheckingEnabled = true
+
+        // Autocorrect: read from the system-wide "Correct spelling
+        // automatically" preference in Keyboard settings.
+        textView.isAutomaticSpellingCorrectionEnabled = NSSpellChecker.isAutomaticSpellingCorrectionEnabled
+
+        // Automatic text completion: read from the system-wide "Show inline
+        // predictive text" preference in Keyboard settings.
+        textView.isAutomaticTextCompletionEnabled = NSSpellChecker.isAutomaticTextCompletionEnabled
+
+        // Continuous spell checking and grammar checking have no system-wide
+        // API, so we persist them ourselves via UserDefaults (see the toggle
+        // overrides in MentionTextView). Default to true for a messaging app
+        // when no preference has been saved yet.
+        let defaults = UserDefaults.standard
+        textView.isContinuousSpellCheckingEnabled = defaults.object(forKey: MentionTextView.continuousSpellCheckingKey)
+            as? Bool ?? true
+        textView.isGrammarCheckingEnabled = defaults.object(forKey: MentionTextView.grammarCheckingKey)
+            as? Bool ?? true
+
         textView.delegate = context.coordinator
         textView.mentionTextViewDelegate = context.coordinator
         textView.owningScrollView = scrollView
