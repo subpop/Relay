@@ -58,6 +58,7 @@ final class RoomListManager {
     private(set) var roomListService: RoomListService?
     private var entriesHandle: RoomListEntriesWithDynamicAdaptersResult?
     private var serviceStateHandle: TaskHandle?
+    private var stateObservationTask: Task<Void, Never>?
     private var entriesTask: Task<Void, Never>?
 
     /// Internal room entries that wrap SDK `Room` objects and manage `subscribeToRoomInfoUpdates`.
@@ -104,7 +105,7 @@ final class RoomListManager {
             stateContinuation.yield(state)
         }
         serviceStateHandle = rls.state(listener: stateListener)
-        Task { [weak self] in
+        stateObservationTask = Task { [weak self] in
             for await state in stateStream {
                 guard let self else { break }
                 self.roomListServiceState = state
@@ -142,6 +143,8 @@ final class RoomListManager {
     /// - Parameter syncService: The newly rebuilt SDK sync service.
     func restart(syncService: SyncService) async throws {
         // Cancel existing subscriptions but preserve room data
+        stateObservationTask?.cancel()
+        stateObservationTask = nil
         entriesTask?.cancel()
         entriesTask = nil
         entriesHandle = nil
@@ -156,7 +159,7 @@ final class RoomListManager {
             stateContinuation.yield(state)
         }
         serviceStateHandle = rls.state(listener: stateListener)
-        Task { [weak self] in
+        stateObservationTask = Task { [weak self] in
             for await state in stateStream {
                 guard let self else { break }
                 self.roomListServiceState = state
@@ -185,6 +188,8 @@ final class RoomListManager {
 
     /// Stops listening and clears state.
     func reset() {
+        stateObservationTask?.cancel()
+        stateObservationTask = nil
         entriesTask?.cancel()
         entriesTask = nil
         resortTask?.cancel()
