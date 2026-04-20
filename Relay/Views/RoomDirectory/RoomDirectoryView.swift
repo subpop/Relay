@@ -99,14 +99,20 @@ struct RoomDirectoryView: View {
                     )
                 }
 
-                // Pagination sentinel
-                if !viewModel.isAtEnd {
+                // Pagination sentinel — hidden while a search is in
+                // progress so that onAppear only fires once the view
+                // model is ready to accept a loadMore() call. The .id
+                // modifier forces SwiftUI to treat this as a new view
+                // each time the room count changes, ensuring onAppear
+                // re-fires after each page load.
+                if !viewModel.rooms.isEmpty, !viewModel.isAtEnd, !viewModel.isSearching {
                     HStack {
                         Spacer()
                         ProgressView()
                             .controlSize(.small)
                         Spacer()
                     }
+                    .id(viewModel.rooms.count)
                     .onAppear {
                         Task { await viewModel.loadMore() }
                     }

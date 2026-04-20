@@ -21,12 +21,15 @@
 ///
 /// Provides paginated search results. Call ``search(filter:batchSize:)``
 /// to start a new search, then ``nextPage()`` to load additional results.
-/// Observe ``results`` for the current list of matching rooms.
+/// Observe ``results`` for the current list of matching rooms, or call
+/// ``waitForNextUpdate(after:)`` to suspend until new results arrive.
 ///
 /// ## Topics
 ///
 /// ### Results
 /// - ``results``
+/// - ``updateCounter``
+/// - ``waitForNextUpdate(after:)``
 ///
 /// ### Searching
 /// - ``search(filter:batchSize:viaServerName:)``
@@ -36,6 +39,17 @@
 public protocol RoomDirectorySearchProxyProtocol: AnyObject, Sendable {
     /// The current list of room descriptions from the search.
     var results: [RoomDescription] { get }
+
+    /// The current update counter. Record this before starting an operation,
+    /// then pass it to ``waitForNextUpdate(after:)`` to await new results.
+    var updateCounter: UInt64 { get }
+
+    /// Suspends until the SDK listener delivers a non-empty results snapshot
+    /// with an update counter greater than `previousCounter`.
+    ///
+    /// - Parameter previousCounter: The counter value recorded before the operation.
+    /// - Returns: The latest results snapshot from the SDK.
+    func waitForNextUpdate(after previousCounter: UInt64) async -> [RoomDescription]
 
     /// Starts a new search with the given filter.
     ///
