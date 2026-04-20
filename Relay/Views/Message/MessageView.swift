@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,20 +14,6 @@
 
 import RelayInterface
 import SwiftUI
-
-// MARK: - Media Auto-Reveal Environment
-
-private struct MediaAutoRevealKey: EnvironmentKey {
-    static let defaultValue = true
-}
-
-extension EnvironmentValues {
-    /// Controls whether media attachments in messages are shown immediately or hidden behind a tap-to-reveal overlay.
-    var mediaAutoReveal: Bool {
-        get { self[MediaAutoRevealKey.self] }
-        set { self[MediaAutoRevealKey.self] = newValue }
-    }
-}
 
 /// Renders a single chat bubble for a timeline message, with support for text, images,
 /// emotes, special types (encrypted, redacted, etc.), reactions, and inline reply context.
@@ -194,29 +179,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
         .buttonStyle(.plain)
     }
 
-    /// LRU cache for parsed reply preview text. Shared across all `MessageView` instances.
-    private static let replyTextCache = ParseCache<String, String>(capacity: 128)
 
-    /// Extracts clean display text from a reply's body, resolving HTML or Markdown
-    /// formatting so that mention links and other markup are rendered as plain text.
-    private static func replyPreviewText(_ reply: TimelineMessage.ReplyDetail) -> String {
-        // Prefer HTML path: parse the formatted body and extract the plain-text string.
-        if let html = reply.formattedBody {
-            return replyTextCache.value(forKey: html) {
-                MatrixHTMLParser.parse(html)?.string ?? reply.body
-            }
-        }
-        // Markdown fallback: parse inline markdown and extract the plain-text characters.
-        return replyTextCache.value(forKey: reply.body) {
-            if let md = try? AttributedString(
-                markdown: reply.body,
-                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-            ) {
-                return String(md.characters)
-            }
-            return reply.body
-        }
-    }
 
     // MARK: - Message Content (dispatches to the correct content variant)
 
@@ -453,50 +416,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Parse Caches
 
-    /// LRU cache for parsed HTML bodies. Shared across all `MessageView` instances.
-    private static let htmlCache = ParseCache<String, NSAttributedString?>(capacity: 128)
-
-    /// LRU cache for parsed Markdown bodies. Shared across all `MessageView` instances.
-    private static let markdownCache = ParseCache<String, AttributedString>(capacity: 128)
-
-    /// LRU cache for parsed emote HTML bodies. Shared across all `MessageView` instances.
-    private static let emoteHtmlCache = ParseCache<String, NSAttributedString?>(capacity: 64)
-
-    private static func parseMarkdown(_ raw: String) -> AttributedString {
-        var result: AttributedString
-        // swiftlint:disable:next identifier_name
-        if let md = try? AttributedString(
-            markdown: raw,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        ) {
-            result = md
-        } else {
-            result = AttributedString(raw)
-        }
-
-        let plainString = String(result.characters)
-        guard let detector = try? NSDataDetector(
-            types: NSTextCheckingResult.CheckingType.link.rawValue
-        ) else {
-            return result
-        }
-
-        let matches = detector.matches(
-            in: plainString,
-            range: NSRange(plainString.startIndex..., in: plainString)
-        )
-        for match in matches {
-            guard let urlRange = Range(match.range, in: plainString),
-                  let attrRange = Range(urlRange, in: result) else { continue }
-            if result[attrRange].link == nil {
-                result[attrRange].link = match.url
-            }
-        }
-        MatrixIdentifierLinker.linkify(&result)
-        return result
-    }
 
     // MARK: - Reply Arrow
 

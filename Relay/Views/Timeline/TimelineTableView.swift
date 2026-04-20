@@ -168,9 +168,9 @@ final class TimelineTableViewController: NSViewController {
         var onNearBottomChanged: (Bool) -> Void = { _ in }
         var onPaginateBackward: () -> Void = {}
         var onPaginateForward: () -> Void = {}
-        var onMessageAppeared: (TimelineView.MessageRow) -> Void = { _ in }
-        var onSwipeReply: (TimelineView.MessageRow) -> Void = { _ in }
-        var makeRowView: (TimelineView.MessageRow, _ isNewlyAppended: Bool) -> TimelineRowView = { _, _ in
+        var onMessageAppeared: (MessageRow) -> Void = { _ in }
+        var onSwipeReply: (MessageRow) -> Void = { _ in }
+        var makeRowView: (MessageRow, _ isNewlyAppended: Bool) -> TimelineRowView = { _, _ in
             fatalError("makeRowView not configured")
         }
     }
@@ -182,7 +182,7 @@ final class TimelineTableViewController: NSViewController {
     private var dataSource: NSTableViewDiffableDataSource<Section, String>?
 
     /// The current rows, stored in **reversed** order (newest = index 0).
-    private(set) var rows: [TimelineView.MessageRow] = [] {
+    private(set) var rows: [MessageRow] = [] {
         didSet { rowIDs = rows.map(\.id) }
     }
 
@@ -369,7 +369,7 @@ final class TimelineTableViewController: NSViewController {
         category: "TimelineTable"
     )
 
-    func updateRows(_ newRows: [TimelineView.MessageRow]) {
+    func updateRows(_ newRows: [MessageRow]) {
         // If the scroll view hasn't been laid out yet, defer until it has.
         // Applying the snapshot now would call `heightOfRow` before the
         // column has its final width, producing wildly wrong measurements.
@@ -389,7 +389,7 @@ final class TimelineTableViewController: NSViewController {
         // event (the most up-to-date version). The SDK may deliver duplicate
         // event IDs during room joins or when events arrive from multiple
         // sources. NSDiffableDataSourceSnapshot requires unique identifiers.
-        let deduplicatedRows: [TimelineView.MessageRow]
+        let deduplicatedRows: [MessageRow]
         let reversedInput = Array(newRows.reversed())
         let inputIDs = reversedInput.map(\.id)
         if Set(inputIDs).count == inputIDs.count {

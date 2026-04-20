@@ -20,7 +20,7 @@ import SwiftUI
 /// table view controller can create `TimelineRowView` instances with the
 /// correct closures and trigger pagination / scroll events.
 struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
-    let rows: [TimelineView.MessageRow]
+    let rows: [MessageRow]
     let hasReachedEnd: Bool
     let isLive: Bool
 
@@ -38,7 +38,7 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
     var onAvatarDoubleTap: (TimelineMessage) -> Void
     var onUserTap: (String) -> Void
     var onRoomTap: ((String) -> Void)?
-    var onAppear: (TimelineView.MessageRow) -> Void
+    var onAppear: (MessageRow) -> Void
     var onContextAction: (TimelineRowContextAction) -> Void
     var onHighlightDismissed: () -> Void
     var onNearBottomChanged: (Bool) -> Void

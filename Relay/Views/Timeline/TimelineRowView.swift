@@ -37,7 +37,7 @@ extension EnvironmentValues {
 /// row independently based only on its own inputs, rather than re-evaluating the
 /// entire parent view's 20+ `@State` properties on every frame.
 struct TimelineRowView: View, Equatable {
-    let row: TimelineView.MessageRow
+    let row: MessageRow
     let isNewlyAppended: Bool
     let showUnreadMarker: Bool
     let firstUnreadMessageId: String?
@@ -51,7 +51,7 @@ struct TimelineRowView: View, Equatable {
     var onAvatarDoubleTap: (TimelineMessage) -> Void
     var onUserTap: (String) -> Void
     var onRoomTap: ((String) -> Void)?
-    var onAppear: (TimelineView.MessageRow) -> Void
+    var onAppear: (MessageRow) -> Void
     var onContextAction: (TimelineRowContextAction) -> Void
     var onHighlightDismissed: () -> Void
 
@@ -78,7 +78,7 @@ struct TimelineRowView: View, Equatable {
     }
 
     private var message: TimelineMessage { row.message }
-    private var info: TimelineView.MessageGroupInfo { row.info }
+    private var info: MessageGroupInfo { row.info }
 
     /// The current swipe offset for this row, or 0 if not being swiped.
     private var currentSwipeOffset: CGFloat {
@@ -263,7 +263,7 @@ enum TimelineRowContextAction {
 }
 // MARK: - Previews
 
-private func previewRow(_ message: TimelineMessage, info: TimelineView.MessageGroupInfo = .default) -> TimelineRowView {
+private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .default) -> TimelineRowView {
     TimelineRowView(
         row: .init(message: message, info: info, isPaginationTrigger: false),
         isNewlyAppended: false,
