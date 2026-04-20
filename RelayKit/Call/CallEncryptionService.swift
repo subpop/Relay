@@ -12,27 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import CryptoKit
 import Foundation
 import LiveKit
+import MatrixRustSDK
 import OSLog
 
 private let logger = Logger(subsystem: "RelayKit", category: "CallEncryption")
 
-/// Manages MatrixRTC E2EE key exchange for LiveKit calls.
+/// Helpers for MatrixRTC call-member state signaling, power-level bootstrap,
+/// and LiveKit key provider plumbing.
 ///
-/// Implements the key distribution side of MSC4143 / Element Call's encryption
-/// protocol: generates a random 16-byte AES-GCM key for the local participant,
-/// distributes it to other participants via Matrix to-device messages, and sets
-/// raw key material on the LiveKit `BaseKeyProvider` so that SFrame encryption
-/// uses the correct bytes.
+/// Key distribution for `io.element.call.encryption_keys` is handled by
+/// ``CallWidgetBridge``, which speaks the Widget API directly to the
+/// Matrix Rust SDK's `WidgetDriver`. The SDK handles Olm encryption of the
+/// to-device payloads transparently, which the previous raw-REST path could
+/// not do — Element-X rejected the plaintext keys and the call failed to
+/// negotiate.
 ///
-/// ## Key Exchange Flow
-/// 1. On connect, generate a 16-byte random key.
-/// 2. Set the key on the local participant's LiveKit encryptor via `BaseKeyProvider`.
-/// 3. Send the key (base64-encoded) to all other devices in the room using the
-///    `io.element.call.encryption_keys` to-device event type.
-/// 4. When receiving keys from other participants (via `/sync`), set them on the
-///    `BaseKeyProvider` for the corresponding participant identity.
+/// What remains in this type:
+/// - ``sendCallMemberEvent(sfuServiceURL:)`` / ``removeCallMemberEvent()`` —
+///   MatrixRTC member state via `sendStateEventRaw` on the SDK room.
+/// - ``enableCallPowerLevels()`` — ensures call state events are sendable
+///   at PL 0 so ordinary members can join.
+/// - ``generateKey()`` / ``setRawKey(_:on:participantId:index:)`` —
+///   LiveKit `BaseKeyProvider` plumbing that bypasses the String-based
+///   `setKey(...)` API so raw AES bytes are installed unmangled.
 struct CallEncryptionService {
 
     let homeserver: String
@@ -40,6 +45,9 @@ struct CallEncryptionService {
     let userID: String
     let deviceID: String
     let roomID: String
+    /// The Matrix SDK room, used for `sendStateEventRaw` which goes through
+    /// the SDK's authenticated client instead of raw REST API calls.
+    let sdkRoom: MatrixRustSDK.Room?
 
     /// The to-device event type used by Element Call for key exchange.
     static let encryptionKeysEventType = "io.element.call.encryption_keys"
@@ -50,30 +58,29 @@ struct CallEncryptionService {
 
     // MARK: - Call Membership Signaling
 
-    /// Sends the MatrixRTC call membership state event so that Element-X and other
-    /// MatrixRTC clients can discover our participation in the call.
+    /// Sends the MatrixRTC call membership state event so that Element-X and
+    /// other MatrixRTC clients can discover our participation in the call.
     ///
     /// Uses the modern MSC4143 per-device format matching Element-X:
     /// - State key: `_@userId:server_deviceId_m.call`
     /// - `focus_active`: `{"type": "livekit", "focus_selection": "oldest_membership"}`
     /// - `foci_preferred`: array with the SFU service URL and room alias
     ///
-    /// - Parameter sfuServiceURL: The SFU service URL from MatrixRTC discovery
-    ///   (e.g. `https://livekit.example.com/livekit/jwt`).
-    func sendCallMemberEvent(sfuServiceURL: String) async throws {
-        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
-        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
-        let encodedEventType = Self.callMemberEventType
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? Self.callMemberEventType
-        // MSC4143 state key: "_@userId:server_deviceId_m.call"
-        let stateKey = "_\(userID)_\(deviceID)_m.call"
-        let encodedStateKey = stateKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? stateKey
-
-        guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/\(encodedEventType)/\(encodedStateKey)") else {
-            throw LiveKitCredentialError.invalidURL
+    /// - Parameters:
+    ///   - sfuServiceURL: The SFU service URL from MatrixRTC discovery
+    ///     (e.g. `https://livekit.example.com/livekit/jwt`).
+    ///   - membershipId: The per-call membership UUID. Must match the
+    ///     `member.id` field in outbound encryption_keys to-device payloads
+    ///     so peers can correlate our key with our membership event. When
+    ///     `nil`, falls back to `userID:deviceID`.
+    func sendCallMemberEvent(sfuServiceURL: String, membershipId: String? = nil) async throws {
+        guard let sdkRoom else {
+            throw CallEncryptionError.callMemberEventFailed
         }
 
+        let stateKey = "_\(userID)_\(deviceID)_m.call"
         let serviceURL = sfuServiceURL.trimmingCharacters(in: .init(charactersIn: "/"))
+        let membership = membershipId ?? "\(userID):\(deviceID)"
 
         // Match Element-X's exact format.
         let body: [String: Any] = [
@@ -93,65 +100,35 @@ struct CallEncryptionService {
                 ] as [String: Any]
             ],
             "m.call.intent": "video",
-            "membershipID": "\(userID):\(deviceID)",
+            "membershipID": membership,
             "scope": "m.room"
         ]
 
         let jsonData = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
-        if let jsonStr = String(data: jsonData, encoding: .utf8) {
-            logger.info("Call member event body: \(jsonStr)")
-        }
+        let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
+        logger.info("Call member event body: \(jsonString)")
         logger.info("Call member state key: \(stateKey)")
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
-
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            if let respStr = String(data: responseData, encoding: .utf8) {
-                logger.error("sendCallMemberEvent failed with status \(statusCode): \(respStr)")
-            }
-            throw CallEncryptionError.callMemberEventFailed
-        }
-
+        _ = try await sdkRoom.sendStateEventRaw(
+            eventType: Self.callMemberEventType,
+            stateKey: stateKey,
+            content: jsonString
+        )
         logger.info("Sent call membership state event")
     }
 
     /// Removes the call membership state event (sets content to empty object)
     /// so Element-X knows we've left the call.
     func removeCallMemberEvent() async throws {
-        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
-        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
-        let encodedEventType = Self.callMemberEventType
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? Self.callMemberEventType
+        guard let sdkRoom else {
+            throw CallEncryptionError.callMemberEventFailed
+        }
         let stateKey = "_\(userID)_\(deviceID)_m.call"
-        let encodedStateKey = stateKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? stateKey
-
-        guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/\(encodedEventType)/\(encodedStateKey)") else {
-            throw LiveKitCredentialError.invalidURL
-        }
-
-        let body: [String: Any] = [:]
-
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            logger.error("removeCallMemberEvent failed with status \(statusCode)")
-            return
-        }
-
+        _ = try await sdkRoom.sendStateEventRaw(
+            eventType: Self.callMemberEventType,
+            stateKey: stateKey,
+            content: "{}"
+        )
         logger.info("Removed call membership state event")
     }
 
@@ -186,81 +163,120 @@ struct CallEncryptionService {
         }
     }
 
-    // MARK: - Room Call Setup
-
-    /// Ensures the room's power levels allow any member to send call-related
-    /// state events. Element-web does this automatically when a call is started.
+    /// Returns a `userId -> [deviceId]` map of *other* users currently in the
+    /// call, parsed from `org.matrix.msc3401.call.member` state events.
     ///
-    /// Sets `org.matrix.msc3401.call.member` and `io.element.call.encryption_keys`
-    /// to power level 0 in the room's `m.room.power_levels` state event.
-    ///
-    /// This is idempotent — if the levels are already correct, the PUT overwrites
-    /// with the same content.
-    func enableCallPowerLevels() async throws {
+    /// Element-X writes per-device call-member events with state key
+    /// `_<userId>_<deviceId>_m.call`. We walk the full room state, filter for
+    /// non-empty call-member content (empty content means the participant
+    /// has left), and extract `(userId, deviceId)` from the state key.
+    /// Our own `userID` is excluded.
+    func fetchCallTargets() async -> [String: [String]] {
         let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
         let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
 
-        // 1. Fetch current power levels.
+        guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state") else { return [:] }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let events = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return [:]
+        }
+
+        var targets: [String: Set<String>] = [:]
+        for event in events {
+            guard let type = event["type"] as? String,
+                  type == Self.callMemberEventType,
+                  let stateKey = event["state_key"] as? String,
+                  let content = event["content"] as? [String: Any],
+                  !content.isEmpty else { continue }
+
+            // State key format: `_<userId>_<deviceId>_m.call` where userId is
+            // itself `@localpart:server.tld`. Strip the leading underscore
+            // and the trailing `_m.call` marker, then split on the *last*
+            // underscore to separate deviceId from userId.
+            guard stateKey.hasPrefix("_"), stateKey.hasSuffix("_m.call") else { continue }
+            let trimmed = String(stateKey.dropFirst().dropLast("_m.call".count))
+            guard let lastUnderscore = trimmed.lastIndex(of: "_") else { continue }
+            let userId = String(trimmed[..<lastUnderscore])
+            let deviceId = String(trimmed[trimmed.index(after: lastUnderscore)...])
+            guard userId != self.userID else { continue }
+
+            targets[userId, default: []].insert(deviceId)
+        }
+
+        return targets.mapValues { Array($0) }
+    }
+
+    // MARK: - Room Call Setup
+
+    /// Ensures the room's power levels allow any member to send call-related
+    /// state events (`org.matrix.msc3401.call.member` and
+    /// `io.element.call.encryption_keys` at power level 0).
+    ///
+    /// Only succeeds if the current user has permission to update power levels
+    /// (typically room admins/mods). Fails silently for non-admin users — rooms
+    /// should be created with the correct power levels via `powerLevelContentOverride`.
+    func enableCallPowerLevels() async throws {
+        guard let sdkRoom else {
+            logger.warning("No SDK room — cannot check/update power levels")
+            return
+        }
+
+        // Check if we can already send call member events.
+        let powerLevels = try await sdkRoom.getPowerLevels()
+        let canSendCallMember = powerLevels.canOwnUserSendState(stateEvent: .callMember)
+        let canSendEncKeys = powerLevels.canOwnUserSendState(
+            stateEvent: .custom(value: Self.encryptionKeysEventType)
+        )
+
+        if canSendCallMember && canSendEncKeys {
+            logger.info("Call power levels already allow sending")
+            return
+        }
+
+        logger.info("Call power levels need update (callMember=\(canSendCallMember), encKeys=\(canSendEncKeys))")
+
+        // Fetch current power levels JSON, merge in call event types at PL 0,
+        // and re-send via the SDK. This only works if we're admin/mod.
+        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
+        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
+
         guard let getURL = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/m.room.power_levels/") else {
-            throw LiveKitCredentialError.invalidURL
+            return
         }
 
         var getRequest = URLRequest(url: getURL)
         getRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         let (data, getResponse) = try await URLSession.shared.data(for: getRequest)
-        guard let http = getResponse as? HTTPURLResponse, http.statusCode == 200 else {
-            logger.warning("Could not fetch power levels (status \((getResponse as? HTTPURLResponse)?.statusCode ?? -1))")
+        guard let http = getResponse as? HTTPURLResponse, http.statusCode == 200,
+              var plDict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            logger.warning("Could not fetch power levels for update")
             return
         }
 
-        guard var powerLevels = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return
+        var events = (plDict["events"] as? [String: Any]) ?? [:]
+        events[Self.callMemberEventType] = 0
+        events[Self.encryptionKeysEventType] = 0
+        plDict["events"] = events
+
+        let jsonData = try JSONSerialization.data(withJSONObject: plDict)
+        let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
+
+        do {
+            _ = try await sdkRoom.sendStateEventRaw(
+                eventType: "m.room.power_levels",
+                stateKey: "",
+                content: jsonString
+            )
+            logger.info("Enabled call power levels for room")
+        } catch {
+            logger.warning("Cannot update call power levels (likely not admin): \(error.localizedDescription)")
         }
-
-        // 2. Merge call event types into the events dict at PL 0.
-        var events = (powerLevels["events"] as? [String: Any]) ?? [:]
-        let callEventTypes = [
-            Self.callMemberEventType,
-            Self.encryptionKeysEventType
-        ]
-
-        var needsUpdate = false
-        for eventType in callEventTypes {
-            if events[eventType] as? Int != 0 {
-                events[eventType] = 0
-                needsUpdate = true
-            }
-        }
-
-        guard needsUpdate else {
-            logger.info("Call power levels already configured")
-            return
-        }
-
-        powerLevels["events"] = events
-
-        // 3. PUT the updated power levels.
-        guard let putURL = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/m.room.power_levels/") else {
-            throw LiveKitCredentialError.invalidURL
-        }
-
-        let jsonData = try JSONSerialization.data(withJSONObject: powerLevels)
-
-        var putRequest = URLRequest(url: putURL)
-        putRequest.httpMethod = "PUT"
-        putRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        putRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        putRequest.httpBody = jsonData
-
-        let (_, putResponse) = try await URLSession.shared.data(for: putRequest)
-        guard let putHTTP = putResponse as? HTTPURLResponse, (200...299).contains(putHTTP.statusCode) else {
-            let statusCode = (putResponse as? HTTPURLResponse)?.statusCode ?? -1
-            logger.warning("Failed to update call power levels (status \(statusCode))")
-            return
-        }
-
-        logger.info("Enabled call power levels for room")
     }
 
     // MARK: - Key Generation
@@ -274,6 +290,90 @@ struct CallEncryptionService {
     }
 
     // MARK: - Key Provider Setup
+
+    /// Builds a `BaseKeyProvider` whose internal `LKRTCFrameCryptorKeyProvider`
+    /// is configured for **HKDF-SHA256** key derivation instead of the LiveKit
+    /// Swift SDK's default of **PBKDF2**.
+    ///
+    /// Why this exists: `BaseKeyProvider`'s public inits forward to the 6-arg
+    /// ObjC initializer which hard-codes PBKDF2 (libwebrtc's default). Element
+    /// Call / livekit-client JS imports raw key material as HKDF and derives
+    /// the AES-GCM key with HKDF-SHA256, salt `"LKFrameEncryptionKey"`,
+    /// info = 128 zero bytes. Starting from byte-identical IKM, PBKDF2 on
+    /// our side and HKDF on the peer produce **different AES keys**, so every
+    /// frame's GCM auth tag fails on the peer. The symptom is the same as
+    /// the "maximum ratchet attempts exceeded / key marked as invalid" loop
+    /// we were chasing — symmetric, codec-independent, survives timing and
+    /// identity fixes.
+    ///
+    /// The 7-arg ObjC init that accepts `keyDerivationAlgorithm:` is exposed
+    /// in `webrtc-xcframework` 144.7559.x and newer. We look it up via the
+    /// Objective-C runtime so we don't need a direct module dependency on
+    /// `LiveKitWebRTC` from RelayKit. If the runtime lookup fails (older
+    /// framework), we fall back to the default PBKDF2 provider so the call
+    /// still builds — but interop with Element Call will stay broken.
+    static func makeHKDFKeyProvider(
+        ratchetWindowSize: Int32 = 10,
+        keyRingSize: Int32 = 256
+    ) -> BaseKeyProvider {
+        let options = KeyProviderOptions(
+            sharedKey: false,
+            ratchetWindowSize: ratchetWindowSize,
+            keyRingSize: keyRingSize
+        )
+        let provider = BaseKeyProvider(options: options)
+
+        guard let cls = NSClassFromString("LKRTCFrameCryptorKeyProvider") as? NSObject.Type else {
+            logger.error("LKRTCFrameCryptorKeyProvider class not found at runtime; HKDF swap skipped — E2EE interop with Element Call will fail (PBKDF2 vs HKDF mismatch)")
+            return provider
+        }
+
+        let initSel = NSSelectorFromString(
+            "initWithRatchetSalt:ratchetWindowSize:sharedKeyMode:uncryptedMagicBytes:failureTolerance:keyRingSize:discardFrameWhenCryptorNotReady:keyDerivationAlgorithm:"
+        )
+        // Swift blocks `NSObject.alloc()`, so go through the ObjC runtime.
+        let allocSel = NSSelectorFromString("alloc")
+        typealias AllocFunc = @convention(c) (AnyClass, Selector) -> AnyObject
+        let allocImp = unsafeBitCast(
+            (cls as AnyClass).method(for: allocSel),
+            to: AllocFunc.self
+        )
+        let allocated = allocImp(cls, allocSel)
+        guard (allocated as AnyObject).responds(to: initSel) else {
+            logger.error("LKRTCFrameCryptorKeyProvider does not expose keyDerivationAlgorithm: init; webrtc-xcframework may be < 144.x — falling back to PBKDF2 (Element Call interop will fail)")
+            return provider
+        }
+
+        typealias InitFunc = @convention(c) (
+            AnyObject, Selector, NSData, Int32, ObjCBool, NSData?, Int32, Int32, ObjCBool, UInt
+        ) -> AnyObject
+        let imp = unsafeBitCast(
+            (allocated as AnyObject).method(for: initSel),
+            to: InitFunc.self
+        )
+        // RTCKeyDerivationAlgorithmHKDF is the second enum case (== 1).
+        let hkdfKeyDerivation: UInt = 1
+        let hkdfRtc = imp(
+            allocated,
+            initSel,
+            options.ratchetSalt as NSData,
+            options.ratchetWindowSize,
+            ObjCBool(options.sharedKey),
+            options.uncryptedMagicBytes as NSData,
+            options.failureTolerance,
+            options.keyRingSize,
+            ObjCBool(false),
+            hkdfKeyDerivation
+        )
+
+        guard let ivar = class_getInstanceVariable(BaseKeyProvider.self, "rtcKeyProvider") else {
+            logger.error("rtcKeyProvider ivar not found on BaseKeyProvider; HKDF swap skipped")
+            return provider
+        }
+        object_setIvar(provider, ivar, hkdfRtc)
+        logger.info("Installed HKDF-backed LKRTCFrameCryptorKeyProvider (Element Call interop path)")
+        return provider
+    }
 
     /// Sets a raw key on a `BaseKeyProvider` for the given participant, bypassing
     /// the String-based `setKey(key:participantId:index:)` method which would
@@ -309,7 +409,14 @@ struct CallEncryptionService {
             to: SetKeyFunc.self
         )
         imp(rtcProvider, selector, keyData as NSData, index, participantId as NSString)
-        logger.info("Set raw encryption key for participant \(participantId, privacy: .private) at index \(index)")
+        // SHA-256 fingerprint of the raw IKM so we can confirm the exact same
+        // 16 bytes end up on the wire. Matches the fingerprint logged in
+        // CallWidgetBridge.sendEncryptionKey. Diverging fingerprints mean
+        // our local frame cryptor and the peer are using different keys —
+        // the #1 root cause of "maximum ratchet attempts exceeded" on an
+        // otherwise-correct key-exchange handshake.
+        let fp = SHA256.hash(data: keyData).prefix(8).map { String(format: "%02x", $0) }.joined()
+        logger.info("Set raw encryption key for participant \(participantId, privacy: .public) at index \(index) bytes=\(keyData.count) sha256[0..8]=\(fp, privacy: .public)")
     }
 
     /// Convenience: sets a raw key using base64-encoded key data.
@@ -325,295 +432,15 @@ struct CallEncryptionService {
         }
         setRawKey(keyData, on: keyProvider, participantId: participantId, index: index)
     }
-
-    // MARK: - Key Distribution (to-device messages)
-
-    /// Sends the local participant's encryption key to all devices of the given
-    /// users via a Matrix to-device message.
-    ///
-    /// Uses the REST API directly because the Matrix Rust SDK (v26.x) does not
-    /// expose `sendToDevice` in the Swift FFI.
-    ///
-    /// - Parameters:
-    ///   - key: The raw 16-byte encryption key.
-    ///   - keyIndex: The key index (0-255, cycles on ratchet).
-    ///   - targetUsers: A mapping of user ID to an array of device IDs.
-    func sendKey(
-        _ key: Data,
-        keyIndex: Int,
-        to targetUsers: [String: [String]]
-    ) async throws {
-        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
-        let txnId = UUID().uuidString
-        let encodedEventType = Self.encryptionKeysEventType
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? Self.encryptionKeysEventType
-
-        guard let url = URL(string: "\(base)/_matrix/client/v3/sendToDevice/\(encodedEventType)/\(txnId)") else {
-            throw LiveKitCredentialError.invalidURL
-        }
-
-        let base64Key = key.base64EncodedString()
-        let sentTs = Int(Date().timeIntervalSince1970 * 1000)
-
-        // Build the per-user/per-device message content.
-        var messages: [String: [String: Any]] = [:]
-        for (userId, deviceIds) in targetUsers {
-            var deviceMessages: [String: Any] = [:]
-            for deviceId in deviceIds {
-                deviceMessages[deviceId] = [
-                    "keys": [
-                        ["index": keyIndex, "key": base64Key]
-                    ],
-                    "room_id": roomID,
-                    "member": [
-                        "claimed_device_id": self.deviceID,
-                        "id": "\(self.userID):\(self.deviceID)"
-                    ],
-                    "session": [
-                        "call_id": "",
-                        "application": "m.call",
-                        "scope": "m.room"
-                    ],
-                    "sent_ts": sentTs
-                ] as [String: Any]
-            }
-            messages[userId] = deviceMessages
-        }
-
-        let body: [String: Any] = ["messages": messages]
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            logger.error("sendToDevice failed with status \(statusCode)")
-            throw CallEncryptionError.keyDistributionFailed
-        }
-
-        logger.info("Sent encryption key (index \(keyIndex)) to \(targetUsers.count) user(s)")
-    }
-
-    // MARK: - Key Distribution (room state events)
-
-    /// Sends the local participant's encryption key as a room state event.
-    ///
-    /// This provides a second transport for key exchange that other Relay clients
-    /// can observe via the room timeline, working around the Matrix Rust SDK's
-    /// inability to deliver to-device events to the app layer.
-    ///
-    /// The state key is `"{userID}:{deviceID}"` so each participant's key is
-    /// a distinct state entry that overwrites on update.
-    func sendKeyAsStateEvent(
-        _ key: Data,
-        keyIndex: Int
-    ) async throws {
-        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
-        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
-        let stateKey = "\(userID):\(deviceID)"
-        let encodedStateKey = stateKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? stateKey
-        let encodedEventType = Self.encryptionKeysEventType
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? Self.encryptionKeysEventType
-
-        guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/\(encodedEventType)/\(encodedStateKey)") else {
-            throw LiveKitCredentialError.invalidURL
-        }
-
-        let base64Key = key.base64EncodedString()
-        let body: [String: Any] = [
-            "keys": [
-                ["index": keyIndex, "key": base64Key]
-            ],
-            "member": [
-                "claimed_device_id": deviceID,
-                "id": "\(userID):\(deviceID)"
-            ],
-            "session": [
-                "call_id": "",
-                "application": "m.call",
-                "scope": "m.room"
-            ]
-        ]
-
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            logger.error("sendStateEvent failed with status \(statusCode)")
-            throw CallEncryptionError.keyDistributionFailed
-        }
-
-        logger.info("Sent encryption key as state event (index \(keyIndex))")
-    }
-
-    // MARK: - Key Reception (timeline listener)
-
-    /// Starts listening for encryption key state events on the room timeline.
-    ///
-    /// When another participant sends their key as a room state event of type
-    /// `io.element.call.encryption_keys`, this listener parses the key and sets
-    /// it on the given `BaseKeyProvider` so LiveKit can decrypt that participant's
-    /// media frames.
-    ///
-    /// - Parameters:
-    ///   - timeline: The Matrix SDK `Timeline` for the call's room.
-    ///   - keyProvider: The LiveKit key provider to set received keys on.
-    ///   - localIdentity: The local participant's identity (to skip our own events).
-    /// - Returns: A `TaskHandle` that must be retained to keep the listener alive.
-    @MainActor
-    static func startListeningForKeys(
-        timeline: Timeline,
-        keyProvider: BaseKeyProvider,
-        localIdentity: String
-    ) async -> TaskHandle {
-        // Capture the event type as a local to avoid referencing the MainActor-isolated
-        // static property from the nonisolated SDKListener callback.
-        let eventType = Self.encryptionKeysEventType
-        let localPrefix = localIdentity.components(separatedBy: ":").prefix(2).joined(separator: ":")
-
-        let listener = SDKListener<[TimelineDiff]> { diffs in
-            // SDKListener callbacks arrive on an unspecified thread.
-            // Dispatch to the main actor for safe access to logger and setRawKey.
-            Task { @MainActor in
-                let items = extractTimelineItems(from: diffs)
-                for item in items {
-                    guard let eventItem = item.asEvent() else { continue }
-
-                    guard case .state(let stateKey, let otherState) = eventItem.content,
-                          case .custom(let type) = otherState,
-                          type == eventType else {
-                        continue
-                    }
-
-                    // Skip our own events.
-                    if stateKey.hasPrefix(localPrefix) { continue }
-
-                    let sender = eventItem.sender
-
-                    let debugInfo = eventItem.lazyProvider.debugInfo()
-                    guard let jsonString = debugInfo.originalJson,
-                          let jsonData = jsonString.data(using: .utf8),
-                          let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                        logger.warning("Could not parse encryption key event JSON from \(sender, privacy: .private)")
-                        continue
-                    }
-
-                    // The raw JSON is the full event envelope; keys are in "content".
-                    let content = (json["content"] as? [String: Any]) ?? json
-
-                    guard let keysArray = content["keys"] as? [[String: Any]] else {
-                        logger.warning("No keys array in encryption key event from \(sender, privacy: .private)")
-                        continue
-                    }
-
-                    let participantIdentity = stateKey
-
-                    for keyEntry in keysArray {
-                        guard let base64Key = keyEntry["key"] as? String,
-                              let index = keyEntry["index"] as? Int else {
-                            continue
-                        }
-                        Self.setRawKey(
-                            base64Key: base64Key,
-                            on: keyProvider,
-                            participantId: participantIdentity,
-                            index: Int32(index)
-                        )
-                        logger.info("Received encryption key from \(sender, privacy: .private) (index \(index))")
-                    }
-                }
-            }
-        }
-
-        return await timeline.addListener(listener: listener)
-    }
-
-    // MARK: - Room Member Discovery
-
-    /// Fetches the list of joined members in the room so we know who to send
-    /// encryption keys to. Uses the Matrix REST API directly.
-    func fetchJoinedMembers() async throws -> [String: [String]] {
-        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
-        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
-        guard let url = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/joined_members") else {
-            throw LiveKitCredentialError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw CallEncryptionError.memberDiscoveryFailed
-        }
-
-        // Response: { "joined": { "@user:server": { ... }, ... } }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let joined = json["joined"] as? [String: Any] else {
-            throw CallEncryptionError.memberDiscoveryFailed
-        }
-
-        // For now, return each user mapped to "*" (wildcard) since we don't have
-        // per-device granularity from joined_members. The homeserver will fan out.
-        var result: [String: [String]] = [:]
-        for userId in joined.keys where userId != self.userID {
-            result[userId] = ["*"]
-        }
-        return result
-    }
-}
-
-// MARK: - Helpers
-
-/// Extracts all `TimelineItem` values from a batch of timeline diffs.
-private func extractTimelineItems(from diffs: [TimelineDiff]) -> [TimelineItem] {
-    var items: [TimelineItem] = []
-    for diff in diffs {
-        switch diff {
-        case .append(let values):
-            items.append(contentsOf: values)
-        case .pushFront(let value):
-            items.append(value)
-        case .pushBack(let value):
-            items.append(value)
-        case .insert(_, let value):
-            items.append(value)
-        case .set(_, let value):
-            items.append(value)
-        case .reset(let values):
-            items.append(contentsOf: values)
-        case .clear, .popFront, .popBack, .remove, .truncate:
-            break
-        }
-    }
-    return items
 }
 
 // MARK: - Errors
 
 enum CallEncryptionError: LocalizedError {
-    case keyDistributionFailed
-    case memberDiscoveryFailed
     case callMemberEventFailed
 
     var errorDescription: String? {
         switch self {
-        case .keyDistributionFailed:
-            return "Failed to distribute encryption keys to call participants."
-        case .memberDiscoveryFailed:
-            return "Failed to discover room members for key exchange."
         case .callMemberEventFailed:
             return "Failed to send call membership state event."
         }
