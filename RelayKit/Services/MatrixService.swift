@@ -493,6 +493,24 @@ public final class MatrixService: MatrixServiceProtocol {
         try await sdkRoom.leave()
     }
 
+    /// Power level overrides that allow any room member to send MatrixRTC call
+    /// membership and encryption key state events (matching Element Call's setup).
+    private static let callPowerLevels = PowerLevels(
+        usersDefault: nil,
+        eventsDefault: nil,
+        stateDefault: nil,
+        ban: nil,
+        kick: nil,
+        redact: nil,
+        invite: nil,
+        notifications: nil,
+        users: [:],
+        events: [
+            "org.matrix.msc3401.call.member": 0,
+            "io.element.call.encryption_keys": 0
+        ]
+    )
+
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
         guard let client else { throw RelayError.notLoggedIn }
         let params = CreateRoomParameters(
@@ -501,7 +519,8 @@ public final class MatrixService: MatrixServiceProtocol {
             isEncrypted: !isPublic,
             isDirect: false,
             visibility: isPublic ? .public : .private,
-            preset: isPublic ? .publicChat : .privateChat
+            preset: isPublic ? .publicChat : .privateChat,
+            powerLevelContentOverride: Self.callPowerLevels
         )
         return try await client.createRoom(parameters: params)
     }
@@ -515,6 +534,7 @@ public final class MatrixService: MatrixServiceProtocol {
             isDirect: false,
             visibility: options.isPublic ? .public : .private,
             preset: options.isPublic ? .publicChat : .privateChat,
+            powerLevelContentOverride: Self.callPowerLevels,
             canonicalAlias: options.address,
             isSpace: options.isSpace
         )
@@ -536,7 +556,8 @@ public final class MatrixService: MatrixServiceProtocol {
             isDirect: true,
             visibility: .private,
             preset: .trustedPrivateChat,
-            invite: [userId]
+            invite: [userId],
+            powerLevelContentOverride: Self.callPowerLevels
         )
         return try await client.createRoom(parameters: params)
     }

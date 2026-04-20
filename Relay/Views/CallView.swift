@@ -21,16 +21,28 @@ import SwiftUI
 /// When connected, the remote participant's video fills the window with
 /// a small self-view PiP overlay and a translucent floating control bar.
 struct CallView: View {
-    @State var viewModel: any CallViewModelProtocol
+    // `let` — not `@State`. The view model is a reference-typed
+    // `@Observable` class owned by `CallManager`; wrapping it in `@State`
+    // caused SwiftUI's `StoredLocationBase` to reinitialise the storage on
+    // every parent re-render of `CallWindowView`, which surfaces as
+    // recursive `StoredLocationBase.beginUpdate` calls during the layout
+    // transaction and eventually the "more Update Constraints in Window
+    // passes than there are views" fault.
+    let viewModel: any CallViewModelProtocol
     var isPreparingCredentials: Bool = false
     var onDismiss: () -> Void
 
     @State private var serverURL: String = ""
     @State private var accessToken: String = ""
     @State private var isJoining: Bool = false
-    @State private var isHovering: Bool = false
-    @State private var controlsVisible: Bool = true
-    @State private var hideControlsTask: Task<Void, Never>?
+    // NOTE: The earlier implementation auto-hid the control bar after a
+    // timeout using a `controlsVisible` @State + `.animation(.easeInOut(..),
+    // value: controlsVisible)` on the control bar's opacity, plus a
+    // `.onHover` toggle. That produced the "more Update Constraints in
+    // Window passes than there are views" crash: the implicit animation
+    // pushed the AppKit `NSAnimationContext.runAnimationGroup` path which
+    // invalidated `StoredLocationBase` during an already-running layout
+    // pass on the hosting window. The control bar is now always visible.
 
     var body: some View {
         ZStack {
@@ -98,38 +110,41 @@ struct CallView: View {
                 Spacer()
             }
 
-            // Floating control bar at bottom
+            // Floating control bar at bottom (always visible).
             VStack {
                 Spacer()
                 controlBar
-                    .opacity(controlsVisible ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.25), value: controlsVisible)
             }
             .padding(.bottom, 16)
         }
-        .onHover { hovering in
-            isHovering = hovering
-            if hovering {
-                showControls()
-            } else {
-                scheduleHideControls()
-            }
-        }
-        .onAppear { scheduleHideControls() }
+        // Disable ALL implicit animations within the connected view subtree.
+        //
+        // Removing the `.animation(...)` modifier on `controlBar` was not
+        // enough to stop the "more Update Constraints in Window passes than
+        // there are views" crash — SwiftUI still wraps structural changes
+        // (`if let firstRemote = ...`, `if let localID = ...`,
+        // `if viewModel.isLocalCameraEnabled`, `if first.isSpeaking`) in
+        // implicit transition animations during the connect sequence. Each
+        // of those animations runs through `NSAnimationContext.runAnimationGroup`
+        // inside `NSHostingView.layout`, writing back into the SwiftUI graph
+        // and queueing another constraint pass on the same frame — eventually
+        // exceeding the view-count budget and tripping the AppKit fault.
+        //
+        // `.transaction { $0.animation = nil }` strips the animation off
+        // every transaction propagated through this subtree, so structural
+        // changes happen instantly with no animator running during layout.
+        .transaction { $0.animation = nil }
     }
 
     // MARK: - Primary Video
 
     @ViewBuilder
     private var primaryVideo: some View {
-        let _ = viewModel.videoTrackRevision
         if let firstRemote = viewModel.participants.first {
-            if let videoView = viewModel.makeVideoView(for: firstRemote.id) {
-                videoView
-            } else {
-                // Remote has no video — show avatar placeholder
+            VideoRendererView(viewModel: viewModel, participantID: firstRemote.id) {
                 participantPlaceholder(firstRemote)
             }
+            .id(firstRemote.id)
         } else {
             // No remote participants yet — waiting
             VStack(spacing: 12) {
@@ -147,14 +162,17 @@ struct CallView: View {
 
     @ViewBuilder
     private func selfViewPiP(id: String) -> some View {
-        let _ = viewModel.videoTrackRevision
         ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .darkGray))
 
-            if viewModel.isLocalCameraEnabled,
-               let videoView = viewModel.makeVideoView(for: id) {
-                videoView
+            if viewModel.isLocalCameraEnabled {
+                VideoRendererView(viewModel: viewModel, participantID: id) {
+                    Image(systemName: "person.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .id(id)
             } else {
                 Image(systemName: "person.fill")
                     .font(.title2)
@@ -246,23 +264,6 @@ struct CallView: View {
         }
         .buttonStyle(.plain)
         .help(help)
-    }
-
-    // MARK: - Controls Visibility
-
-    private func showControls() {
-        hideControlsTask?.cancel()
-        controlsVisible = true
-    }
-
-    private func scheduleHideControls() {
-        hideControlsTask?.cancel()
-        hideControlsTask = Task {
-            try? await Task.sleep(for: .seconds(3))
-            if !Task.isCancelled && !isHovering {
-                controlsVisible = false
-            }
-        }
     }
 
     // MARK: - Participant Placeholder
@@ -412,6 +413,41 @@ struct CallView: View {
             .padding(40)
 
             Spacer()
+        }
+    }
+}
+
+// MARK: - Video Renderer
+
+/// Isolates video-track observation into its own SwiftUI view so that
+/// `videoTrackRevision` changes only invalidate THIS subtree rather than
+/// the entire ``CallView`` hierarchy.
+///
+/// Previously `primaryVideo` and `selfViewPiP` both read
+/// `viewModel.videoTrackRevision` directly in their view bodies, which
+/// registered dependencies on the whole containing ZStack. Each track
+/// update (camera publish, subscribe, etc.) then re-laid-out every
+/// sibling view — and because the rendered video is an `NSViewRepresentable`
+/// wrapping an AppKit `VideoView`, that triggered recursive
+/// `setNeedsUpdateConstraints` calls on the hosting window, producing the
+/// "more Update Constraints in Window passes than there are views" hang.
+///
+/// The `.id(participantID)` modifier on each usage site gives SwiftUI a
+/// stable identity key so the renderer is reused across parent re-renders
+/// instead of being torn down and recreated.
+private struct VideoRendererView<Placeholder: View>: View {
+    let viewModel: any CallViewModelProtocol
+    let participantID: String
+    @ViewBuilder let placeholder: () -> Placeholder
+
+    var body: some View {
+        // Reading videoTrackRevision here registers observation *only* on
+        // this subtree — it is not read in any enclosing view.
+        let _ = viewModel.videoTrackRevision
+        if let videoView = viewModel.makeVideoView(for: participantID) {
+            videoView
+        } else {
+            placeholder()
         }
     }
 }
