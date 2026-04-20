@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import os
 import RelayInterface
 import SwiftUI
 
@@ -272,8 +273,17 @@ extension RoomListView {
         return invites
     }
 
+    private static let perfSignposter = OSSignposter(
+        subsystem: "app.subpop.Relay.performance",
+        category: "RoomList"
+    )
+
     /// All joined rooms with the current space, type, search filter, and sort applied.
     private var filteredRooms: [RoomSummary] {
+        let state = Self.perfSignposter.beginInterval(
+            "filterRooms" as StaticString,
+            "\(matrixService.rooms.count) total"
+        )
         var rooms = matrixService.rooms.filter { !$0.isInvited }
 
         // Apply space filter.
@@ -301,6 +311,11 @@ extension RoomListView {
         // Apply sort.
         rooms.sort(by: roomComparator)
 
+        Self.perfSignposter.endInterval(
+            "filterRooms" as StaticString,
+            state,
+            "\(rooms.count) after filter+sort"
+        )
         return rooms
     }
 

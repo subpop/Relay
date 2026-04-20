@@ -233,6 +233,11 @@ final class RoomListManager {
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private func applyEntryUpdates(_ updates: [RoomListEntriesUpdate]) {
+        let entryCountBefore = roomEntries.count
+        let state = PerformanceSignposts.roomList.beginInterval(
+            PerformanceSignposts.RoomListName.applyEntryUpdates,
+            "\(updates.count) updates, \(entryCountBefore) entries"
+        )
         for update in updates {
             switch update {
             case .append(let values):
@@ -289,10 +294,21 @@ final class RoomListManager {
         }
 
         // Rebuild the sorted room summaries from room entries
+        let entryCountAfter = roomEntries.count
+        PerformanceSignposts.roomList.endInterval(
+            PerformanceSignposts.RoomListName.applyEntryUpdates,
+            state,
+            "\(entryCountAfter) entries after"
+        )
         rebuildRoomSummaries()
     }
 
     private func rebuildRoomSummaries() {
+        let entryCount = roomEntries.count
+        let state = PerformanceSignposts.roomList.beginInterval(
+            PerformanceSignposts.RoomListName.rebuildSummaries,
+            "\(entryCount) entries"
+        )
         rooms = roomEntries.map(\.summary).sorted { lhs, rhs in
             switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
             // swiftlint:disable:next identifier_name
@@ -306,6 +322,12 @@ final class RoomListManager {
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
+        let roomCount = rooms.count
+        PerformanceSignposts.roomList.endInterval(
+            PerformanceSignposts.RoomListName.rebuildSummaries,
+            state,
+            "\(roomCount) rooms sorted"
+        )
         onRoomsRebuilt?()
     }
 }

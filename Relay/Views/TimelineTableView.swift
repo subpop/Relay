@@ -14,6 +14,7 @@
 
 import AppKit
 import OSLog
+import os
 import RelayInterface
 import SwiftUI
 
@@ -371,6 +372,11 @@ final class TimelineTableViewController: NSViewController {
     /// Uses a fast path when only content has changed (same identity list):
     /// `reloadData(forRowIndexes:)` targets just the visible rows, avoiding a
     /// full snapshot diff.
+    private static let perfSignposter = OSSignposter(
+        subsystem: "app.subpop.Relay.performance",
+        category: "TimelineTable"
+    )
+
     func updateRows(_ newRows: [TimelineView.MessageRow]) {
         // If the scroll view hasn't been laid out yet, defer until it has.
         // Applying the snapshot now would call `heightOfRow` before the
@@ -381,6 +387,11 @@ final class TimelineTableViewController: NSViewController {
             }
             return
         }
+
+        let updateState = Self.perfSignposter.beginInterval(
+            "updateRows" as StaticString,
+            "\(newRows.count) rows"
+        )
 
         // Deduplicate rows by ID, keeping only the last occurrence of each
         // event (the most up-to-date version). The SDK may deliver duplicate
@@ -427,7 +438,14 @@ final class TimelineTableViewController: NSViewController {
                     }
                 }
 
-                guard !changedIndexes.isEmpty else { return }
+                guard !changedIndexes.isEmpty else {
+                    Self.perfSignposter.endInterval(
+                        "updateRows" as StaticString,
+                        updateState,
+                        "content-only: no changes"
+                    )
+                    return
+                }
 
                 let scrollBefore = scrollView.contentView.bounds.origin
                 for idx in changedIndexes {
@@ -448,6 +466,11 @@ final class TimelineTableViewController: NSViewController {
                     scrollView.reflectScrolledClipView(scrollView.contentView)
                 }
             }
+            Self.perfSignposter.endInterval(
+                "updateRows" as StaticString,
+                updateState,
+                "content-only update"
+            )
             return
         }
 
@@ -479,6 +502,12 @@ final class TimelineTableViewController: NSViewController {
         snapshot.appendSections([.main])
         snapshot.appendItems(newIDs, toSection: .main)
         dataSource?.apply(snapshot, animatingDifferences: false)
+
+        Self.perfSignposter.endInterval(
+            "updateRows" as StaticString,
+            updateState,
+            "structural: \(newIDs.count) items, \(removedIDs.count) removed"
+        )
 
         // Re-measure visible rows after SwiftUI hosting views settle,
         // and scroll to the bottom on the first load.
@@ -574,7 +603,15 @@ final class TimelineTableViewController: NSViewController {
 
     /// Removes all cached heights for the given message ID (at any width).
     private func invalidateHeight(for messageID: String) {
+        let beforeCount = heightCache.count
         heightCache = heightCache.filter { $0.key.messageID != messageID }
+        let removed = beforeCount - heightCache.count
+        if removed > 0 {
+            Self.perfSignposter.emitEvent(
+                "invalidateHeight" as StaticString,
+                "\(messageID.prefix(8)): removed \(removed) from \(beforeCount) entries"
+            )
+        }
     }
 
     /// Walks visible live cells and writes their current `fittingSize` into
@@ -743,6 +780,10 @@ extension TimelineTableViewController: NSTableViewDelegate {
 
         // 2. Fall back to the measurement host for rows without a cached
         //    value (initial load, pagination, first resize at a new width).
+        let measureState = Self.perfSignposter.beginInterval(
+            "heightOfRow" as StaticString,
+            "cache miss: \(messageRow.id.prefix(8))"
+        )
         let rowView = callbacks.makeRowView(messageRow, false)
         if let host = measurementHost {
             host.rootView = rowView
@@ -758,6 +799,11 @@ extension TimelineTableViewController: NSTableViewDelegate {
         ))
         let height = max(size.height, 1)
         heightCache[cacheKey] = height
+        Self.perfSignposter.endInterval(
+            "heightOfRow" as StaticString,
+            measureState,
+            "measured: \(height)pt"
+        )
         return height
     }
 }

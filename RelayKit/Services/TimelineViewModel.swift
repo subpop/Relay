@@ -576,9 +576,16 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 // If no throttle timer is running, start one. When it fires,
                 // it flushes accumulated diffs into a single rebuild.
                 if throttleTask == nil {
+                    let throttleState = PerformanceSignposts.timeline.beginInterval(
+                        PerformanceSignposts.TimelineName.throttleDelay
+                    )
                     throttleTask = Task { [weak self] in
                         try? await Task.sleep(for: Self.diffThrottleInterval)
                         guard !Task.isCancelled, let self else { return }
+                        PerformanceSignposts.timeline.endInterval(
+                            PerformanceSignposts.TimelineName.throttleDelay,
+                            throttleState
+                        )
                         // Loop: after each rebuild, check if more diffs
                         // arrived during the background mapping pass. If
                         // so, rebuild again immediately rather than waiting
@@ -667,6 +674,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
     // swiftlint:disable:next cyclomatic_complexity
     private func applyDiffs(_ diffs: [TimelineDiff]) {
+        let itemCountBefore = timelineItems.count
+        let state = PerformanceSignposts.timeline.beginInterval(
+            PerformanceSignposts.TimelineName.applyDiffs,
+            "\(diffs.count) diffs, \(itemCountBefore) items"
+        )
         for diff in diffs {
             switch diff {
             case .reset(let values):
@@ -751,6 +763,12 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 }
             }
         }
+        let itemCountAfter = timelineItems.count
+        PerformanceSignposts.timeline.endInterval(
+            PerformanceSignposts.TimelineName.applyDiffs,
+            state,
+            "\(itemCountAfter) items after"
+        )
     }
 
     // MARK: - Index Tracking Helpers
@@ -791,6 +809,13 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     /// (e.g. the initial load path) can `await` it. The throttled diff path
     /// wraps the call in an unstructured `Task` to fire-and-forget.
     private func rebuildMessages() async {
+        let itemCount = timelineItems.count
+        let changedCount = pendingChangedIndices?.count ?? -1
+        let rebuildState = PerformanceSignposts.timeline.beginInterval(
+            PerformanceSignposts.TimelineName.rebuildMessages,
+            "\(itemCount) items, changed: \(changedCount)"
+        )
+
         // Capture the current state for the background mapping pass.
         let items = timelineItems
         let changedIndices = pendingChangedIndices
@@ -814,14 +839,31 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
         // Discard the result if a newer rebuild was started while we
         // were mapping on the background thread.
-        guard generation == rebuildGeneration else { return }
+        guard generation == rebuildGeneration else {
+            PerformanceSignposts.timeline.endInterval(
+                PerformanceSignposts.TimelineName.rebuildMessages,
+                rebuildState,
+                "discarded (stale generation)"
+            )
+            return
+        }
 
         // Back on MainActor — apply the result.
         applyMappingResult(mapping)
+        PerformanceSignposts.timeline.endInterval(
+            PerformanceSignposts.TimelineName.rebuildMessages,
+            rebuildState,
+            "\(mapping.messages.count) messages"
+        )
     }
 
     /// Applies a mapping result to the view model's published state.
     private func applyMappingResult(_ mapping: TimelineMessageMapper.MappingResult) {
+        let applyState = PerformanceSignposts.timeline.beginInterval(
+            PerformanceSignposts.TimelineName.applyMappingResult,
+            "\(mapping.messages.count) messages"
+        )
+
         // Update the cache with the freshly mapped messages.
         var newCache: [String: TimelineMessage] = [:]
         newCache.reserveCapacity(mapping.messages.count)
@@ -836,13 +878,30 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         // re-evaluation + messageRows rebuild + table update even when
         // no visible data changed (e.g. a .set diff that only touches
         // a read receipt or delivery status).
-        if mapping.messages != messages {
+        let currentCount = messages.count
+        let eqState = PerformanceSignposts.timeline.beginInterval(
+            PerformanceSignposts.TimelineName.equalityCheck,
+            "\(mapping.messages.count) vs \(currentCount)"
+        )
+        let changed = mapping.messages != messages
+        PerformanceSignposts.timeline.endInterval(
+            PerformanceSignposts.TimelineName.equalityCheck,
+            eqState,
+            "changed: \(changed)"
+        )
+
+        if changed {
             messages = mapping.messages
             messagesVersion &+= 1
         }
 
         computeUnreadMarkerIfNeeded(mapping.messages)
         resolveUnfetchedReplies(mapping.unresolvedReplyEventIds)
+
+        PerformanceSignposts.timeline.endInterval(
+            PerformanceSignposts.TimelineName.applyMappingResult,
+            applyState
+        )
     }
 
     private func computeUnreadMarkerIfNeeded(_ result: [TimelineMessage]) {

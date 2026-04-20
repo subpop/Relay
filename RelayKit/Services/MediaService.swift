@@ -44,16 +44,41 @@ final class MediaService {
         let cacheKey = "\(mxcURL)_\(px)" as NSString
 
         if let cached = avatarCache.object(forKey: cacheKey) {
+            PerformanceSignposts.media.emitEvent(
+                PerformanceSignposts.MediaName.avatarThumbnail,
+                "cache hit: \(size)pt"
+            )
             return cached
         }
 
+        let state = PerformanceSignposts.media.beginInterval(
+            PerformanceSignposts.MediaName.avatarThumbnail,
+            "cache miss: \(size)pt"
+        )
         do {
             let source = try MediaSource.fromUrl(url: mxcURL)
             let data = try await client.getMediaThumbnail(mediaSource: source, width: px, height: px)
-            guard let image = NSImage(data: data) else { return nil }
+            guard let image = NSImage(data: data) else {
+                PerformanceSignposts.media.endInterval(
+                    PerformanceSignposts.MediaName.avatarThumbnail,
+                    state,
+                    "failed: invalid image data"
+                )
+                return nil
+            }
             avatarCache.setObject(image, forKey: cacheKey)
+            PerformanceSignposts.media.endInterval(
+                PerformanceSignposts.MediaName.avatarThumbnail,
+                state,
+                "downloaded \(data.count) bytes"
+            )
             return image
         } catch {
+            PerformanceSignposts.media.endInterval(
+                PerformanceSignposts.MediaName.avatarThumbnail,
+                state,
+                "error: \(error.localizedDescription)"
+            )
             return nil
         }
     }
@@ -69,14 +94,32 @@ final class MediaService {
     func mediaContent(mxcURL: String, client: any ClientProxyProtocol) async -> Data? {
         let cacheKey = mxcURL as NSString
         if let cached = mediaCache.object(forKey: cacheKey) {
+            PerformanceSignposts.media.emitEvent(
+                PerformanceSignposts.MediaName.mediaContent,
+                "cache hit: \(cached.count) bytes"
+            )
             return cached as Data
         }
+        let state = PerformanceSignposts.media.beginInterval(
+            PerformanceSignposts.MediaName.mediaContent,
+            "cache miss"
+        )
         do {
             let source = try MediaSource.fromUrl(url: mxcURL)
             let data = try await client.getMediaContent(mediaSource: source)
             mediaCache.setObject(data as NSData, forKey: cacheKey)
+            PerformanceSignposts.media.endInterval(
+                PerformanceSignposts.MediaName.mediaContent,
+                state,
+                "downloaded \(data.count) bytes"
+            )
             return data
         } catch {
+            PerformanceSignposts.media.endInterval(
+                PerformanceSignposts.MediaName.mediaContent,
+                state,
+                "error"
+            )
             return nil
         }
     }
@@ -103,14 +146,32 @@ final class MediaService {
     func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64, client: any ClientProxyProtocol) async -> Data? {
         let cacheKey = "\(mxcURL)_thumb_\(width)x\(height)" as NSString
         if let cached = mediaCache.object(forKey: cacheKey) {
+            PerformanceSignposts.media.emitEvent(
+                PerformanceSignposts.MediaName.avatarThumbnail,
+                "thumb cache hit: \(width)x\(height)"
+            )
             return cached as Data
         }
+        let state = PerformanceSignposts.media.beginInterval(
+            PerformanceSignposts.MediaName.avatarThumbnail,
+            "thumb cache miss: \(width)x\(height)"
+        )
         do {
             let source = try MediaSource.fromUrl(url: mxcURL)
             let data = try await client.getMediaThumbnail(mediaSource: source, width: width, height: height)
             mediaCache.setObject(data as NSData, forKey: cacheKey)
+            PerformanceSignposts.media.endInterval(
+                PerformanceSignposts.MediaName.avatarThumbnail,
+                state,
+                "thumb downloaded \(data.count) bytes"
+            )
             return data
         } catch {
+            PerformanceSignposts.media.endInterval(
+                PerformanceSignposts.MediaName.avatarThumbnail,
+                state,
+                "thumb error"
+            )
             return nil
         }
     }

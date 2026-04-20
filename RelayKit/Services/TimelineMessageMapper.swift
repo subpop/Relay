@@ -14,6 +14,7 @@
 // limitations under the License.
 
 import Foundation
+import os
 import RelayInterface
 
 /// Converts raw Matrix SDK timeline items into ``TimelineMessage`` models for the UI.
@@ -560,9 +561,17 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
         changedIndices: IndexSet?,
         existingMessages: [String: TimelineMessage]
     ) async -> MappingResult {
+        let mapState = PerformanceSignposts.messageMapper.beginInterval(
+            PerformanceSignposts.MessageMapperName.mapIncrementally,
+            "\(items.count) items, \(changedIndices?.count ?? -1) changed"
+        )
+
         var result: [TimelineMessage] = []
         result.reserveCapacity(items.count)
         var pendingReplyFetchIds: Set<String> = []
+        var cacheHits = 0
+        var cacheMisses = 0
+        var ffiLookups = 0
 
         for index in items.indices {
             let item = items[index]
@@ -571,6 +580,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             // in it, try to reuse the cached message. We still need the item's
             // event ID to look it up, so extract it cheaply.
             if let changedIndices, !changedIndices.contains(index) {
+                ffiLookups += 1
                 if let event = item.asEvent() {
                     let eventId: String
                     switch event.eventOrTransactionId {
@@ -578,10 +588,12 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     case .transactionId(let id): eventId = id
                     }
                     if let cached = existingMessages[eventId] {
+                        cacheHits += 1
                         result.append(cached)
                         continue
                     }
                 }
+                cacheMisses += 1
             }
 
             // Map the item from scratch.
@@ -593,6 +605,11 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             }
         }
 
+        PerformanceSignposts.messageMapper.endInterval(
+            PerformanceSignposts.MessageMapperName.mapIncrementally,
+            mapState,
+            "\(result.count) mapped, \(cacheHits) hits, \(cacheMisses) misses, \(ffiLookups) FFI lookups"
+        )
         return MappingResult(messages: result, unresolvedReplyEventIds: pendingReplyFetchIds)
     }
 
