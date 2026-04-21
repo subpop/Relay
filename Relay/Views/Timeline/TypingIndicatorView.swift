@@ -27,21 +27,24 @@ struct TypingIndicatorOverlay: View {
 
     var body: some View {
         let names = viewModel.typingUserDisplayNames
-        if !names.isEmpty {
-            HStack(spacing: 6) {
-                TypingBubble()
-                Text(typingLabel(for: names))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        ZStack(alignment: .leading) {
+            if !names.isEmpty {
+                HStack(spacing: 6) {
+                    TypingBubble()
+                    Text(typingLabel(for: names))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 4)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 4)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
+        .animation(.spring(duration: 0.3), value: names.isEmpty)
     }
 
     private func typingLabel(for names: [String]) -> String {

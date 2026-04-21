@@ -202,7 +202,12 @@ final class TimelineTableViewController: NSViewController {
     /// compose bar). Set by the representable when the safe area changes.
     var contentInsets: NSEdgeInsets = .init() {
         didSet {
-            scrollView.contentInsets = contentInsets
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                scrollView.contentInsets = contentInsets
+            }
         }
     }
 
