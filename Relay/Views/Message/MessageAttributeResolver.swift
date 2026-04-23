@@ -19,82 +19,9 @@ import RelayInterface
 // MARK: - Attribute Resolution
 
 extension MessageTextView {
-    /// Converts a SwiftUI `AttributedString` (with `InlinePresentationIntent`
-    /// attributes from the markdown parser) into an `NSAttributedString` with
-    /// resolved AppKit font/color attributes that `NSTextView` can render.
-    static func resolve(
-        _ source: AttributedString,
-        foreground: NSColor,
-        linkColor: NSColor
-    ) -> NSAttributedString {
-        let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        let result = NSMutableAttributedString(attributedString: NSAttributedString(source))
-        let fullRange = NSRange(location: 0, length: result.length)
-        let keys = NSAttributedString.Key.self
-
-        result.addAttribute(keys.foregroundColor, value: foreground, range: fullRange)
-
-        result.enumerateAttribute(keys.font, in: fullRange, options: []) { value, range, _ in
-            if value == nil {
-                result.addAttribute(keys.font, value: baseFont, range: range)
-            }
-        }
-
-        result.enumerateAttribute(keys.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
-            guard let raw = (value as? NSNumber)?.uintValue else { return }
-            let intent = InlinePresentationIntent(rawValue: raw)
-
-            if intent.contains(.code) {
-                let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-                result.addAttribute(keys.font, value: mono, range: range)
-                result.addAttribute(
-                    keys.backgroundColor,
-                    value: NSColor.gray.withAlphaComponent(0.12),
-                    range: range
-                )
-            } else {
-                var traits: NSFontDescriptor.SymbolicTraits = []
-                if intent.contains(.stronglyEmphasized) { traits.insert(.bold) }
-                if intent.contains(.emphasized) { traits.insert(.italic) }
-                if !traits.isEmpty {
-                    let desc = baseFont.fontDescriptor.withSymbolicTraits(traits)
-                    let font = NSFont(descriptor: desc, size: baseFont.pointSize) ?? baseFont
-                    result.addAttribute(keys.font, value: font, range: range)
-                }
-            }
-
-            if intent.contains(.strikethrough) {
-                result.addAttribute(
-                    keys.strikethroughStyle,
-                    value: NSUnderlineStyle.single.rawValue,
-                    range: range
-                )
-            }
-        }
-
-        result.enumerateAttribute(keys.link, in: fullRange, options: []) { value, range, _ in
-            guard value != nil else { return }
-            result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
-
-            // Apply pill styling to matrix.to user and room links.
-            if let url = value as? URL,
-               let uri = MatrixURI(url: url),
-               uri.isUser || uri.isRoom {
-                let pillColor = linkColor.withAlphaComponent(0.35)
-                result.addAttributes([
-                    .mentionPillColor: pillColor,
-                    .font: NSFont.systemFont(ofSize: baseFont.pointSize, weight: .medium)
-                ], range: range)
-            }
-        }
-
-        insertPillSpacing(result)
-
-            return result
-    }
-
-    /// Applies foreground and link color overrides to a pre-resolved `NSAttributedString`
-    /// from the HTML parser, respecting any existing custom colors (e.g. `data-mx-color`).
+    /// Applies foreground and link color overrides to a parsed `NSAttributedString`,
+    /// respecting any existing custom colors (e.g. `data-mx-color`). Works for both
+    /// HTML-parsed and markdown-parsed attributed strings.
     static func applyColorOverrides(
         _ source: NSAttributedString,
         foreground: NSColor,

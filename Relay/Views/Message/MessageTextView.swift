@@ -20,9 +20,13 @@ import SwiftUI
 
 /// SwiftUI wrapper around ``MessageTextContent`` for rendering rich message
 /// text with proper link hover behaviour, text selection, and layout sizing.
+///
+/// Accepts a single `NSAttributedString` representing the parsed message body
+/// (either from ``NSAttributedString/init(matrixHTML:)`` or
+/// ``NSAttributedString/init(matrixMarkdown:)``). Color overrides for the
+/// current bubble style are applied at render time.
 struct MessageTextView: NSViewRepresentable {
-    let attributedString: AttributedString?
-    let resolvedAttributedString: NSAttributedString?
+    let attributedString: NSAttributedString
     let isOutgoing: Bool
 
     /// Called when the user clicks a `matrix.to` user mention link, with the Matrix user ID.
@@ -30,34 +34,6 @@ struct MessageTextView: NSViewRepresentable {
 
     /// Called when the user clicks a `matrix.to` room link, with the room ID or alias.
     var onRoomTap: ((String) -> Void)?
-
-    /// Creates a ``MessageTextView`` from a SwiftUI `AttributedString` (Markdown path).
-    init(
-        attributedString: AttributedString,
-        isOutgoing: Bool,
-        onUserTap: ((String) -> Void)? = nil,
-        onRoomTap: ((String) -> Void)? = nil
-    ) {
-        self.attributedString = attributedString
-        self.resolvedAttributedString = nil
-        self.isOutgoing = isOutgoing
-        self.onUserTap = onUserTap
-        self.onRoomTap = onRoomTap
-    }
-
-    /// Creates a ``MessageTextView`` from a pre-resolved `NSAttributedString` (HTML path).
-    init(
-        resolved: NSAttributedString,
-        isOutgoing: Bool,
-        onUserTap: ((String) -> Void)? = nil,
-        onRoomTap: ((String) -> Void)? = nil
-    ) {
-        self.attributedString = nil
-        self.resolvedAttributedString = resolved
-        self.isOutgoing = isOutgoing
-        self.onUserTap = onUserTap
-        self.onRoomTap = onRoomTap
-    }
 
     private var foregroundColor: NSColor {
         isOutgoing ? .white : .labelColor
@@ -70,14 +46,12 @@ struct MessageTextView: NSViewRepresentable {
     // MARK: - Coordinator
 
     /// Caches the last resolved `NSAttributedString` so that `updateNSView`
-    /// can skip the expensive `resolve()` / `applyColorOverrides()` conversion
-    /// when the inputs have not changed. Without this, every SwiftUI layout
-    /// pass re-runs `NSAttributedString.init(_:)` bridge + attribute
-    /// enumeration on the main thread, which beach-balls when many messages
-    /// are visible.
+    /// can skip the expensive `applyColorOverrides()` conversion when the
+    /// inputs have not changed. Without this, every SwiftUI layout pass
+    /// re-runs attribute enumeration on the main thread, which beach-balls
+    /// when many messages are visible.
     final class Coordinator {
-        var lastAttributedString: AttributedString?
-        var lastResolvedAttributedString: NSAttributedString?
+        var lastAttributedString: NSAttributedString?
         var lastIsOutgoing: Bool?
         var cachedResolved: NSAttributedString?
 
@@ -120,20 +94,10 @@ struct MessageTextView: NSViewRepresentable {
         // the text storage is empty and sizeThatFits returns .zero,
         // causing the hosting controller to compute incorrect row heights.
         let coordinator = context.coordinator
-        let resolved: NSAttributedString
-        if let preResolved = resolvedAttributedString {
-            resolved = Self.applyColorOverrides(
-                preResolved, foreground: foregroundColor, linkColor: linkColor
-            )
-        } else if let attrString = attributedString {
-            resolved = Self.resolve(
-                attrString, foreground: foregroundColor, linkColor: linkColor
-            )
-        } else {
-            resolved = NSAttributedString()
-        }
+        let resolved = Self.applyColorOverrides(
+            attributedString, foreground: foregroundColor, linkColor: linkColor
+        )
         coordinator.lastAttributedString = attributedString
-        coordinator.lastResolvedAttributedString = resolvedAttributedString
         coordinator.lastIsOutgoing = isOutgoing
         coordinator.cachedResolved = resolved
         view.linkTextAttributes = [.foregroundColor: linkColor]
@@ -153,37 +117,16 @@ struct MessageTextView: NSViewRepresentable {
         let inputsChanged: Bool = {
             if coordinator.cachedResolved == nil { return true }
             if coordinator.lastIsOutgoing != isOutgoing { return true }
-            if let pre = resolvedAttributedString {
-                return pre !== coordinator.lastResolvedAttributedString
-            }
-            if let attr = attributedString {
-                return attr != coordinator.lastAttributedString
-            }
-            return coordinator.lastAttributedString != nil
-                || coordinator.lastResolvedAttributedString != nil
+            return attributedString !== coordinator.lastAttributedString
         }()
 
-        let resolved: NSAttributedString
         if inputsChanged {
-            if let preResolved = resolvedAttributedString {
-                // HTML path: apply foreground/link color overrides to the pre-resolved string.
-                resolved = Self.applyColorOverrides(
-                    preResolved,
-                    foreground: foregroundColor,
-                    linkColor: linkColor
-                )
-            } else if let attrString = attributedString {
-                // Markdown path: resolve InlinePresentationIntent attributes.
-                resolved = Self.resolve(
-                    attrString,
-                    foreground: foregroundColor,
-                    linkColor: linkColor
-                )
-            } else {
-                resolved = NSAttributedString()
-            }
+            let resolved = Self.applyColorOverrides(
+                attributedString,
+                foreground: foregroundColor,
+                linkColor: linkColor
+            )
             coordinator.lastAttributedString = attributedString
-            coordinator.lastResolvedAttributedString = resolvedAttributedString
             coordinator.lastIsOutgoing = isOutgoing
             coordinator.cachedResolved = resolved
 
@@ -294,41 +237,13 @@ struct MessageTextView: NSViewRepresentable {
 
 // MARK: - Previews
 
-private func previewParse(_ raw: String) -> AttributedString {
-    var result: AttributedString
-    // swiftlint:disable:next identifier_name
-    if let md = try? AttributedString(
-        markdown: raw,
-        options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-    ) {
-        result = md
-    } else {
-        result = AttributedString(raw)
-    }
-
-    let plain = String(result.characters)
-    guard let detector = try? NSDataDetector(
-        types: NSTextCheckingResult.CheckingType.link.rawValue
-    ) else { return result }
-
-    for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
-        guard let urlRange = Range(match.range, in: plain),
-              let attrRange = Range(urlRange, in: result) else { continue }
-        if result[attrRange].link == nil {
-            result[attrRange].link = match.url
-        }
-    }
-    MatrixIdentifierLinker.linkify(&result)
-    return result
-}
-
 private struct BubblePreview: View {
     let text: String
     let isOutgoing: Bool
 
     var body: some View {
         MessageTextView(
-            attributedString: previewParse(text),
+            attributedString: NSAttributedString(matrixMarkdown: text),
             isOutgoing: isOutgoing
         )
         .padding(.horizontal, 12)
@@ -345,7 +260,7 @@ private struct HTMLBubblePreview: View {
     var body: some View {
         Group {
             if let resolved = NSAttributedString(matrixHTML: html) {
-                MessageTextView(resolved: resolved, isOutgoing: isOutgoing)
+                MessageTextView(attributedString: resolved, isOutgoing: isOutgoing)
             } else {
                 Text("Parse error")
                     .foregroundStyle(.red)

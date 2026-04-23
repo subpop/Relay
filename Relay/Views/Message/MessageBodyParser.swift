@@ -23,47 +23,13 @@ extension MessageView {
     static let htmlCache = ParseCache<String, NSAttributedString?>(capacity: 128)
 
     /// LRU cache for parsed Markdown bodies. Shared across all `MessageView` instances.
-    static let markdownCache = ParseCache<String, AttributedString>(capacity: 128)
+    static let markdownCache = ParseCache<String, NSAttributedString>(capacity: 128)
 
     /// LRU cache for parsed emote HTML bodies. Shared across all `MessageView` instances.
     static let emoteHtmlCache = ParseCache<String, NSAttributedString?>(capacity: 64)
 
     /// LRU cache for parsed reply preview text. Shared across all `MessageView` instances.
     static let replyTextCache = ParseCache<String, String>(capacity: 128)
-
-    static func parseMarkdown(_ raw: String) -> AttributedString {
-        var result: AttributedString
-        // swiftlint:disable:next identifier_name
-        if let md = try? AttributedString(
-            markdown: raw,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        ) {
-            result = md
-        } else {
-            result = AttributedString(raw)
-        }
-
-        let plainString = String(result.characters)
-        guard let detector = try? NSDataDetector(
-            types: NSTextCheckingResult.CheckingType.link.rawValue
-        ) else {
-            return result
-        }
-
-        let matches = detector.matches(
-            in: plainString,
-            range: NSRange(plainString.startIndex..., in: plainString)
-        )
-        for match in matches {
-            guard let urlRange = Range(match.range, in: plainString),
-                  let attrRange = Range(urlRange, in: result) else { continue }
-            if result[attrRange].link == nil {
-                result[attrRange].link = match.url
-            }
-        }
-        MatrixIdentifierLinker.linkify(&result)
-        return result
-    }
 
     /// Extracts clean display text from a reply's body, resolving HTML or Markdown
     /// formatting so that mention links and other markup are rendered as plain text.

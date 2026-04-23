@@ -228,21 +228,12 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
     private var textContent: some View {
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
             VStack(alignment: .leading, spacing: 4) {
-                if let resolved = htmlBody {
-                    MessageTextView(
-                        resolved: resolved,
-                        isOutgoing: usesWhiteText,
-                        onUserTap: onUserTap,
-                        onRoomTap: onRoomTap
-                    )
-                } else {
-                    MessageTextView(
-                        attributedString: markdownBody,
-                        isOutgoing: usesWhiteText,
-                        onUserTap: onUserTap,
-                        onRoomTap: onRoomTap
-                    )
-                }
+                MessageTextView(
+                    attributedString: parsedBody,
+                    isOutgoing: usesWhiteText,
+                    onUserTap: onUserTap,
+                    onRoomTap: onRoomTap
+                )
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
@@ -297,23 +288,12 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
     // MARK: - Emote Content
 
     private var emoteContent: some View {
-        Group {
-            if let resolved = emoteHtmlBody {
-                MessageTextView(
-                    resolved: resolved,
-                    isOutgoing: false,
-                    onUserTap: onUserTap,
-                    onRoomTap: onRoomTap
-                )
-            } else {
-                MessageTextView(
-                    attributedString: emoteBody,
-                    isOutgoing: false,
-                    onUserTap: onUserTap,
-                    onRoomTap: onRoomTap
-                )
-            }
-        }
+        MessageTextView(
+            attributedString: emoteParsedBody,
+            isOutgoing: false,
+            onUserTap: onUserTap,
+            onRoomTap: onRoomTap
+        )
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(Color.purple.opacity(0.1))
@@ -374,46 +354,50 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
 
     // MARK: - Body Parsing (HTML → Markdown fallback)
 
-    /// The pre-resolved `NSAttributedString` when HTML is available, or `nil` for the Markdown path.
-    private var htmlBody: NSAttributedString? {
-        guard let html = message.formattedBody else { return nil }
-        return Self.htmlCache.value(forKey: html) {
-            NSAttributedString(matrixHTML: html)
+    /// The parsed message body as an `NSAttributedString`. Prefers `formatted_body`
+    /// (HTML) when available, falling back to inline Markdown parsing of `body`.
+    private var parsedBody: NSAttributedString {
+        if let html = message.formattedBody {
+            let cached = Self.htmlCache.value(forKey: html) {
+                NSAttributedString(matrixHTML: html)
+            }
+            if let result = cached { return result }
+        }
+        return Self.markdownCache.value(forKey: message.body) {
+            NSAttributedString(matrixMarkdown: message.body)
         }
     }
 
-    private var markdownBody: AttributedString {
-        Self.markdownCache.value(forKey: message.body) {
-            Self.parseMarkdown(message.body)
+    /// The parsed emote body as an `NSAttributedString`. Prepends an italic
+    /// display name. Prefers `formatted_body` (HTML) when available.
+    private var emoteParsedBody: NSAttributedString {
+        if let html = message.formattedBody {
+            let cacheKey = "\(message.displayName)\0\(html)"
+            let cached = Self.emoteHtmlCache.value(forKey: cacheKey) {
+                guard let parsed = NSAttributedString(matrixHTML: html) else { return nil }
+                let emoteResult = NSMutableAttributedString()
+                let nameFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
+                let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
+                emoteResult.append(NSAttributedString(
+                    string: "*\(message.displayName)* ",
+                    attributes: [.font: italicFont]
+                ))
+                emoteResult.append(parsed)
+                return emoteResult
+            }
+            if let result = cached { return result }
         }
-    }
-
-    private var emoteBody: AttributedString {
-        var name = AttributedString("*\(message.displayName)* ")
-        name.inlinePresentationIntent = .emphasized
-        return name + Self.markdownCache.value(forKey: message.body) {
-            Self.parseMarkdown(message.body)
-        }
-    }
-
-    /// The pre-resolved `NSAttributedString` for emote HTML, or `nil` for the Markdown path.
-    private var emoteHtmlBody: NSAttributedString? {
-        guard let html = message.formattedBody else { return nil }
-        let cacheKey = "\(message.displayName)\0\(html)"
-        return Self.emoteHtmlCache.value(forKey: cacheKey) {
-            guard let parsed = NSAttributedString(matrixHTML: html) else { return nil }
-            // Prepend italic display name.
-            let result = NSMutableAttributedString()
-            let nameFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-            let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
-            let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
-            result.append(NSAttributedString(
-                string: "*\(message.displayName)* ",
-                attributes: [.font: italicFont]
-            ))
-            result.append(parsed)
-            return result
-        }
+        // Markdown fallback with italic name prefix.
+        let nameFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
+        let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
+        let result = NSMutableAttributedString(
+            string: "*\(message.displayName)* ",
+            attributes: [.font: italicFont]
+        )
+        result.append(NSAttributedString(matrixMarkdown: message.body))
+        return result
     }
 
 

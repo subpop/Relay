@@ -58,6 +58,108 @@ extension NSAttributedString {
         guard let result = parser.parse() else { return nil }
         self.init(attributedString: result)
     }
+
+    /// Creates an attributed string by parsing a Matrix message plain-text
+    /// `body` field as inline Markdown, resolving `InlinePresentationIntent`
+    /// attributes into concrete AppKit fonts/decorations, and linking bare
+    /// URLs and Matrix identifiers.
+    ///
+    /// - Parameter matrixMarkdown: The raw body string (not HTML).
+    convenience init(matrixMarkdown body: String) {
+        let resolved = Self.resolveMarkdown(body)
+        self.init(attributedString: resolved)
+    }
+
+    /// Parses inline Markdown, detects bare URLs and Matrix identifiers,
+    /// and resolves all `InlinePresentationIntent` attributes into AppKit
+    /// font traits and decorations, producing an `NSAttributedString` ready
+    /// for rendering.
+    private static func resolveMarkdown(_ raw: String) -> NSAttributedString {
+        // 1. Parse inline Markdown into an AttributedString.
+        var source: AttributedString
+        if let md = try? AttributedString(
+            markdown: raw,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            source = md
+        } else {
+            source = AttributedString(raw)
+        }
+
+        // 2. Detect bare URLs with NSDataDetector.
+        let plainString = String(source.characters)
+        if let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        ) {
+            let matches = detector.matches(
+                in: plainString,
+                range: NSRange(plainString.startIndex..., in: plainString)
+            )
+            for match in matches {
+                guard let urlRange = Range(match.range, in: plainString),
+                      let attrRange = Range(urlRange, in: source)
+                else { continue }
+                if source[attrRange].link == nil {
+                    source[attrRange].link = match.url
+                }
+            }
+        }
+
+        // 3. Link bare Matrix identifiers (@user:server, #room:server, etc.).
+        MatrixIdentifierLinker.linkify(&source)
+
+        // 4. Bridge to NSAttributedString and resolve InlinePresentationIntent
+        //    into concrete AppKit fonts and decorations.
+        let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let result = NSMutableAttributedString(attributedString: NSAttributedString(source))
+        let fullRange = NSRange(location: 0, length: result.length)
+
+        // Ensure every range has a font.
+        result.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                result.addAttribute(.font, value: baseFont, range: range)
+            }
+        }
+
+        // Resolve InlinePresentationIntent → font traits + decorations.
+        result.enumerateAttribute(
+            .inlinePresentationIntent, in: fullRange, options: []
+        ) { value, range, _ in
+            guard let raw = (value as? NSNumber)?.uintValue else { return }
+            let intent = InlinePresentationIntent(rawValue: raw)
+
+            if intent.contains(.code) {
+                let mono = NSFont.monospacedSystemFont(
+                    ofSize: baseFont.pointSize, weight: .regular
+                )
+                result.addAttribute(.font, value: mono, range: range)
+                result.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.gray.withAlphaComponent(0.12),
+                    range: range
+                )
+            } else {
+                var traits: NSFontDescriptor.SymbolicTraits = []
+                if intent.contains(.stronglyEmphasized) { traits.insert(.bold) }
+                if intent.contains(.emphasized) { traits.insert(.italic) }
+                if !traits.isEmpty {
+                    let desc = baseFont.fontDescriptor.withSymbolicTraits(traits)
+                    let font = NSFont(descriptor: desc, size: baseFont.pointSize) ?? baseFont
+                    result.addAttribute(.font, value: font, range: range)
+                }
+            }
+
+            if intent.contains(.strikethrough) {
+                result.addAttribute(
+                    .strikethroughStyle,
+                    value: NSUnderlineStyle.single.rawValue,
+                    range: range
+                )
+            }
+        }
+
+        return result
+    }
 }
 
 // MARK: - MatrixHTMLParser
