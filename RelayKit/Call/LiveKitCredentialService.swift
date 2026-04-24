@@ -47,11 +47,11 @@ struct LiveKitCredentialService {
     /// Returns `(livekitWebSocketURL, livekitJWT, sfuServiceURL)` for the given Matrix room.
     /// The `sfuServiceURL` is the SFU service URL from discovery, used in call member events.
     func credentials(for roomID: String) async throws -> (url: String, token: String, sfuServiceURL: String) {
-        logger.info("Fetching LiveKit credentials for room \(roomID, privacy: .private)")
+        logger.info("[RTC]Fetching LiveKit credentials for room \(roomID, privacy: .private)")
         let sfuURL = try await discoverSFUURL()
-        logger.info("SFU URL discovered: \(sfuURL)")
+        logger.info("[RTC]SFU URL discovered: \(sfuURL)")
         let openIDToken = try await requestOpenIDToken()
-        logger.debug("OpenID token obtained")
+        logger.debug("[RTC]OpenID token obtained")
         let (url, jwt) = try await fetchLiveKitToken(sfuURL: sfuURL, roomID: roomID, openIDToken: openIDToken)
         return (url, jwt, sfuURL)
     }
@@ -172,7 +172,7 @@ struct LiveKitCredentialService {
             throw LiveKitCredentialError.tokenExchangeFailed
         }
         let decoded = try JSONDecoder().decode(LiveKitTokenResponse.self, from: data)
-        logger.info("LiveKit credentials obtained via /get_token")
+        logger.info("[RTC]LiveKit credentials obtained via /get_token")
         return (decoded.url, decoded.jwt)
     }
 
@@ -197,7 +197,7 @@ struct LiveKitCredentialService {
             throw LiveKitCredentialError.tokenExchangeFailed
         }
         let decoded = try JSONDecoder().decode(LiveKitTokenResponse.self, from: data)
-        logger.info("LiveKit credentials obtained via legacy /sfu/get")
+        logger.info("[RTC]LiveKit credentials obtained via legacy /sfu/get")
         return (decoded.url, decoded.jwt)
     }
 }

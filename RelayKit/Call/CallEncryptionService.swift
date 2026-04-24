@@ -106,15 +106,15 @@ struct CallEncryptionService {
 
         let jsonData = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
         let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
-        logger.info("Call member event body: \(jsonString)")
-        logger.info("Call member state key: \(stateKey)")
+        logger.info("[RTC]Call member event body: \(jsonString)")
+        logger.info("[RTC]Call member state key: \(stateKey)")
 
         _ = try await sdkRoom.sendStateEventRaw(
             eventType: Self.callMemberEventType,
             stateKey: stateKey,
             content: jsonString
         )
-        logger.info("Sent call membership state event")
+        logger.info("[RTC]Sent call membership state event")
     }
 
     /// Removes the call membership state event (sets content to empty object)
@@ -129,7 +129,7 @@ struct CallEncryptionService {
             stateKey: stateKey,
             content: "{}"
         )
-        logger.info("Removed call membership state event")
+        logger.info("[RTC]Removed call membership state event")
     }
 
     // MARK: - Debug: Fetch Existing Call Members
@@ -158,7 +158,7 @@ struct CallEncryptionService {
             if let content = event["content"],
                let contentData = try? JSONSerialization.data(withJSONObject: content, options: [.sortedKeys]),
                let contentStr = String(data: contentData, encoding: .utf8) {
-                logger.info("Existing call member [key=\(stateKey)]: \(contentStr)")
+                logger.info("[RTC]Existing call member [key=\(stateKey)]: \(contentStr)")
             }
         }
     }
@@ -222,7 +222,7 @@ struct CallEncryptionService {
     /// should be created with the correct power levels via `powerLevelContentOverride`.
     func enableCallPowerLevels() async throws {
         guard let sdkRoom else {
-            logger.warning("No SDK room — cannot check/update power levels")
+            logger.warning("[RTC]No SDK room — cannot check/update power levels")
             return
         }
 
@@ -234,11 +234,11 @@ struct CallEncryptionService {
         )
 
         if canSendCallMember && canSendEncKeys {
-            logger.info("Call power levels already allow sending")
+            logger.info("[RTC]Call power levels already allow sending")
             return
         }
 
-        logger.info("Call power levels need update (callMember=\(canSendCallMember), encKeys=\(canSendEncKeys))")
+        logger.info("[RTC]Call power levels need update (callMember=\(canSendCallMember), encKeys=\(canSendEncKeys))")
 
         // Fetch current power levels JSON, merge in call event types at PL 0,
         // and re-send via the SDK. This only works if we're admin/mod.
@@ -255,7 +255,7 @@ struct CallEncryptionService {
         let (data, getResponse) = try await URLSession.shared.data(for: getRequest)
         guard let http = getResponse as? HTTPURLResponse, http.statusCode == 200,
               var plDict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            logger.warning("Could not fetch power levels for update")
+            logger.warning("[RTC]Could not fetch power levels for update")
             return
         }
 
@@ -273,9 +273,9 @@ struct CallEncryptionService {
                 stateKey: "",
                 content: jsonString
             )
-            logger.info("Enabled call power levels for room")
+            logger.info("[RTC]Enabled call power levels for room")
         } catch {
-            logger.warning("Cannot update call power levels (likely not admin): \(error.localizedDescription)")
+            logger.warning("[RTC]Cannot update call power levels (likely not admin): \(error.localizedDescription)")
         }
     }
 
@@ -324,7 +324,7 @@ struct CallEncryptionService {
         let provider = BaseKeyProvider(options: options)
 
         guard let cls = NSClassFromString("LKRTCFrameCryptorKeyProvider") as? NSObject.Type else {
-            logger.error("LKRTCFrameCryptorKeyProvider class not found at runtime; HKDF swap skipped — E2EE interop with Element Call will fail (PBKDF2 vs HKDF mismatch)")
+            logger.error("[RTC]LKRTCFrameCryptorKeyProvider class not found at runtime; HKDF swap skipped — E2EE interop with Element Call will fail (PBKDF2 vs HKDF mismatch)")
             return provider
         }
 
@@ -340,7 +340,7 @@ struct CallEncryptionService {
         )
         let allocated = allocImp(cls, allocSel)
         guard (allocated as AnyObject).responds(to: initSel) else {
-            logger.error("LKRTCFrameCryptorKeyProvider does not expose keyDerivationAlgorithm: init; webrtc-xcframework may be < 144.x — falling back to PBKDF2 (Element Call interop will fail)")
+            logger.error("[RTC]LKRTCFrameCryptorKeyProvider does not expose keyDerivationAlgorithm: init; webrtc-xcframework may be < 144.x — falling back to PBKDF2 (Element Call interop will fail)")
             return provider
         }
 
@@ -367,11 +367,11 @@ struct CallEncryptionService {
         )
 
         guard let ivar = class_getInstanceVariable(BaseKeyProvider.self, "rtcKeyProvider") else {
-            logger.error("rtcKeyProvider ivar not found on BaseKeyProvider; HKDF swap skipped")
+            logger.error("[RTC]rtcKeyProvider ivar not found on BaseKeyProvider; HKDF swap skipped")
             return provider
         }
         object_setIvar(provider, ivar, hkdfRtc)
-        logger.info("Installed HKDF-backed LKRTCFrameCryptorKeyProvider (Element Call interop path)")
+        logger.info("[RTC]Installed HKDF-backed LKRTCFrameCryptorKeyProvider (Element Call interop path)")
         return provider
     }
 
@@ -389,7 +389,7 @@ struct CallEncryptionService {
         index: Int32 = 0
     ) {
         guard let rtcProvider = keyProvider.value(forKey: "rtcKeyProvider") as AnyObject? else {
-            logger.error("Could not access rtcKeyProvider via KVC")
+            logger.error("[RTC]Could not access rtcKeyProvider via KVC")
             return
         }
 
@@ -400,7 +400,7 @@ struct CallEncryptionService {
         typealias SetKeyFunc = @convention(c) (AnyObject, Selector, NSData, Int32, NSString) -> Void
         let selector = NSSelectorFromString("setKey:withIndex:forParticipant:")
         guard (rtcProvider as? NSObject)?.responds(to: selector) == true else {
-            logger.error("rtcKeyProvider does not respond to setKey:withIndex:forParticipant:")
+            logger.error("[RTC]rtcKeyProvider does not respond to setKey:withIndex:forParticipant:")
             return
         }
 
@@ -416,7 +416,7 @@ struct CallEncryptionService {
         // the #1 root cause of "maximum ratchet attempts exceeded" on an
         // otherwise-correct key-exchange handshake.
         let fp = SHA256.hash(data: keyData).prefix(8).map { String(format: "%02x", $0) }.joined()
-        logger.info("Set raw encryption key for participant \(participantId, privacy: .public) at index \(index) bytes=\(keyData.count) sha256[0..8]=\(fp, privacy: .public)")
+        logger.info("[RTC]Set raw encryption key for participant \(participantId, privacy: .public) at index \(index) bytes=\(keyData.count) sha256[0..8]=\(fp, privacy: .public)")
     }
 
     /// Convenience: sets a raw key using base64-encoded key data.
@@ -427,7 +427,7 @@ struct CallEncryptionService {
         index: Int32 = 0
     ) {
         guard let keyData = Data(base64Encoded: base64Key) else {
-            logger.error("Invalid base64 key for participant \(participantId, privacy: .private)")
+            logger.error("[RTC]Invalid base64 key for participant \(participantId, privacy: .private)")
             return
         }
         setRawKey(keyData, on: keyProvider, participantId: participantId, index: index)
