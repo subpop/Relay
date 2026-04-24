@@ -96,6 +96,7 @@ public final class CallViewModel: CallViewModelProtocol {
     /// Creates a call view model without E2EE. Use ``init(encryptionContext:)``
     /// for encrypted calls that interoperate with Element Call.
     public init() {
+        LiveKitLogBridgeInstaller.install()
         self.isE2eeEnabled = false
         let delegate = Delegate(viewModel: self)
         self.delegate = delegate
@@ -135,6 +136,7 @@ public final class CallViewModel: CallViewModelProtocol {
     /// room's encryption state. Encrypted rooms use AES-128-GCM frame encryption
     /// with MatrixRTC key exchange; unencrypted rooms use no LiveKit-level E2EE.
     public init(encryptionContext: EncryptionContext) {
+        LiveKitLogBridgeInstaller.install()
         self.isE2eeEnabled = encryptionContext.isRoomEncrypted
 
         let delegate = Delegate(viewModel: self)
@@ -196,9 +198,9 @@ public final class CallViewModel: CallViewModelProtocol {
                 EncryptionOptions(keyProvider: $0, encryptionType: .gcm)
             }
             if isE2eeEnabled {
-                logger.info("E2EE enabled (encrypted Matrix room)")
+                logger.info("[RTC]E2EE enabled (encrypted Matrix room)")
             } else {
-                logger.info("E2EE disabled (unencrypted Matrix room)")
+                logger.info("[RTC]E2EE disabled (unencrypted Matrix room)")
             }
             let roomOpts = RoomOptions(
                 defaultVideoPublishOptions: VideoPublishOptions(
@@ -219,7 +221,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 roomOptions: roomOpts
             )
             localParticipantID = room.localParticipant.identity?.stringValue
-            logger.info("Connected with LiveKit identity: \(self.localParticipantID ?? "unknown", privacy: .public)")
+            logger.info("[RTC]Connected with LiveKit identity: \(self.localParticipantID ?? "unknown", privacy: .public)")
 
             // Spin up the headless widget bridge *only* for encrypted rooms.
             // For unencrypted rooms the bridge adds no value (no keys to
@@ -238,7 +240,7 @@ public final class CallViewModel: CallViewModelProtocol {
                     bridge.start()
                     self.widgetBridge = bridge
                 } catch {
-                    logger.error("Failed to create CallWidgetBridge: \(error.localizedDescription)")
+                    logger.error("[RTC]Failed to create CallWidgetBridge: \(error.localizedDescription)")
                 }
             }
 
@@ -261,7 +263,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 // mismatched JWT identity would silently break decrypt.
                 let localIdentity = "\(encryptionService.userID):\(encryptionService.deviceID)"
                 if let livekitIdentity = self.localParticipantID, livekitIdentity != localIdentity {
-                    logger.warning("LiveKit identity \(livekitIdentity, privacy: .public) != matrix identity \(localIdentity, privacy: .public) — frame encryption may misroute")
+                    logger.warning("[RTC]LiveKit identity \(livekitIdentity, privacy: .public) != matrix identity \(localIdentity, privacy: .public) — frame encryption may misroute")
                 }
                 let keyIndex = self.localKeyIndex
                 CallEncryptionService.setRawKey(
@@ -270,7 +272,7 @@ public final class CallViewModel: CallViewModelProtocol {
                     participantId: localIdentity,
                     index: Int32(keyIndex)
                 )
-                logger.info("Local E2EE key set (index \(keyIndex)) under participantId=\(localIdentity, privacy: .public) before camera publish")
+                logger.info("[RTC]Local E2EE key set (index \(keyIndex)) under participantId=\(localIdentity, privacy: .public) before camera publish")
             }
 
             // Set up MatrixRTC signaling and distribute the key **before**
@@ -300,7 +302,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 do {
                     try await encryptionService.enableCallPowerLevels()
                 } catch {
-                    logger.warning("Call power level setup failed: \(error.localizedDescription)")
+                    logger.warning("[RTC]Call power level setup failed: \(error.localizedDescription)")
                 }
 
                 // 2. Send call membership state event (after power levels).
@@ -313,7 +315,7 @@ public final class CallViewModel: CallViewModelProtocol {
                         membershipId: bridge?.membershipId
                     )
                 } catch {
-                    logger.warning("Call membership event failed: \(error.localizedDescription)")
+                    logger.warning("[RTC]Call membership event failed: \(error.localizedDescription)")
                 }
 
                 // 3. Distribute the already-generated local key via the
@@ -326,7 +328,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 if self.isE2eeEnabled, let bridge, let localKey {
                     let targets = await encryptionService.fetchCallTargets()
                     self.callMembers = targets
-                    logger.info("Distributing key to \(targets.count) remote user(s) BEFORE media publish")
+                    logger.info("[RTC]Distributing key to \(targets.count) remote user(s) BEFORE media publish")
                     do {
                         try await bridge.sendEncryptionKey(
                             localKey,
@@ -334,7 +336,7 @@ public final class CallViewModel: CallViewModelProtocol {
                             toMembers: targets
                         )
                     } catch {
-                        logger.warning("Widget-bridge key distribution failed: \(error.localizedDescription)")
+                        logger.warning("[RTC]Widget-bridge key distribution failed: \(error.localizedDescription)")
                     }
                 }
             }
@@ -349,7 +351,7 @@ public final class CallViewModel: CallViewModelProtocol {
             state = .connected
             videoTrackRevision += 1
         } catch {
-            logger.error("Connect failed: \(error.localizedDescription)")
+            logger.error("[RTC]Connect failed: \(error.localizedDescription)")
             state = .failed(error.localizedDescription)
             throw error
         }
@@ -446,7 +448,7 @@ public final class CallViewModel: CallViewModelProtocol {
         // like `@user:server:DEVICEID`.
         let components = participantIdentity.components(separatedBy: ":")
         guard components.count >= 3 else {
-            logger.warning("Cannot parse participant identity for key redistribution: \(participantIdentity, privacy: .private)")
+            logger.warning("[RTC]Cannot parse participant identity for key redistribution: \(participantIdentity, privacy: .private)")
             return
         }
         let userId = components[0] + ":" + components[1]
@@ -460,9 +462,9 @@ public final class CallViewModel: CallViewModelProtocol {
                     keyIndex: index,
                     toMembers: [userId: [deviceId]]
                 )
-                logger.info("Redistributed key to \(participantIdentity, privacy: .private)")
+                logger.info("[RTC]Redistributed key to \(participantIdentity, privacy: .private)")
             } catch {
-                logger.warning("Key redistribution failed for \(participantIdentity, privacy: .private): \(error.localizedDescription)")
+                logger.warning("[RTC]Key redistribution failed for \(participantIdentity, privacy: .private): \(error.localizedDescription)")
             }
         }
     }
@@ -531,7 +533,7 @@ public final class CallViewModel: CallViewModelProtocol {
                         viewModel.state = .disconnected
                     }
                 case .reconnecting:
-                    logger.info("Reconnecting…")
+                    logger.info("[RTC]Reconnecting…")
                 default:
                     break
                 }
@@ -543,7 +545,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 guard let viewModel else { return }
                 let identityStr = participant.identity?.stringValue ?? "(none)"
                 let sidStr = participant.sid?.stringValue ?? "(none)"
-                logger.info("Remote participant connected: identity=\(identityStr, privacy: .public) sid=\(sidStr, privacy: .public) name=\(participant.name ?? "(none)", privacy: .public)")
+                logger.info("[RTC]Remote participant connected: identity=\(identityStr, privacy: .public) sid=\(sidStr, privacy: .public) name=\(participant.name ?? "(none)", privacy: .public)")
                 viewModel.syncParticipants(trackChanged: true)
                 if viewModel.isE2eeEnabled, let identity = participant.identity?.stringValue {
                     viewModel.redistributeKey(to: identity)
@@ -555,7 +557,7 @@ public final class CallViewModel: CallViewModelProtocol {
             Task { @MainActor [weak viewModel] in
                 let identityStr = participant.identity?.stringValue ?? "(none)"
                 let kind = publication.kind.rawValue
-                logger.info("Subscribed to \(kind, privacy: .public) track from identity=\(identityStr, privacy: .public) trackSid=\(publication.sid, privacy: .public)")
+                logger.info("[RTC]Subscribed to \(kind, privacy: .public) track from identity=\(identityStr, privacy: .public) trackSid=\(publication.sid, privacy: .public)")
                 viewModel?.syncParticipants(trackChanged: true)
             }
         }
