@@ -204,7 +204,7 @@ public final class CallWidgetBridge: @unchecked Sendable {
                 try await self?.sendRequest(action: "content_loaded", data: [:])
                 logger.info("[RTC]Widget content_loaded acknowledged by driver")
             } catch {
-                logger.warning("[RTC]content_loaded failed: \(error.localizedDescription)")
+                logger.warning("[RTC]content_loaded failed: \(error.localizedDescription, privacy: .private)")
             }
         }
 
@@ -402,11 +402,16 @@ public final class CallWidgetBridge: @unchecked Sendable {
                 break
             }
 
-            logger.info("[RTC]widget recv: \(raw, privacy: .public)")
+            // SECURITY: never log the raw widget JSON. Outbound and inbound
+            // `send_to_device` payloads of type `io.element.call.encryption_keys`
+            // carry raw AES keys in the `keys.key` field — those would land
+            // unredacted in the system log. Action / type only; full bodies
+            // are .private so they're stripped from non-debug Console output.
+            logger.debug("[RTC]widget recv (\(raw.count) bytes)")
 
             guard let data = raw.data(using: .utf8),
                   let msg = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                logger.warning("[RTC]Non-JSON message from widget driver: \(raw, privacy: .public)")
+                logger.warning("[RTC]Non-JSON message from widget driver: \(raw, privacy: .private)")
                 continue
             }
 
