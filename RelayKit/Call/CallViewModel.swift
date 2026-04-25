@@ -476,6 +476,24 @@ public final class CallViewModel: CallViewModelProtocol {
         isLocalMicrophoneEnabled = enabled
     }
 
+    public func videoAspectRatio(for participantID: String) -> CGFloat? {
+        let isLocal = room.localParticipant.identity?.stringValue == participantID
+        let participant: Participant? = isLocal
+            ? room.localParticipant
+            : room.remoteParticipants.values.first { $0.identity?.stringValue == participantID }
+
+        guard let publication = participant?.videoTracks.first,
+              !publication.isMuted,
+              let track = publication.track as? VideoTrack else {
+            return nil
+        }
+        if let remotePub = publication as? RemoteTrackPublication, !remotePub.isSubscribed {
+            return nil
+        }
+        guard let dim = track.dimensions, dim.height > 0 else { return nil }
+        return CGFloat(dim.width) / CGFloat(dim.height)
+    }
+
     public func makeVideoView(for participantID: String) -> AnyView? {
         let isLocal = room.localParticipant.identity?.stringValue == participantID
         let participant: Participant? = isLocal
@@ -590,11 +608,31 @@ public final class CallViewModel: CallViewModelProtocol {
     /// the main actor so that `CallViewModel`'s `@Observable` state is always mutated
     /// safely.  The class is `@unchecked Sendable` because `viewModel` is a weak reference
     /// that is only read inside `Task { @MainActor in … }` blocks.
-    private final class Delegate: RoomDelegate, @unchecked Sendable {
+    ///
+    /// Also conforms to ``TrackDelegate`` so it can observe per-track
+    /// dimension changes (e.g. a remote rotating their camera, simulcast
+    /// layer changes). LiveKit's `RoomDelegate` does not surface those.
+    private final class Delegate: NSObject, RoomDelegate, TrackDelegate, @unchecked Sendable {
         weak var viewModel: CallViewModel?
 
         init(viewModel: CallViewModel) {
             self.viewModel = viewModel
+            super.init()
+        }
+
+        /// Bumps `videoTrackRevision` whenever a track's dimensions change,
+        /// so SwiftUI tiles re-read `videoAspectRatio(for:)`.
+        func track(_ track: VideoTrack, didUpdateDimensions dimensions: Dimensions?) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.videoTrackRevision += 1
+            }
+        }
+
+        /// Attaches `self` as a `TrackDelegate` on a publication's underlying
+        /// video track if present. Multicast — safe to call repeatedly.
+        func observeDimensions(of publication: TrackPublication?) {
+            guard let videoTrack = publication?.track as? VideoTrack else { return }
+            videoTrack.add(delegate: self)
         }
 
         func room(_ room: LiveKit.Room, didUpdateConnectionState connectionState: LiveKit.ConnectionState, from oldValue: LiveKit.ConnectionState) {
@@ -631,6 +669,7 @@ public final class CallViewModel: CallViewModelProtocol {
         }
 
         func room(_ room: LiveKit.Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+            observeDimensions(of: publication)
             Task { @MainActor [weak viewModel] in
                 let identityStr = participant.identity?.stringValue ?? "(none)"
                 let kind = publication.kind.rawValue
@@ -654,6 +693,7 @@ public final class CallViewModel: CallViewModelProtocol {
         }
 
         func room(_ room: LiveKit.Room, localParticipant: LocalParticipant, didPublishTrack publication: LocalTrackPublication) {
+            observeDimensions(of: publication)
             Task { @MainActor [weak viewModel] in
                 viewModel?.videoTrackRevision += 1
             }
@@ -662,6 +702,14 @@ public final class CallViewModel: CallViewModelProtocol {
         func room(_ room: LiveKit.Room, participant: RemoteParticipant, didPublishTrack publication: RemoteTrackPublication) {
             Task { @MainActor [weak viewModel] in
                 viewModel?.syncParticipants(trackChanged: true)
+            }
+        }
+
+        // First-frame indicator: dimensions become valid here, so bump
+        // videoTrackRevision so aspect-ratio observers re-read.
+        func room(_ room: LiveKit.Room, participant: RemoteParticipant, trackPublication: RemoteTrackPublication, didUpdateStreamState streamState: StreamState) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.videoTrackRevision += 1
             }
         }
     }
