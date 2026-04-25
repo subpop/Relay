@@ -87,11 +87,34 @@ struct CallView: View {
     @ViewBuilder
     private var connectedView: some View {
         ZStack {
-            // Primary video: first remote participant fills the window
-            primaryVideo
-                .ignoresSafeArea()
+            // Background gradient gives tiles something nicer to float on
+            // than pure black; keeps the FaceTime-on-Mac feel.
+            LinearGradient(
+                colors: [Color(white: 0.08), Color(white: 0.02)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
-            // Self-view PiP in bottom-right corner
+            // 1 remote → primary video fills.
+            // 2+ remotes → polished tile grid of remotes only.
+            if viewModel.participants.count >= 2 {
+                remoteTilesGrid
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+                    .padding(.bottom, 96)   // leave room for control bar + PiP
+            } else {
+                primaryVideo
+                    .ignoresSafeArea()
+
+                // Participant name at top (1:1 only — tiles label themselves)
+                VStack {
+                    participantNameBar
+                    Spacer()
+                }
+            }
+
+            // Self-view PiP — always present, always bottom-right.
             if let localID = viewModel.localParticipantID {
                 VStack {
                     Spacer()
@@ -102,12 +125,6 @@ struct CallView: View {
                 }
                 .padding(12)
                 .padding(.bottom, 72)
-            }
-
-            // Participant name at top
-            VStack {
-                participantNameBar
-                Spacer()
             }
 
             // Floating control bar at bottom (always visible).
@@ -155,6 +172,55 @@ struct CallView: View {
                     .font(.headline)
                     .foregroundStyle(.white.opacity(0.7))
             }
+        }
+    }
+
+    // MARK: - Remote Tiles Grid (2+ remotes)
+
+    /// Polished grid of every remote participant. The local view always
+    /// stays in the PiP overlay; remotes tile across the main area.
+    @ViewBuilder
+    private var remoteTilesGrid: some View {
+        GeometryReader { geo in
+            let remotes = viewModel.participants
+            let layout = Self.gridLayout(count: remotes.count, in: geo.size)
+            VStack(spacing: 8) {
+                ForEach(0..<layout.rows, id: \.self) { row in
+                    HStack(spacing: 8) {
+                        ForEach(0..<layout.cols, id: \.self) { col in
+                            let idx = row * layout.cols + col
+                            if idx < remotes.count {
+                                ParticipantTile(
+                                    viewModel: viewModel,
+                                    participant: remotes[idx]
+                                )
+                                .id(remotes[idx].id)
+                            } else {
+                                Color.clear
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Picks rows×cols for `count` tiles given the available size.
+    /// Mirrors FaceTime-on-Mac's preferences: 2 side-by-side when wide,
+    /// 2x2 for 3–4, 2x3/3x2 for 5–6, 3x3 for 7–9.
+    private static func gridLayout(count: Int, in size: CGSize) -> (rows: Int, cols: Int) {
+        guard count > 0 else { return (1, 1) }
+        let isLandscape = size.width >= size.height
+        switch count {
+        case 1: return (1, 1)
+        case 2: return isLandscape ? (1, 2) : (2, 1)
+        case 3, 4: return (2, 2)
+        case 5, 6: return isLandscape ? (2, 3) : (3, 2)
+        case 7, 8, 9: return (3, 3)
+        default:
+            let cols = Int(ceil(Double(count).squareRoot()))
+            let rows = Int(ceil(Double(count) / Double(cols)))
+            return (rows, cols)
         }
     }
 
@@ -448,6 +514,144 @@ private struct VideoRendererView<Placeholder: View>: View {
             videoView
         } else {
             placeholder()
+        }
+    }
+}
+
+// MARK: - Participant Tile
+
+/// A single tile in the remote-participants grid. Video (cropped to fill)
+/// inside a rounded rect with a soft shadow, a name pill bottom-left, and
+/// a faint outer glow when the participant is speaking. Mirrors the
+/// FaceTime-on-Mac aesthetic: clean cards, no hard borders.
+private struct ParticipantTile: View {
+    let viewModel: any CallViewModelProtocol
+    let participant: CallParticipant
+
+    private static let cornerRadius: CGFloat = 14
+    /// Aspect used for camera-off tiles or before the first frame arrives.
+    private static let placeholderAspect: CGFloat = 16.0 / 9.0
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        // Re-evaluate when video tracks change so we pick up the real
+        // dimensions after the first frame (RoomDelegate bumps
+        // videoTrackRevision on streamState transitions).
+        let _ = viewModel.videoTrackRevision
+        let aspect: CGFloat = {
+            if participant.isCameraEnabled,
+               let live = viewModel.videoAspectRatio(for: participant.id) {
+                return live
+            }
+            return Self.placeholderAspect
+        }()
+
+        ZStack(alignment: .bottomLeading) {
+            // Card background — neutral so video looks at home.
+            shape.fill(
+                LinearGradient(
+                    colors: [Color(white: 0.18), Color(white: 0.10)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+
+            if participant.isCameraEnabled {
+                VideoRendererView(viewModel: viewModel, participantID: participant.id) {
+                    placeholder
+                }
+                .clipShape(shape)
+            } else {
+                placeholder
+            }
+
+            nameLabel
+                .padding(10)
+        }
+        // Tile sizes itself to the source video aspect, centered in the
+        // grid cell. Surrounding cell area is transparent so the
+        // background gradient shows through (no harsh letterbox).
+        // Modifier order matters: shadow + overlay must apply to the
+        // aspect-fitted shape, then the outer frame centers it in the cell.
+        .aspectRatio(aspect, contentMode: .fit)
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+        .overlay(speakingGlow.allowsHitTesting(false))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Subviews
+
+    @ViewBuilder
+    private var placeholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "person.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.white.opacity(0.35))
+            Text(Self.displayName(for: participant))
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var nameLabel: some View {
+        // Always show mic state next to the name. Filled mic icon when on,
+        // slashed (red-tinted) when muted — mirrors FaceTime / Zoom badges.
+        // Solid dark capsule for guaranteed contrast over any video frame —
+        // .ultraThinMaterial blends into bright frames and the name vanishes.
+        HStack(spacing: 6) {
+            Image(systemName: participant.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(participant.isMicrophoneEnabled ? .white : .red)
+            Text(Self.displayName(for: participant))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.black.opacity(0.55), in: Capsule())
+        .overlay(
+            Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+    }
+
+    /// Pulls a friendly name out of the participant: `displayName` if the
+    /// SFU/JWT supplied one, otherwise the localpart of the Matrix user ID
+    /// (`@andrew:matrix.example.com:DEVICE` → `andrew`). Falls back to the
+    /// raw id if neither pattern matches.
+    static func displayName(for p: CallParticipant) -> String {
+        if let dn = p.displayName, !dn.isEmpty { return dn }
+        let id = p.id
+        // LiveKit identity layout used by Element Call:
+        // `@<localpart>:<server>:<deviceId>` — strip server + device.
+        if id.hasPrefix("@") {
+            let body = id.dropFirst()
+            if let colon = body.firstIndex(of: ":") {
+                let localpart = body[..<colon]
+                if !localpart.isEmpty { return String(localpart) }
+            }
+        }
+        return id
+    }
+
+    @ViewBuilder
+    private var speakingGlow: some View {
+        // Outer soft ring + a quiet inner highlight, only when speaking.
+        // Both compose with the existing card shape, no hard border.
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        if participant.isSpeaking {
+            shape
+                .stroke(Color.accentColor.opacity(0.85), lineWidth: 1.5)
+                .shadow(color: .accentColor.opacity(0.55), radius: 10)
+                .shadow(color: .accentColor.opacity(0.35), radius: 22)
+        } else {
+            shape.stroke(Color.white.opacity(0.04), lineWidth: 0.5)
         }
     }
 }

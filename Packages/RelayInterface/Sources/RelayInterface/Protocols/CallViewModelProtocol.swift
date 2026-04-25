@@ -110,4 +110,12 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
     ///
     /// - Parameter participantID: The ``CallParticipant/id`` of the participant to render.
     func makeVideoView(for participantID: String) -> AnyView?
+
+    /// Returns the aspect ratio (width / height) of the participant's currently
+    /// publishing video track, or `nil` if no track is available or its
+    /// dimensions haven't been negotiated yet. Tile-based UIs use this to
+    /// avoid stretching video — each tile can size itself to the source aspect.
+    ///
+    /// - Parameter participantID: The ``CallParticipant/id`` of the participant.
+    func videoAspectRatio(for participantID: String) -> CGFloat?
 }

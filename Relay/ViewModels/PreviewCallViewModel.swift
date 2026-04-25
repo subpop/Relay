@@ -73,4 +73,5 @@ final class PreviewCallViewModel: CallViewModelProtocol {
     }
 
     func makeVideoView(for participantID: String) -> AnyView? { nil }
+    func videoAspectRatio(for participantID: String) -> CGFloat? { 16.0 / 9.0 }
 }
