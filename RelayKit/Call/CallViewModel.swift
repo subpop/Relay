@@ -712,5 +712,37 @@ public final class CallViewModel: CallViewModelProtocol {
                 viewModel?.videoTrackRevision += 1
             }
         }
+
+        // A peer toggled their camera/mic. We need to refresh the participant
+        // snapshot (so `isCameraEnabled` / `isMicrophoneEnabled` flip) AND
+        // bump videoTrackRevision so the tile body re-evaluates and
+        // `makeVideoView` returns nil for the muted track — which surfaces
+        // the placeholder immediately instead of waiting for the next
+        // unrelated sync.
+        func room(_ room: LiveKit.Room, participant: Participant, trackPublication: TrackPublication, didUpdateIsMuted isMuted: Bool) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.syncParticipants(trackChanged: true)
+            }
+        }
+
+        // Track-removed events behave the same way for our UI: refresh
+        // participant state and bump the revision so the placeholder shows.
+        func room(_ room: LiveKit.Room, participant: RemoteParticipant, didUnpublishTrack publication: RemoteTrackPublication) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.syncParticipants(trackChanged: true)
+            }
+        }
+
+        func room(_ room: LiveKit.Room, participant: RemoteParticipant, didUnsubscribeTrack publication: RemoteTrackPublication) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.syncParticipants(trackChanged: true)
+            }
+        }
+
+        func room(_ room: LiveKit.Room, participant: LocalParticipant, didUnpublishTrack publication: LocalTrackPublication) {
+            Task { @MainActor [weak viewModel] in
+                viewModel?.videoTrackRevision += 1
+            }
+        }
     }
 }
