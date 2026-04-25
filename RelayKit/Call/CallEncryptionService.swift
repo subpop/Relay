@@ -113,8 +113,10 @@ struct CallEncryptionService {
 
         let jsonData = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
         let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
-        logger.info("[RTC]Call member event body: \(jsonString)")
-        logger.info("[RTC]Call member state key: \(stateKey)")
+        // Body + state key contain device IDs and per-call membership UUIDs;
+        // not raw secrets but routing data we don't need leaking to Console.
+        logger.debug("[RTC]Call member event body: \(jsonString, privacy: .private)")
+        logger.debug("[RTC]Call member state key: \(stateKey, privacy: .private)")
 
         _ = try await sdkRoom.sendStateEventRaw(
             eventType: Self.callMemberEventType,
@@ -165,7 +167,8 @@ struct CallEncryptionService {
             if let content = event["content"],
                let contentData = try? JSONSerialization.data(withJSONObject: content, options: [.sortedKeys]),
                let contentStr = String(data: contentData, encoding: .utf8) {
-                logger.info("[RTC]Existing call member [key=\(stateKey)]: \(contentStr)")
+                // .private — call routing data + device IDs, not for Console.
+                logger.debug("[RTC]Existing call member [key=\(stateKey, privacy: .private)]: \(contentStr, privacy: .private)")
             }
         }
     }

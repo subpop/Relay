@@ -249,7 +249,7 @@ public final class CallViewModel: CallViewModelProtocol {
                     bridge.start()
                     self.widgetBridge = bridge
                 } catch {
-                    logger.error("[RTC]Failed to create CallWidgetBridge: \(error.localizedDescription)")
+                    logger.error("[RTC]Failed to create CallWidgetBridge: \(error.localizedDescription, privacy: .private)")
                 }
             }
 
@@ -321,7 +321,7 @@ public final class CallViewModel: CallViewModelProtocol {
                         membershipId: membershipId
                     )
                 } catch {
-                    logger.warning("[RTC]Call membership event failed: \(error.localizedDescription)")
+                    logger.warning("[RTC]Call membership event failed: \(error.localizedDescription, privacy: .private)")
                 }
 
                 // 2. Start the membership heartbeat. matrix-js-sdk's
@@ -352,7 +352,7 @@ public final class CallViewModel: CallViewModelProtocol {
                             toMembers: targets
                         )
                     } catch {
-                        logger.warning("[RTC]Widget-bridge key distribution failed: \(error.localizedDescription)")
+                        logger.warning("[RTC]Widget-bridge key distribution failed: \(error.localizedDescription, privacy: .private)")
                     }
                 }
             }
@@ -367,7 +367,7 @@ public final class CallViewModel: CallViewModelProtocol {
             state = .connected
             videoTrackRevision += 1
         } catch {
-            logger.error("[RTC]Connect failed: \(error.localizedDescription)")
+            logger.error("[RTC]Connect failed: \(error.localizedDescription, privacy: .private)")
             state = .failed(error.localizedDescription)
             throw error
         }
@@ -434,7 +434,7 @@ public final class CallViewModel: CallViewModelProtocol {
                     )
                     log.debug("[RTC]Heartbeat refreshed call.member state event")
                 } catch {
-                    log.warning("[RTC]Heartbeat refresh failed: \(error.localizedDescription)")
+                    log.warning("[RTC]Heartbeat refresh failed: \(error.localizedDescription, privacy: .private)")
                 }
             }
         }
@@ -559,7 +559,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 )
                 logger.info("[RTC]Redistributed key to \(participantIdentity, privacy: .private)")
             } catch {
-                logger.warning("[RTC]Key redistribution failed for \(participantIdentity, privacy: .private): \(error.localizedDescription)")
+                logger.warning("[RTC]Key redistribution failed for \(participantIdentity, privacy: .private): \(error.localizedDescription, privacy: .private)")
             }
         }
     }

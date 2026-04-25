@@ -46,15 +46,19 @@ struct LiveKitLogBridge: LiveKit.Logger {
             return "[RTC] \(typeName).\(function) \(message().description)\(meta)"
         }()
 
+        // SECURITY: LiveKit SDK log content is at the SDK's discretion and
+        // can include connection JWTs, signaling URLs, peer identities, etc.
+        // Mark as .private so the Console redacts it on release; developers
+        // can still see the messages by enabling unredacted logging in Xcode.
         switch level {
         case .debug:
-            Self.osLogger.debug("\(rendered, privacy: .public)")
+            Self.osLogger.debug("\(rendered, privacy: .private)")
         case .info:
-            Self.osLogger.info("\(rendered, privacy: .public)")
+            Self.osLogger.info("\(rendered, privacy: .private)")
         case .warning:
-            Self.osLogger.warning("\(rendered, privacy: .public)")
+            Self.osLogger.warning("\(rendered, privacy: .private)")
         case .error:
-            Self.osLogger.error("\(rendered, privacy: .public)")
+            Self.osLogger.error("\(rendered, privacy: .private)")
         }
     }
 }
