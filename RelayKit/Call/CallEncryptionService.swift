@@ -33,8 +33,9 @@ private let logger = Logger(subsystem: "RelayKit", category: "CallEncryption")
 /// What remains in this type:
 /// - ``sendCallMemberEvent(sfuServiceURL:)`` / ``removeCallMemberEvent()`` —
 ///   MatrixRTC member state via `sendStateEventRaw` on the SDK room.
-/// - ``enableCallPowerLevels()`` — ensures call state events are sendable
-///   at PL 0 so ordinary members can join.
+///   Rooms should be created with the correct power levels via
+///   `powerLevelContentOverride` (see `MatrixService.callPowerLevels`); we
+///   no longer try to mutate them at join time, matching Element Call.
 /// - ``generateKey()`` / ``setRawKey(_:on:participantId:index:)`` —
 ///   LiveKit `BaseKeyProvider` plumbing that bypasses the String-based
 ///   `setKey(...)` API so raw AES bytes are installed unmangled.
@@ -81,11 +82,17 @@ struct CallEncryptionService {
         let stateKey = "_\(userID)_\(deviceID)_m.call"
         let serviceURL = sfuServiceURL.trimmingCharacters(in: .init(charactersIn: "/"))
         let membership = membershipId ?? "\(userID):\(deviceID)"
+        // `created_ts` makes each heartbeat a distinct event (Synapse can
+        // dedupe identical state-event content). It also gives peers a
+        // monotonic origin time for liveness tracking; matches the field
+        // matrix-js-sdk's `MatrixRTCSession` writes.
+        let createdTs = Int64(Date().timeIntervalSince1970 * 1000)
 
         // Match Element-X's exact format.
         let body: [String: Any] = [
             "application": "m.call",
             "call_id": "",
+            "created_ts": createdTs,
             "device_id": deviceID,
             "expires": 14400000,
             "focus_active": [
@@ -209,74 +216,6 @@ struct CallEncryptionService {
         }
 
         return targets.mapValues { Array($0) }
-    }
-
-    // MARK: - Room Call Setup
-
-    /// Ensures the room's power levels allow any member to send call-related
-    /// state events (`org.matrix.msc3401.call.member` and
-    /// `io.element.call.encryption_keys` at power level 0).
-    ///
-    /// Only succeeds if the current user has permission to update power levels
-    /// (typically room admins/mods). Fails silently for non-admin users — rooms
-    /// should be created with the correct power levels via `powerLevelContentOverride`.
-    func enableCallPowerLevels() async throws {
-        guard let sdkRoom else {
-            logger.warning("[RTC]No SDK room — cannot check/update power levels")
-            return
-        }
-
-        // Check if we can already send call member events.
-        let powerLevels = try await sdkRoom.getPowerLevels()
-        let canSendCallMember = powerLevels.canOwnUserSendState(stateEvent: .callMember)
-        let canSendEncKeys = powerLevels.canOwnUserSendState(
-            stateEvent: .custom(value: Self.encryptionKeysEventType)
-        )
-
-        if canSendCallMember && canSendEncKeys {
-            logger.info("[RTC]Call power levels already allow sending")
-            return
-        }
-
-        logger.info("[RTC]Call power levels need update (callMember=\(canSendCallMember), encKeys=\(canSendEncKeys))")
-
-        // Fetch current power levels JSON, merge in call event types at PL 0,
-        // and re-send via the SDK. This only works if we're admin/mod.
-        let base = homeserver.trimmingCharacters(in: .init(charactersIn: "/"))
-        let encodedRoomID = roomID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roomID
-
-        guard let getURL = URL(string: "\(base)/_matrix/client/v3/rooms/\(encodedRoomID)/state/m.room.power_levels/") else {
-            return
-        }
-
-        var getRequest = URLRequest(url: getURL)
-        getRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        let (data, getResponse) = try await URLSession.shared.data(for: getRequest)
-        guard let http = getResponse as? HTTPURLResponse, http.statusCode == 200,
-              var plDict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            logger.warning("[RTC]Could not fetch power levels for update")
-            return
-        }
-
-        var events = (plDict["events"] as? [String: Any]) ?? [:]
-        events[Self.callMemberEventType] = 0
-        events[Self.encryptionKeysEventType] = 0
-        plDict["events"] = events
-
-        let jsonData = try JSONSerialization.data(withJSONObject: plDict)
-        let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
-
-        do {
-            _ = try await sdkRoom.sendStateEventRaw(
-                eventType: "m.room.power_levels",
-                stateKey: "",
-                content: jsonString
-            )
-            logger.info("[RTC]Enabled call power levels for room")
-        } catch {
-            logger.warning("[RTC]Cannot update call power levels (likely not admin): \(error.localizedDescription)")
-        }
     }
 
     // MARK: - Key Generation

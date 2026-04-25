@@ -92,6 +92,15 @@ public final class CallViewModel: CallViewModelProtocol {
     /// MatrixRTC member state events.
     @ObservationIgnored
     private var callMembers: [String: [String]] = [:]
+    /// Periodic refresh of the `org.matrix.msc3401.call.member` state event so
+    /// peers don't expire our membership while the call is in progress.
+    /// Element Call's matrix-js-sdk `MatrixRTCSession` does the equivalent.
+    @ObservationIgnored
+    private var heartbeatTask: Task<Void, Never>?
+    /// Interval at which the call-member event is re-sent. Our `expires`
+    /// field is 4 hours; refreshing every 30 minutes keeps a generous
+    /// safety margin against missed sends.
+    private static let heartbeatInterval: Duration = .seconds(30 * 60)
 
     /// Creates a call view model without E2EE. Use ``init(encryptionContext:)``
     /// for encrypted calls that interoperate with Element Call.
@@ -298,25 +307,32 @@ public final class CallViewModel: CallViewModelProtocol {
                 // Debug: log existing call member events to compare formats.
                 await encryptionService.fetchCallMemberEvents()
 
-                // 1. Try to fix power levels (only works if we're admin/mod).
-                do {
-                    try await encryptionService.enableCallPowerLevels()
-                } catch {
-                    logger.warning("[RTC]Call power level setup failed: \(error.localizedDescription)")
-                }
-
-                // 2. Send call membership state event (after power levels).
-                // Pass the widget bridge's membershipId UUID so the
-                // state-event `membershipID` matches the `member.id`
-                // field in our outbound encryption_keys payloads.
+                // 1. Send call membership state event. Pass the widget
+                // bridge's membershipId UUID so the state-event
+                // `membershipID` matches the `member.id` field in our
+                // outbound encryption_keys payloads. Power levels must
+                // already permit this (set at room creation via
+                // `MatrixService.callPowerLevels`); we no longer try to
+                // mutate them at join time, matching Element Call.
+                let membershipId = bridge?.membershipId
                 do {
                     try await encryptionService.sendCallMemberEvent(
                         sfuServiceURL: sfuServiceURL,
-                        membershipId: bridge?.membershipId
+                        membershipId: membershipId
                     )
                 } catch {
                     logger.warning("[RTC]Call membership event failed: \(error.localizedDescription)")
                 }
+
+                // 2. Start the membership heartbeat. matrix-js-sdk's
+                // `MatrixRTCSession` re-sends roughly every `expires/2`;
+                // we use a shorter interval to be safe against missed
+                // sends. Cancelled in `disconnect()`.
+                self.heartbeatTask = Self.startHeartbeat(
+                    encryptionService: encryptionService,
+                    sfuServiceURL: sfuServiceURL,
+                    membershipId: membershipId
+                )
 
                 // 3. Distribute the already-generated local key via the
                 // widget bridge. The `messages` map for the
@@ -358,7 +374,8 @@ public final class CallViewModel: CallViewModelProtocol {
     }
 
     public func disconnect() async {
-        // Update UI state immediately — don't block on network I/O.
+        // Update UI state immediately — SwiftUI re-renders to the
+        // disconnected state while the awaited cleanup runs.
         state = .disconnected
         participants = []
         isLocalCameraEnabled = false
@@ -369,17 +386,77 @@ public final class CallViewModel: CallViewModelProtocol {
         localKeyIndex = 0
         callMembers = [:]
 
+        // Stop the heartbeat first so it can't race the leave event and
+        // accidentally re-publish a fresh membership while we're tearing down.
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+
         // Tear down the widget bridge synchronously so its tasks can't race
         // with subsequent connects.
         widgetBridge?.shutdown()
         widgetBridge = nil
 
-        // Network cleanup in background so the UI never beachballs.
+        // Proper cleanup: send the empty `m.call.member` content so peers
+        // see us leave immediately (otherwise they wait up to `expires`
+        // ms — 4 hours — before treating us as gone). Best-effort, capped
+        // by a short timeout so the UI never beach-balls if the homeserver
+        // is slow to respond.
         let service = encryptionService
-        let livekitRoom = room
-        Task.detached {
+        await Self.runWithTimeout(seconds: 2) {
             try? await service?.removeCallMemberEvent()
-            await livekitRoom.disconnect()
+        }
+
+        await room.disconnect()
+    }
+
+    /// Re-sends the call-member state event on a fixed interval until cancelled.
+    /// Detached from `self` so the loop body has no actor hop.
+    nonisolated private static func startHeartbeat(
+        encryptionService: CallEncryptionService,
+        sfuServiceURL: String,
+        membershipId: String?
+    ) -> Task<Void, Never> {
+        Task.detached(priority: .background) {
+            // Local logger — the file-scope `logger` is inferred as
+            // MainActor-isolated and isn't reachable from a detached task.
+            let log = Logger(subsystem: "RelayKit", category: "Call")
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: heartbeatInterval)
+                } catch {
+                    return  // cancelled
+                }
+                if Task.isCancelled { return }
+                do {
+                    try await encryptionService.sendCallMemberEvent(
+                        sfuServiceURL: sfuServiceURL,
+                        membershipId: membershipId
+                    )
+                    log.debug("[RTC]Heartbeat refreshed call.member state event")
+                } catch {
+                    log.warning("[RTC]Heartbeat refresh failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Runs `work` and returns when it completes or after `seconds`,
+    /// whichever comes first. The work continues in the background after
+    /// the timeout; the caller just stops waiting.
+    nonisolated private static func runWithTimeout(
+        seconds: TimeInterval,
+        _ work: @Sendable @escaping () async -> Void
+    ) async {
+        let workTask: Task<Void, Never> = Task.detached(priority: .userInitiated) {
+            await work()
+        }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await workTask.value }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+            }
+            await group.next()
+            group.cancelAll()
         }
     }
 
