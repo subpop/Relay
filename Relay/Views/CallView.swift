@@ -63,13 +63,15 @@ struct CallView: View {
                 connectedView
 
             case .disconnected:
-                endedOverlay(
-                    title: "Call Ended",
-                    systemImage: "phone.down.fill",
-                    isError: false
-                )
+                // Clean ending — close the window immediately. No overlay,
+                // no "Dismiss" button. Background cleanup (leave event,
+                // LiveKit teardown) continues in disconnect()'s task.
+                Color.clear
+                    .task { onDismiss() }
 
             case .failed(let message):
+                // Errors still show the overlay so the user can read what
+                // went wrong before dismissing.
                 endedOverlay(
                     title: "Call Failed",
                     systemImage: "exclamationmark.triangle.fill",
@@ -298,8 +300,8 @@ struct CallView: View {
 
             // End call
             Button {
-                // Only disconnect — the endedOverlay auto-dismiss
-                // will call onDismiss() after a brief delay.
+                // Disconnect — the .disconnected case in `body` calls
+                // onDismiss() immediately so the window closes.
                 Task { await viewModel.disconnect() }
             } label: {
                 Image(systemName: "phone.down.fill")
@@ -386,7 +388,10 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Ended/Failed Overlay
+    // MARK: - Failed Overlay
+    //
+    // Clean endings auto-close via `.disconnected` in `body`. This overlay
+    // is only used for failures so the user sees the error before dismissing.
 
     @ViewBuilder
     private func endedOverlay(title: String, systemImage: String, isError: Bool, detail: String? = nil) -> some View {
@@ -410,13 +415,6 @@ struct CallView: View {
                 .tint(isError ? .red : .accentColor)
                 .padding(.top, 4)
             Spacer()
-        }
-        .task {
-            // Auto-dismiss after a few seconds for clean endings.
-            if !isError {
-                try? await Task.sleep(for: .seconds(2))
-                onDismiss()
-            }
         }
     }
 
