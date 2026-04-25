@@ -454,9 +454,23 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 prevAvatarUrl: prevAvatarUrl
             )
             msgKind = .profileChange
-        case .state(_, let content):
-            msgBody = Self.stateEventDescription(content)
-            msgKind = .stateEvent
+        case .state(let stateKey, let content):
+            // Use describeStateEvent so call membership events render as
+            // "X started a call" with .callEvent kind, and so the noisy
+            // io.element.call.encryption_keys events are filtered out —
+            // matching the bulk-mapping and rebuild paths.
+            let (body, kind) = Self.describeStateEvent(
+                content,
+                stateKey: stateKey,
+                senderDisplayName: {
+                    if case .ready(let name, _, _) = event.senderProfile { return name }
+                    return nil
+                }(),
+                senderId: event.sender
+            )
+            guard let body else { return nil }
+            msgBody = body
+            msgKind = kind
         default:
             return nil
         }
@@ -952,7 +966,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
     /// Routes a state event to the appropriate description and message kind.
     ///
     /// Returns `nil` body for events that should be hidden (e.g. encryption key exchange).
-    static func describeStateEvent(
+    nonisolated static func describeStateEvent(
         _ state: OtherState,
         stateKey: String,
         senderDisplayName: String?,
