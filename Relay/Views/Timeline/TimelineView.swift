@@ -15,7 +15,6 @@
 import OSLog
 import RelayInterface
 import SwiftUI
-import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "Relay", category: "Timeline")
 
@@ -56,15 +55,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// read receipts, and drag-and-drop are all disabled.
     var readOnly: Bool = false
 
-    @State private var draftMessage = ""
-    @State private var replyingTo: TimelineMessage?
-    @State private var editingMessage: TimelineMessage?
-    @State private var stagedAttachments: [StagedAttachment] = []
-    @State private var roomMembers: [RoomMemberDetails] = []
-    @State private var draftMentions: [Mention] = []
-    @State private var mentionQuery: String?
-    @State private var mentionSelectedIndex: Int = 0
-    @State private var mentionSuggestionsHeight: CGFloat = 0
+    @State private var compose = ComposeViewModel()
     @State private var messageToDelete: TimelineMessage?
 
     @State private var tableProxy = TimelineTableProxy()
@@ -122,14 +113,14 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .environment(\.mediaAutoReveal, shouldAutoRevealMedia)
             .environment(\.gifAnimationOverride, roomOverrides.animateGIFs)
             .overlay {
-                if !readOnly, let reply = replyingTo {
+                if !readOnly, let reply = compose.replyingTo {
                     ZStack {
                         Rectangle()
                             .fill(.ultraThinMaterial)
                             .ignoresSafeArea()
                             .onTapGesture {
                                 withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                                    replyingTo = nil
+                                    compose.cancelReply()
                                 }
                             }
 
@@ -147,14 +138,14 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             }
             .overlay(alignment: .bottom) {
                 if !readOnly {
-                    composeBar
+                    composeBarSection
                 }
             }
             .dropDestination(for: URL.self) { urls, _ in
                 guard !readOnly else { return false }
                 let fileURLs = urls.filter(\.isFileURL)
                 guard !fileURLs.isEmpty else { return false }
-                stageAttachments(fileURLs)
+                compose.stageAttachments(fileURLs, errorReporter: errorReporter)
                 return true
             } isTargeted: { targeted in
                 guard !readOnly else { return }
@@ -206,7 +197,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
 
             // Fetch room members for mention autocomplete
-            roomMembers = await matrixService.roomMembers(roomId: roomId)
+            compose.members = await matrixService.roomMembers(roomId: roomId)
 
             // Auto-dismiss the "New" marker after 5 seconds, then clear it
             if viewModel.firstUnreadMessageId != nil {
@@ -239,10 +230,10 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             memberRefreshTask = Task {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
-                roomMembers = await matrixService.roomMembers(roomId: roomId)
+                compose.members = await matrixService.roomMembers(roomId: roomId)
             }
         }
-        .onChange(of: draftMessage) { oldValue, newValue in
+        .onChange(of: compose.text) { oldValue, newValue in
             guard !readOnly, sendTypingNotifications else { return }
             let wasEmpty = oldValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let isEmpty = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -367,14 +358,14 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             },
             onReply: { message in
                 withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                    replyingTo = message
+                    compose.replyingTo = message
                 }
             },
             onAvatarDoubleTap: { message in
                 onUserTap?(UserProfile(message: message))
             },
             onUserTap: { userId in
-                let member = roomMembers.first(where: { $0.userId == userId })
+                let member = compose.members.first(where: { $0.userId == userId })
                 let profile = member.map { UserProfile(member: $0) }
                     ?? UserProfile(userId: userId)
                 onUserTap?(profile)
@@ -444,84 +435,38 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
     // MARK: - Compose Bar
 
-    private var composeBar: some View {
+    private var composeBarSection: some View {
         VStack(spacing: 0) {
             TypingIndicatorOverlay(viewModel: viewModel)
 
-            if let reply = replyingTo {
-                HStack {
-                    Label("Replying to \(reply.displayName)", systemImage: "arrowshape.turn.up.left")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                            replyingTo = nil
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.title2)
-                            .foregroundStyle(.tertiary)
+            ComposeBar(
+                compose: compose,
+                onSend: {
+                    await compose.send(
+                        using: viewModel,
+                        matrixService: matrixService,
+                        roomId: roomId,
+                        sendTypingNotifications: sendTypingNotifications
+                    ) {
+                        pendingScrollToBottom = true
                     }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 4)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            if editingMessage != nil {
-                HStack {
-                    Label("Editing Message", systemImage: "pencil")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                            editingMessage = nil
-                            draftMessage = ""
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.title2)
-                            .foregroundStyle(.tertiary)
+                },
+                onAttach: { urls in
+                    compose.stageAttachments(urls, errorReporter: errorReporter)
+                },
+                onGIFSelected: { gif in
+                    await compose.sendGIF(
+                        gif,
+                        using: viewModel,
+                        gifSearchService: gifSearchService,
+                        errorReporter: errorReporter
+                    ) {
+                        pendingScrollToBottom = true
                     }
-                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 4)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            ComposeView(
-                text: $draftMessage,
-                replyingTo: $replyingTo,
-                attachments: $stagedAttachments,
-                members: roomMembers,
-                mentions: $draftMentions,
-                onSend: sendMessage,
-                onAttach: stageAttachments,
-                onGIFSelected: sendGIF,
-                mentionQuery: $mentionQuery,
-                mentionSelectedIndex: $mentionSelectedIndex
             )
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
-        }
-        .overlay(alignment: .topLeading) {
-            if mentionQuery != nil {
-                mentionSuggestions
-                    .padding(.leading, 16)
-                    .padding(.trailing, 96)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    .offset(y: -mentionSuggestionsHeight - 4)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { height in
-                        mentionSuggestionsHeight = height
-                    }
-            }
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
@@ -531,36 +476,6 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 top: 0, left: 0, bottom: height + 4, right: 0
             ))
         }
-        .onChange(of: mentionQuery) { _, _ in
-            mentionSelectedIndex = 0
-        }
-    }
-
-    // MARK: - Mention Suggestions
-
-    private var mentionSuggestions: some View {
-        MentionSuggestionView(
-            members: roomMembers,
-            query: mentionQuery ?? "",
-            selectedIndex: $mentionSelectedIndex,
-            onSelect: { member in
-                insertMention(member)
-            },
-            onDismiss: {
-                mentionQuery = nil
-            }
-        )
-    }
-
-    private func insertMention(_ member: RoomMemberDetails) {
-        NotificationCenter.default.post(
-            name: .insertMention,
-            object: nil,
-            userInfo: [
-                "userId": member.userId,
-                "displayName": member.displayName ?? member.userId
-            ]
-        )
     }
 
     @ViewBuilder
@@ -652,7 +567,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         switch action {
         case .reply(let message):
             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                replyingTo = message
+                compose.replyingTo = message
             }
         case .copy(let text):
             NSPasteboard.general.clearContents()
@@ -669,9 +584,9 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 }
             }
         case .edit(let message):
-            replyingTo = nil
-            editingMessage = message
-            draftMessage = message.body
+            compose.replyingTo = nil
+            compose.editingMessage = message
+            compose.text = message.body
         case .delete(let message):
             messageToDelete = message
         }
@@ -720,151 +635,6 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Send
-
-    private func sendMessage() {
-        let text = draftMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pendingAttachments = stagedAttachments
-        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
-
-        // Capture mentions and convert to markdown with Matrix.to links
-        let currentMentions = draftMentions
-        let mentionedUserIds = currentMentions.map(\.userId)
-        let messageText = ComposeView.markdownWithMentions(text: draftMessage, mentions: currentMentions)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check if we're in edit mode
-        if let editing = editingMessage {
-            let editId = editing.id
-            draftMessage = ""
-            draftMentions = []
-            withAnimation(.easeOut(duration: 0.2)) { editingMessage = nil }
-            Task {
-                if sendTypingNotifications {
-                    await matrixService.sendTypingNotice(roomId: roomId, isTyping: false)
-                }
-                await viewModel.edit(messageId: editId, newText: messageText, mentionedUserIds: mentionedUserIds)
-            }
-            return
-        }
-
-        let replyEventId = replyingTo?.id
-        draftMessage = ""
-        draftMentions = []
-        withAnimation(.easeOut(duration: 0.2)) { replyingTo = nil }
-        stagedAttachments = []
-        pendingScrollToBottom = true
-        Task {
-            if sendTypingNotifications {
-                await matrixService.sendTypingNotice(roomId: roomId, isTyping: false)
-            }
-            if !messageText.isEmpty {
-                await viewModel.send(text: messageText, inReplyTo: replyEventId, mentionedUserIds: mentionedUserIds)
-            }
-            for attachment in pendingAttachments {
-                let caption = attachment.caption.trimmingCharacters(in: .whitespacesAndNewlines)
-                await viewModel.sendAttachment(url: attachment.url, caption: caption.isEmpty ? nil : caption)
-            }
-        }
-    }
-
-    /// Stages selected files as ``StagedAttachment`` capsules in the compose bar
-    /// instead of sending them immediately. Files are copied to a temp directory
-    /// so the security-scoped bookmark can be released right away.
-    ///
-    /// Works for file-picker URLs (security-scoped), drag-and-drop URLs, and
-    /// pasted temp-file URLs. Security-scoped access is attempted but not required
-    /// since drag/paste URLs are not sandboxed.
-    private func stageAttachments(_ urls: [URL]) {
-        let tempDir = FileManager.default.temporaryDirectory
-        for url in urls {
-            // Attempt security-scoped access (required for file-picker URLs,
-            // returns false harmlessly for drag-and-drop / paste URLs).
-            let didAccessScope = url.startAccessingSecurityScopedResource()
-            defer { if didAccessScope { url.stopAccessingSecurityScopedResource() } }
-
-            // If the file is already in our temp directory (e.g. pasted data),
-            // use it directly instead of copying again.
-            if url.path.hasPrefix(tempDir.path) {
-                let thumbnail = generateThumbnail(for: url)
-                let staged = StagedAttachment(url: url, filename: url.lastPathComponent, thumbnail: thumbnail)
-                withAnimation(.easeOut(duration: 0.15)) {
-                    stagedAttachments.append(staged)
-                }
-                continue
-            }
-
-            let dest = tempDir.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
-            do {
-                try FileManager.default.copyItem(at: url, to: dest)
-            } catch {
-                logger.error("Failed to copy file \(url.lastPathComponent): \(error)")
-                errorReporter.report(
-                    .fileCopyFailed(filename: url.lastPathComponent, reason: error.localizedDescription)
-                )
-                continue
-            }
-
-            let thumbnail = generateThumbnail(for: dest)
-            let staged = StagedAttachment(url: dest, filename: url.lastPathComponent, thumbnail: thumbnail)
-            withAnimation(.easeOut(duration: 0.15)) {
-                stagedAttachments.append(staged)
-            }
-        }
-    }
-
-    /// Downloads the selected GIF and sends it as an image attachment.
-    ///
-    /// The GIF is downloaded to a temporary file and sent directly via the
-    /// view model's attachment pipeline. Analytics pingbacks are fired for
-    /// click and send events.
-    private func sendGIF(_ gif: GIFSearchResult) {
-        pendingScrollToBottom = true
-        Task {
-            // Fire analytics
-            if let url = gif.onsentURL {
-                await gifSearchService.registerAction(url: url)
-            }
-
-            // Download GIF data
-            let data: Data
-            do {
-                data = try await gifSearchService.downloadGIF(url: gif.originalURL)
-            } catch {
-                errorReporter.report(.fileCopyFailed(filename: "GIF", reason: error.localizedDescription))
-                return
-            }
-
-            // Write to temp file
-            let filename = "\(gif.id).gif"
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-            do {
-                try data.write(to: tempURL)
-            } catch {
-                errorReporter.report(.fileCopyFailed(filename: filename, reason: error.localizedDescription))
-                return
-            }
-
-            // Send via existing attachment pipeline
-            await viewModel.sendAttachment(url: tempURL, caption: nil)
-        }
-    }
-
-    /// Generates a small thumbnail for image files, or `nil` for other types.
-    private func generateThumbnail(for url: URL) -> NSImage? {
-        let utType = UTType(filenameExtension: url.pathExtension) ?? .data
-        guard utType.conforms(to: .image) else { return nil }
-        guard let image = NSImage(contentsOf: url) else { return nil }
-        let maxDimension: CGFloat = 56
-        let size = image.size
-        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
-        let targetSize = NSSize(width: size.width * scale, height: size.height * scale)
-        let thumbnail = NSImage(size: targetSize)
-        thumbnail.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: targetSize))
-        thumbnail.unlockFocus()
-        return thumbnail
-    }
 }
 
 

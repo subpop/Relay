@@ -14,6 +14,9 @@
 
 import AppKit
 import Foundation
+import OSLog
+
+private let logger = Logger(subsystem: "Relay", category: "PasteHandler")
 
 /// Monitors Cmd+V key events and intercepts paste when the system pasteboard
 /// contains file URLs (Finder copy), raw image data, or raw video data — but
@@ -89,7 +92,7 @@ final class PasteHandler {
         (NSPasteboard.PasteboardType("com.compuserve.gif"), ".gif"),
         (NSPasteboard.PasteboardType("org.webmproject.webp"), ".webp"),
         (NSPasteboard.PasteboardType("public.heic"), ".heic"),
-        (.tiff, ".png")
+        (.tiff, ".png"),
     ]
 
     private func extractRawImage(from pasteboard: NSPasteboard) -> URL? {
@@ -107,11 +110,12 @@ final class PasteHandler {
             }
 
             let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + "-Pasted Image" + ext)
+                .appending(path: UUID().uuidString + "-Pasted Image" + ext)
             do {
                 try data.write(to: tempURL)
                 return tempURL
             } catch {
+                logger.error("Failed to write pasted image to temp file: \(error)")
                 continue
             }
         }
@@ -123,7 +127,7 @@ final class PasteHandler {
     private static let videoTypes: [(type: NSPasteboard.PasteboardType, ext: String)] = [
         (NSPasteboard.PasteboardType("public.mpeg-4"), ".mp4"),
         (NSPasteboard.PasteboardType("com.apple.quicktime-movie"), ".mov"),
-        (NSPasteboard.PasteboardType("public.avi"), ".avi")
+        (NSPasteboard.PasteboardType("public.avi"), ".avi"),
     ]
 
     private func extractRawVideo(from pasteboard: NSPasteboard) -> URL? {
@@ -131,11 +135,12 @@ final class PasteHandler {
             guard let data = pasteboard.data(forType: type) else { continue }
 
             let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + "-Pasted Video" + ext)
+                .appending(path: UUID().uuidString + "-Pasted Video" + ext)
             do {
                 try data.write(to: tempURL)
                 return tempURL
             } catch {
+                logger.error("Failed to write pasted video to temp file: \(error)")
                 continue
             }
         }

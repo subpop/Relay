@@ -15,262 +15,173 @@
 import AppKit
 import SwiftUI
 
-// MARK: - ComposeTextView
-
-/// An `NSViewRepresentable` text editor for the compose bar that supports inline
-/// mention pills rendered as colored capsule backgrounds within the text.
+/// An `NSViewRepresentable` wrapping an `NSTextView` with inline mention pill support.
 ///
-/// This replaces the plain SwiftUI `TextField` to enable `NSAttributedString` editing
-/// with rich mention rendering. It preserves the same UX: multi-line input, Return to
-/// send, Shift+Return for newlines, and focus management.
-struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_body_length
-    /// The plain-text draft, kept in sync for message sending.
+/// ``ComposeTextView`` hosts ``PillTextAttachment`` pills rendered as
+/// static images (SwiftUI ``MentionPillView`` snapshots). It supports:
+/// - Return to send, Option+Return for newline
+/// - Arrow key / Tab / Escape navigation for mention suggestions
+/// - Atomic deletion of pill attachments
+/// - Auto-sizing height (1–5 lines, scrollable beyond)
+/// - Placeholder text when empty
+///
+/// Height is reported via the `onHeightChange` callback after every text
+/// edit. The parent view should use `.frame(height:)` to size this view.
+struct ComposeTextView: NSViewRepresentable {
     @Binding var text: String
-
-    /// Resolved mentions currently present in the text.
-    @Binding var mentions: [Mention]
-
-    /// The active `@`-query string when the user is typing a mention, or `nil`.
     @Binding var mentionQuery: String?
-
-    /// Called when the user presses Return (without Shift) to send the message.
+    /// Set by the representable on creation; the owner can call this closure
+    /// to insert a mention pill at the current `@query` position.
+    @Binding var insertMentionHandler: ((_ userId: String, _ displayName: String) -> Void)?
     var onSubmit: () -> Void
-
-    /// Called when the user presses Up arrow while mention suggestions are visible.
+    var onHeightChange: ((CGFloat) -> Void)?
     var onMentionNavigateUp: (() -> Void)?
-
-    /// Called when the user presses Down arrow while mention suggestions are visible.
     var onMentionNavigateDown: (() -> Void)?
-
-    /// Called when the user presses Tab or Return to confirm the highlighted mention suggestion.
     var onMentionConfirm: (() -> Void)?
 
-    /// Accent color from the SwiftUI environment, used for mention pill styling.
-    @Environment(\.colorScheme) private var colorScheme
-
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ComposeScrollView, context: Context) -> CGSize? {
-        let height = nsView.intrinsicContentSize.height
-        return CGSize(width: proposal.width ?? 200, height: height)
+        Coordinator(parent: self)
     }
 
     func makeNSView(context: Context) -> ComposeScrollView {
+        // Use the default NSTextView initializer which creates a TextKit 2 stack
+        // (NSTextLayoutManager). This enables NSTextAttachmentViewProvider support
+        // for rendering live SwiftUI pill views inline.
+        let textView = ComposeInputTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 22))
+        textView.textContainer?.lineFragmentPadding = 4
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainerInset = NSSize(width: 8, height: 10)
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.typingAttributes = [
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .foregroundColor: NSColor.textColor,
+        ]
+        textView.placeholderString = "Message"
+        textView.delegate = context.coordinator
+        textView.keyDelegate = context.coordinator
+
         let scrollView = ComposeScrollView()
+        scrollView.documentView = textView
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.linkedTextView = textView
 
-        // Use PillLayoutManager for capsule-shaped mention backgrounds.
-        let storage = NSTextStorage()
-        let layoutManager = PillLayoutManager()
-        layoutManager.pillHorizontalInset = 0.25
-        layoutManager.pillVerticalExpansion = 0
-        storage.addLayoutManager(layoutManager)
-        let container = NSTextContainer()
-        container.widthTracksTextView = true
-        container.lineFragmentPadding = 4
-        layoutManager.addTextContainer(container)
-
-        let textView = MentionTextView(frame: .zero, textContainer: container)
-        textView.isRichText = false
-        textView.allowsUndo = true
-        textView.drawsBackground = false
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.textContainerInset = NSSize(width: 10, height: 8)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .controlAccentColor
-
-        // Autocorrect: read from the system-wide "Correct spelling
-        // automatically" preference in Keyboard settings.
-        textView.isAutomaticSpellingCorrectionEnabled = NSSpellChecker.isAutomaticSpellingCorrectionEnabled
-
-        // Automatic text completion: read from the system-wide "Show inline
-        // predictive text" preference in Keyboard settings.
-        textView.isAutomaticTextCompletionEnabled = NSSpellChecker.isAutomaticTextCompletionEnabled
-
-        // Continuous spell checking and grammar checking have no system-wide
-        // API, so we persist them ourselves via UserDefaults (see the toggle
-        // overrides in MentionTextView). Default to true for a messaging app
-        // when no preference has been saved yet.
-        let defaults = UserDefaults.standard
-        textView.isContinuousSpellCheckingEnabled = defaults.object(forKey: MentionTextView.continuousSpellCheckingKey)
-            as? Bool ?? true
-        textView.isGrammarCheckingEnabled = defaults.object(forKey: MentionTextView.grammarCheckingKey)
-            as? Bool ?? true
-
-        textView.delegate = context.coordinator
-        textView.mentionTextViewDelegate = context.coordinator
-        textView.owningScrollView = scrollView
-
-        // Placeholder
-        textView.placeholderString = "Message"
-
-        scrollView.documentView = textView
         context.coordinator.textView = textView
+
+        // Expose the mention insertion closure to the parent view.
+        // Deferred to next main actor turn to avoid modifying state during view update.
+        let coordinator = context.coordinator
+        let heightCallback = onHeightChange
+        let initialHeight = textView.cachedHeight
+        Task { @MainActor in
+            self.insertMentionHandler = { [weak coordinator] userId, displayName in
+                coordinator?.insertMention(userId: userId, displayName: displayName)
+            }
+            heightCallback?(initialHeight)
+        }
+
+        // Restore spell check preferences.
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "relay.continuousSpellChecking") != nil {
+            textView.isContinuousSpellCheckingEnabled = defaults.bool(forKey: "relay.continuousSpellChecking")
+        }
+        if defaults.object(forKey: "relay.grammarChecking") != nil {
+            textView.isGrammarCheckingEnabled = defaults.bool(forKey: "relay.grammarChecking")
+        }
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: ComposeScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? MentionTextView else { return }
-
-        // Keep the coordinator's reference to the parent struct current so that
-        // key-handling callbacks (onMentionConfirm, etc.) and binding reads
-        // (mentionQuery) reflect the latest SwiftUI state.
         context.coordinator.parent = self
 
-        // Skip if the coordinator itself just pushed this text change to the
-        // binding — the text view's storage is already correct and replacing it
-        // mid-layout triggers an NSRangeException crash.
-        if context.coordinator.didPushTextChange {
+        guard let textView = scrollView.linkedTextView else { return }
+        guard !context.coordinator.didPushTextChange else {
             context.coordinator.didPushTextChange = false
             return
         }
 
-        // Only update text if it actually changed from outside (e.g., cleared after send)
-        let currentPlainText = textView.textStorage?.string ?? ""
-        if currentPlainText != text {
-            context.coordinator.isUpdating = true
-            textView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: NSColor.labelColor
-            ]))
-            // Re-apply mention styling if mentions exist
-            for mention in mentions
-                where mention.range.location + mention.range.length <= (textView.textStorage?.length ?? 0) {
-                context.coordinator.applyMentionStyle(to: mention.range, in: textView)
-                textView.textStorage?.addAttribute(.mentionUserId, value: mention.userId, range: mention.range)
+        // Only update if the plain text actually differs (e.g. cleared after send).
+        let currentPlain = context.coordinator.plainText(from: textView.textStorage!)
+        if currentPlain != text {
+            let storage = textView.textStorage!
+            storage.beginEditing()
+            storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
+            storage.setAttributes(textView.typingAttributes, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+            textView.recalculateHeight()
+            // Defer to the next main actor turn to avoid
+            // "Modifying state during view update".
+            let height = textView.cachedHeight
+            let callback = onHeightChange
+            Task { @MainActor in
+                callback?(height)
             }
-            context.coordinator.isUpdating = false
-            textView.needsDisplay = true
         }
     }
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, NSTextViewDelegate, MentionTextViewKeyDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, ComposeInputKeyDelegate {
         var parent: ComposeTextView
-        weak var textView: MentionTextView?
-        var isUpdating = false
-        /// Tracks whether the coordinator itself just pushed a text change to
-        /// the binding. When `true`, the immediately-following `updateNSView`
-        /// call should skip replacing the text storage because the change
-        /// originated from the text view, not from an external SwiftUI update.
+        weak var textView: ComposeInputTextView?
+
+        /// Set to `true` when the coordinator pushes a text change to prevent
+        /// `updateNSView` from re-setting the text storage (avoiding crashes).
         var didPushTextChange = false
-        private var mentionObserver: Any?
 
-        init(_ parent: ComposeTextView) {
+        init(parent: ComposeTextView) {
             self.parent = parent
-            super.init()
-
-            // Listen for mention insertion requests from the suggestion list
-            mentionObserver = NotificationCenter.default.addObserver(
-                forName: .insertMention,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let userInfo = notification.userInfo,
-                      let userId = userInfo["userId"] as? String,
-                      let displayName = userInfo["displayName"] as? String
-                else { return }
-                MainActor.assumeIsolated {
-                    self?.insertMention(userId: userId, displayName: displayName)
-                }
-            }
         }
 
-        deinit {
-            MainActor.assumeIsolated {
-                if let mentionObserver {
-                    NotificationCenter.default.removeObserver(mentionObserver)
+        // MARK: - Plain Text Extraction
+
+        /// Extracts plain text from the text storage, replacing pill attachments
+        /// with their user ID.
+        func plainText(from storage: NSTextStorage) -> String {
+            var result = ""
+            storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attrs, range, _ in
+                if let attachment = attrs[.attachment] as? PillTextAttachment {
+                    result += attachment.userId
+                } else {
+                    result += (storage.string as NSString).substring(with: range)
                 }
             }
+            return result
         }
 
-        // MARK: Key Handling
-
-        func mentionTextViewShouldConfirmOnTab(_ textView: MentionTextView) -> Bool {
-            guard parent.mentionQuery != nil else { return false }
-            parent.onMentionConfirm?()
-            return true
-        }
-
-        func mentionTextView(_ textView: MentionTextView, shouldHandleKeyDown event: NSEvent) -> Bool {
-            // Escape dismisses mention suggestions if active
-            if event.keyCode == 53 && parent.mentionQuery != nil {
-                parent.mentionQuery = nil
-                return true
-            }
-
-            // When mention suggestions are visible, intercept navigation keys
-            if parent.mentionQuery != nil {
-                // Up arrow (keyCode 126) — move selection up
-                if event.keyCode == 126 {
-                    parent.onMentionNavigateUp?()
-                    return true
-                }
-                // Down arrow (keyCode 125) — move selection down
-                if event.keyCode == 125 {
-                    parent.onMentionNavigateDown?()
-                    return true
-                }
-                // Tab is intercepted via insertTab(_:) override, not here.
-                // Return without Shift — confirm highlighted selection
-                if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
-                    parent.onMentionConfirm?()
-                    return true
-                }
-            }
-
-            // Return without Shift → send
-            if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
-                parent.onSubmit()
-                return true
-            }
-            return false
-        }
-
-        // MARK: NSTextViewDelegate
+        // MARK: - NSTextViewDelegate
 
         func textDidChange(_ notification: Notification) {
-            guard !isUpdating, let textView = notification.object as? NSTextView else { return }
+            guard let textView else { return }
+            let storage = textView.textStorage!
 
-            let fullText = textView.textStorage?.string ?? ""
+            // Reset typing attributes after a pill so subsequent typing is plain.
+            textView.typingAttributes = [
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                .foregroundColor: NSColor.textColor,
+            ]
+
+            // Sync plain text to the binding.
             didPushTextChange = true
-            parent.text = fullText
+            parent.text = plainText(from: storage)
 
-            // Update mention ranges after text edits — remove mentions whose
-            // attributed text no longer carries the mentionUserId attribute
-            var updatedMentions: [Mention] = []
-            guard let storage = textView.textStorage else { return }
+            // Detect mention query based on cursor position.
+            let cursorPosition = textView.selectedRange().location
+            detectMentionQuery(in: storage, cursorPosition: cursorPosition)
 
-            for mention in parent.mentions
-                where mention.range.location + mention.range.length <= storage.length {
-                // Check if the mention's attributed range still has the marker
-                var effectiveRange = NSRange(location: 0, length: 0)
-                let attr = storage.attribute(
-                    .mentionUserId,
-                    at: mention.range.location,
-                    effectiveRange: &effectiveRange
-                )
-                if let userId = attr as? String, userId == mention.userId,
-                   effectiveRange == mention.range {
-                    updatedMentions.append(mention)
-                }
-            }
-            parent.mentions = updatedMentions
-
-            // Detect @mention query
-            detectMentionQuery(in: textView)
+            textView.recalculateHeight()
+            parent.onHeightChange?(textView.cachedHeight)
         }
 
         func textView(
@@ -278,93 +189,143 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
-            // If the edit touches a mention pill, remove the entire mention
             guard let storage = textView.textStorage else { return true }
 
-            var mentionsToRemove: [Mention] = []
-            for mention in parent.mentions
-                where mention.range.location + mention.range.length <= storage.length {
-                let intersection = NSIntersectionRange(affectedCharRange, mention.range)
-                if intersection.length > 0 && affectedCharRange != mention.range {
-                    // Partial edit into a mention — expand to delete the whole pill
-                    mentionsToRemove.append(mention)
+            // Check if the edit touches a pill attachment — if so, delete the whole pill.
+            var pillRange: NSRange?
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, range, stop in
+                guard value is PillTextAttachment else { return }
+                let intersection = NSIntersectionRange(affectedCharRange, range)
+                if intersection.length > 0 {
+                    pillRange = range
+                    stop.pointee = true
                 }
             }
 
-            if let mentionToRemove = mentionsToRemove.first {
-                // Remove the entire mention pill atomically
-                isUpdating = true
-                textView.selectedRange = mentionToRemove.range
-                textView.insertText("", replacementRange: mentionToRemove.range)
-                parent.mentions.removeAll { $0.id == mentionToRemove.id }
-                // Adjust remaining mention ranges
-                let deletedLength = mentionToRemove.range.length
-                let deletedLocation = mentionToRemove.range.location
-                // swiftlint:disable:next identifier_name
-                for i in parent.mentions.indices
-                    where parent.mentions[i].range.location > deletedLocation {
-                    parent.mentions[i].range.location -= deletedLength
-                }
-                parent.text = textView.textStorage?.string ?? ""
-                isUpdating = false
-                detectMentionQuery(in: textView)
+            if let pillRange, affectedCharRange != pillRange {
+                // The user is trying to partially edit a pill — delete the whole pill instead.
+                storage.beginEditing()
+                storage.replaceCharacters(in: pillRange, with: "")
+                storage.endEditing()
+                textView.setSelectedRange(NSRange(location: pillRange.location, length: 0))
+                textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
                 return false
             }
 
             return true
         }
 
-        // MARK: Mention Detection
+        // MARK: - Key Handling
 
-        // Character codes used for mention detection, extracted as constants
-        // to avoid Xcode preview thunk literal transformation issues.
-        private static let atCharCode: UInt16 = 0x40 // '@'
-        private static let spaceCharCode: UInt16 = 0x20 // ' '
+        func composeTextView(_ textView: ComposeInputTextView, shouldHandleKeyDown event: NSEvent) -> Bool {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        private func detectMentionQuery(in textView: NSTextView) {
-            let text = textView.textStorage?.string ?? ""
-            let cursorLocation = textView.selectedRange().location
+            // Return key handling
+            if event.keyCode == 36 { // Return
+                if flags.contains(.option) {
+                    // Option+Return → insert newline
+                    textView.insertNewlineIgnoringFieldEditor(nil)
+                    return true
+                }
+                if parent.mentionQuery != nil {
+                    // Return with mention popup → confirm selection
+                    parent.onMentionConfirm?()
+                    return true
+                }
+                // Plain Return → send
+                parent.onSubmit()
+                return true
+            }
 
-            guard cursorLocation > 0, cursorLocation <= text.count else {
+            // Escape → dismiss mention popup
+            if event.keyCode == 53 {
+                if parent.mentionQuery != nil {
+                    parent.mentionQuery = nil
+                    return true
+                }
+                return false
+            }
+
+            // Arrow keys for mention navigation
+            if parent.mentionQuery != nil {
+                if event.keyCode == 126 { // Up arrow
+                    parent.onMentionNavigateUp?()
+                    return true
+                }
+                if event.keyCode == 125 { // Down arrow
+                    parent.onMentionNavigateDown?()
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        func composeTextViewShouldConfirmOnTab(_ textView: ComposeInputTextView) -> Bool {
+            if parent.mentionQuery != nil {
+                parent.onMentionConfirm?()
+                return true
+            }
+            return false
+        }
+
+        // MARK: - Mention Query Detection
+
+        /// Walks backward from the cursor looking for `@` preceded by whitespace
+        /// or start-of-string, then sets `mentionQuery` to the text between `@` and cursor.
+        private func detectMentionQuery(in storage: NSTextStorage, cursorPosition: Int) {
+            guard cursorPosition > 0 else {
                 parent.mentionQuery = nil
                 return
             }
 
-            // Walk backward from cursor to find an unmatched '@'
-            let nsText = text as NSString
-            // swiftlint:disable:next identifier_name
-            var i = cursorLocation - 1
-            while i >= 0 {
-                let char = nsText.character(at: i)
+            let string = storage.string as NSString
 
-                if char == Self.atCharCode {
-                    // Check that '@' is preceded by whitespace, newline, or is at position 0
-                    let precededByWhitespace = i == 0
-                        || CharacterSet.whitespacesAndNewlines
-                            .contains(Unicode.Scalar(nsText.character(at: i - 1))!)
-                    if precededByWhitespace {
-                        // Make sure the cursor isn't inside an existing mention
-                        let isInMention = parent.mentions.contains { NSLocationInRange(i, $0.range) }
-                        if !isInMention {
-                            let queryStart = i + 1
-                            let queryRange = NSRange(
-                                location: queryStart,
-                                length: cursorLocation - queryStart
-                            )
-                            let query = nsText.substring(with: queryRange)
-                            // Don't trigger if query contains whitespace (already completed or not a mention)
-                            if !query.contains(" ") && !query.contains("\n") {
-                                parent.mentionQuery = query
-                                return
-                            }
-                        }
-                    }
-                    break
+            // Walk backward from cursor to find '@'
+            var i = cursorPosition - 1
+            while i >= 0 {
+                let char = string.character(at: i)
+                guard let scalar = Unicode.Scalar(char) else { i -= 1; continue }
+
+                // If we hit whitespace or newline before finding '@', no mention
+                if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                    parent.mentionQuery = nil
+                    return
                 }
 
-                // Stop at whitespace/newlines — no '@' found in this word
-                if let scalar = Unicode.Scalar(char), CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                    break
+                if scalar == "@" {
+                    // '@' must be at start or preceded by whitespace
+                    let precededBySpace = i == 0 || {
+                        guard let prev = Unicode.Scalar(string.character(at: i - 1)) else { return false }
+                        return CharacterSet.whitespacesAndNewlines.contains(prev)
+                    }()
+                    if precededBySpace {
+                        // Check the '@' isn't inside a pill attachment
+                        var insidePill = false
+                        storage.enumerateAttribute(
+                            .attachment,
+                            in: NSRange(location: i, length: 1)
+                        ) { value, _, _ in
+                            if value is PillTextAttachment { insidePill = true }
+                        }
+                        if insidePill {
+                            parent.mentionQuery = nil
+                            return
+                        }
+
+                        let queryStart = i + 1
+                        let query = string.substring(
+                            with: NSRange(location: queryStart, length: cursorPosition - queryStart)
+                        )
+                        parent.mentionQuery = query
+                        return
+                    }
+                    // '@' not preceded by whitespace — not a mention trigger
+                    parent.mentionQuery = nil
+                    return
                 }
 
                 i -= 1
@@ -373,147 +334,192 @@ struct ComposeTextView: NSViewRepresentable { // swiftlint:disable:this type_bod
             parent.mentionQuery = nil
         }
 
-        // MARK: Mention Insertion
+        // MARK: - Mention Insertion
 
-        /// Inserts a mention pill at the current `@query` position, replacing the
-        /// `@query` text with a styled display name span.
+        /// Inserts a mention pill at the current `@query` position.
+        ///
+        /// Replaces the `@query` text with a ``PillTextAttachment`` character
+        /// that renders as an inline pill. Adds `.mentionUserID` and
+        /// `.mentionDisplayName` attributes for later extraction.
         func insertMention(userId: String, displayName: String) {
             guard let textView, let storage = textView.textStorage else { return }
+            let nsString = storage.string as NSString
+            let cursorPosition = textView.selectedRange().location
 
-            let text = storage.string
-            let cursorLocation = textView.selectedRange().location
-            let nsText = text as NSString
-
-            // Find the '@' that started this query
-            var atIndex = cursorLocation - 1
-            while atIndex >= 0 {
-                if nsText.character(at: atIndex) == Self.atCharCode {
+            // Find the '@' that started this query by walking backward from cursor.
+            var atIndex: Int?
+            var i = cursorPosition - 1
+            while i >= 0 {
+                let char = nsString.character(at: i)
+                guard let scalar = Unicode.Scalar(char) else { i -= 1; continue }
+                if scalar == "@" {
+                    let precededBySpace = i == 0 || {
+                        guard let prev = Unicode.Scalar(nsString.character(at: i - 1)) else { return false }
+                        return CharacterSet.whitespacesAndNewlines.contains(prev)
+                    }()
+                    if precededBySpace {
+                        atIndex = i
+                    }
                     break
                 }
-                atIndex -= 1
+                if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                    break
+                }
+                i -= 1
             }
 
-            guard atIndex >= 0 else { return }
+            guard let atIndex else { return }
+            let replaceRange = NSRange(location: atIndex, length: cursorPosition - atIndex)
 
-            let replaceRange = NSRange(location: atIndex, length: cursorLocation - atIndex)
-            // Pad with thin spaces for internal capsule padding + external gap,
-            // matching the MessageView pill spacing.
-            let padding = "\u{2009}\u{2009}\u{2009}"
-            let pillText = "\(padding)@\(displayName)\(padding)"
-            let pillRange = NSRange(location: atIndex, length: pillText.count)
+            let font = textView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            let attachment = PillTextAttachment(userId: userId, displayName: displayName, font: font)
 
-            isUpdating = true
+            let attachmentString = NSMutableAttributedString(attachment: attachment)
+            attachmentString.addAttributes([
+                .mentionUserID: userId,
+                .mentionDisplayName: displayName,
+                .font: font,
+                .foregroundColor: NSColor.textColor,
+            ], range: NSRange(location: 0, length: attachmentString.length))
 
-            // Replace '@query' with the pill text
-            storage.replaceCharacters(in: replaceRange, with: pillText)
+            // Add a trailing space so the user can continue typing.
+            let trailing = NSAttributedString(string: " ", attributes: [
+                .font: font,
+                .foregroundColor: NSColor.textColor,
+            ])
 
-            // Apply mention styling
-            applyMentionStyle(to: pillRange, in: textView)
-            storage.addAttribute(.mentionUserId, value: userId, range: pillRange)
+            let replacement = NSMutableAttributedString()
+            replacement.append(attachmentString)
+            replacement.append(trailing)
 
-            // Add a trailing space after the pill if there isn't one
-            let afterPill = pillRange.location + pillRange.length
-            let needsSpace = afterPill >= storage.length
-                || (storage.string as NSString).character(at: afterPill) != Self.spaceCharCode
-            if needsSpace {
-                let spaceAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                    .foregroundColor: NSColor.labelColor
-                ]
-                storage.insert(NSAttributedString(string: " ", attributes: spaceAttrs), at: afterPill)
-            }
+            storage.beginEditing()
+            storage.replaceCharacters(in: replaceRange, with: replacement)
+            storage.endEditing()
 
-            // Track the mention
-            let lengthDelta = pillText.count - replaceRange.length
-            let mention = Mention(userId: userId, displayName: displayName, range: pillRange)
+            let newCursor = atIndex + replacement.length
+            textView.setSelectedRange(NSRange(location: newCursor, length: 0))
 
-            // Adjust existing mentions that come after the insertion point
-            // swiftlint:disable:next identifier_name
-            for i in parent.mentions.indices
-                where parent.mentions[i].range.location >= atIndex {
-                parent.mentions[i].range.location += lengthDelta
-            }
-            parent.mentions.append(mention)
-
-            // Move cursor after the pill + space
-            textView.setSelectedRange(NSRange(location: afterPill + 1, length: 0))
-
-            parent.text = storage.string
-            parent.mentionQuery = nil
-            isUpdating = false
-        }
-
-        // MARK: Mention Styling
-
-        func applyMentionStyle(to range: NSRange, in textView: NSTextView) {
-            guard let storage = textView.textStorage else { return }
-            let pillColor = NSColor.controlAccentColor.withAlphaComponent(0.15)
-            storage.addAttributes([
-                .mentionPillColor: pillColor,
-                .foregroundColor: NSColor.controlAccentColor,
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium),
-                .mentionUserId: "" // placeholder, overwritten by caller
-            ], range: range)
+            textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
         }
     }
 }
 
-// MARK: - Previews
+// MARK: - Key Delegate Protocol
 
-#Preview("Empty") {
-    ComposeTextView(
-        text: .constant(""),
-        mentions: .constant([]),
-        mentionQuery: .constant(nil),
-        onSubmit: {}
-    )
-    .frame(width: 360)
-    .padding()
+/// Protocol for intercepting key events in the compose text view.
+protocol ComposeInputKeyDelegate: AnyObject {
+    func composeTextView(_ textView: ComposeInputTextView, shouldHandleKeyDown event: NSEvent) -> Bool
+    func composeTextViewShouldConfirmOnTab(_ textView: ComposeInputTextView) -> Bool
 }
 
-#Preview("With Text") {
-    ComposeTextView(
-        text: .constant("Hey, have you seen the latest build?"),
-        mentions: .constant([]),
-        mentionQuery: .constant(nil),
-        onSubmit: {}
-    )
-    .frame(width: 360)
-    .padding()
+// MARK: - ComposeScrollView
+
+/// A scroll view that reports its intrinsic content size based on the text view's height.
+final class ComposeScrollView: NSScrollView {
+    weak var linkedTextView: ComposeInputTextView?
+
+    override var intrinsicContentSize: NSSize {
+        guard let textView = linkedTextView else { return super.intrinsicContentSize }
+        return textView.intrinsicContentSize
+    }
 }
 
-#Preview("Multiline") {
-    ComposeTextView(
-        // swiftlint:disable:next line_length
-        text: .constant("Line one\nLine two\nLine three — the text view should grow vertically to fit multiple lines of content."),
-        mentions: .constant([]),
-        mentionQuery: .constant(nil),
-        onSubmit: {}
-    )
-    .frame(width: 360)
-    .padding()
-}
+// MARK: - ComposeInputTextView
 
-#Preview("With Mention") {
-    ComposeTextView(
-        text: .constant("Hey @Alice Smith check this out"),
-        mentions: .constant([
-            Mention(userId: "@alice:matrix.org", displayName: "Alice Smith", range: NSRange(location: 4, length: 12))
-        ]),
-        mentionQuery: .constant(nil),
-        onSubmit: {}
-    )
-    .frame(width: 360)
-    .padding()
-}
+/// An `NSTextView` subclass for the compose bar with key interception,
+/// placeholder drawing, and auto-sizing.
+final class ComposeInputTextView: NSTextView {
+    weak var keyDelegate: ComposeInputKeyDelegate?
+    var placeholderString: String?
 
-#Preview("Active Query") {
-    ComposeTextView(
-        text: .constant("Hey @bo"),
-        mentions: .constant([]),
-        mentionQuery: .constant("bo"),
-        onSubmit: {}
-    )
-    .frame(width: 360)
-    .padding()
+    /// Cached content height, updated after every text change.
+    /// Initialized to a sensible single-line height (lineHeight + insets).
+    private(set) var cachedHeight: CGFloat = NSFont.systemFontSize * 1.2 + 20
+    private var isRecalculatingHeight = false
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: cachedHeight)
+    }
+
+    /// Recomputes the content height from the current layout and invalidates
+    /// intrinsic content size so SwiftUI picks up the change.
+    func recalculateHeight() {
+        guard !isRecalculatingHeight else { return }
+        isRecalculatingHeight = true
+        defer { isRecalculatingHeight = false }
+
+        let insets = textContainerInset
+        let lineHeight = (font ?? .systemFont(ofSize: NSFont.systemFontSize)).pointSize * 1.2
+        let minHeight = lineHeight + insets.height * 2
+        let maxHeight = lineHeight * 5 + insets.height * 2
+
+        let usedHeight: CGFloat
+        if let layoutManager, let textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+            usedHeight = layoutManager.usedRect(for: textContainer).height
+        } else {
+            usedHeight = 0
+        }
+
+        let newHeight = min(max(usedHeight + insets.height * 2, minHeight), maxHeight)
+        guard newHeight != cachedHeight else { return }
+        cachedHeight = newHeight
+        invalidateIntrinsicContentSize()
+        (enclosingScrollView as? ComposeScrollView)?.invalidateIntrinsicContentSize()
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        recalculateHeight()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let keyDelegate, keyDelegate.composeTextView(self, shouldHandleKeyDown: event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(insertTab(_:)) {
+            if let keyDelegate, keyDelegate.composeTextViewShouldConfirmOnTab(self) {
+                return
+            }
+        }
+        super.doCommand(by: selector)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        // Draw placeholder when empty.
+        if string.isEmpty, let placeholder = placeholderString {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: font ?? .systemFont(ofSize: NSFont.systemFontSize),
+                .foregroundColor: NSColor.placeholderTextColor,
+            ]
+            let insets = textContainerInset
+            let padding = textContainer?.lineFragmentPadding ?? 0
+            let origin = NSPoint(x: insets.width + padding, y: insets.height)
+            (placeholder as NSString).draw(at: origin, withAttributes: attrs)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            window?.makeFirstResponder(self)
+        }
+    }
+
+    // Persist spell check preferences since the app isn't NSDocument-based.
+    override func toggleContinuousSpellChecking(_ sender: Any?) {
+        super.toggleContinuousSpellChecking(sender)
+        UserDefaults.standard.set(isContinuousSpellCheckingEnabled, forKey: "relay.continuousSpellChecking")
+    }
+
+    override func toggleGrammarChecking(_ sender: Any?) {
+        super.toggleGrammarChecking(sender)
+        UserDefaults.standard.set(isGrammarCheckingEnabled, forKey: "relay.grammarChecking")
+    }
 }

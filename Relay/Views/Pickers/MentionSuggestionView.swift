@@ -18,27 +18,17 @@ import SwiftUI
 /// A floating suggestion list that displays room members matching the current `@` query.
 ///
 /// ``MentionSuggestionView`` appears above the compose bar when the user types `@` followed
-/// by zero or more characters. It filters the room's member list by display name (case-insensitive
-/// substring match) and lets the user select a member to insert a mention pill.
+/// by zero or more characters. It filters the room's member list by display name using
+/// `localizedStandardContains` for user-input filtering.
 ///
-/// Keyboard navigation is supported via the `selectedIndex` binding: the parent view updates
-/// the index in response to Up/Down arrow keys, and reads it back to confirm a selection
-/// on Tab or Return.
+/// Keyboard navigation is supported via the compose view model: the parent view updates
+/// the selected index in response to Up/Down arrow keys, and reads it back to confirm
+/// a selection on Tab or Return.
 struct MentionSuggestionView: View {
-    /// The room members available for mention.
-    let members: [RoomMemberDetails]
-
-    /// The current query string (characters typed after `@`). Empty string shows all members.
-    let query: String
-
-    /// The index of the currently highlighted row, managed by the parent view.
-    @Binding var selectedIndex: Int
+    @Bindable var compose: ComposeViewModel
 
     /// Called when a member is selected from the suggestion list.
     let onSelect: (RoomMemberDetails) -> Void
-
-    /// Called when the user dismisses the suggestion list (Escape key or click outside).
-    let onDismiss: () -> Void
 
     /// The maximum number of visible suggestions before scrolling.
     private let maxVisible = 6
@@ -49,49 +39,46 @@ struct MentionSuggestionView: View {
     /// Vertical padding inside the scroll content VStack (top + bottom).
     private let contentPadding: CGFloat = 8
 
-    /// The filtered member list matching the current query.
-    var filteredMembers: [RoomMemberDetails] {
-        if query.isEmpty {
-            return Array(members.prefix(maxVisible * 2))
-        }
-        let lowered = query.lowercased()
-        return members.filter { member in
-            let name = member.displayName ?? member.userId
-            return name.lowercased().contains(lowered)
-                || member.userId.lowercased().contains(lowered)
-        }
-    }
+    @State private var scrollPosition = ScrollPosition()
 
     var body: some View {
-        let matches = filteredMembers
+        let matches = compose.filteredMentionMembers
         if !matches.isEmpty {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(matches.enumerated()), id: \.element.id) { index, member in
-                            memberRow(member, isSelected: index == selectedIndex)
-                                .id(member.id)
-                                .onHover { hovering in
-                                    if hovering {
-                                        selectedIndex = index
-                                    }
-                                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(matches.enumerated(), id: \.element.id) { index, member in
+                        MentionRow(
+                            member: member,
+                            isSelected: index == compose.mentionSelectedIndex
+                        ) {
+                            onSelect(member)
+                        }
+                        .id(member.id)
+                        .onHover { hovering in
+                            if hovering {
+                                compose.mentionSelectedIndex = index
+                            }
                         }
                     }
-                    .padding(.vertical, 4)
                 }
-                .frame(height: CGFloat(min(matches.count, maxVisible)) * rowHeight + contentPadding)
-                .onChange(of: selectedIndex) { _, newIndex in
-                    let clamped = max(0, min(newIndex, matches.count - 1))
-                    if clamped != newIndex { selectedIndex = clamped }
-                    if clamped < matches.count {
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(matches[clamped].id, anchor: nil)
-                        }
+                .padding(.vertical, 4)
+            }
+            .scrollPosition($scrollPosition)
+            .frame(
+                height: CGFloat(min(matches.count, maxVisible)) * rowHeight + contentPadding
+            )
+            .onChange(of: compose.mentionSelectedIndex) { _, newIndex in
+                let clamped = max(0, min(newIndex, matches.count - 1))
+                if clamped != newIndex { compose.mentionSelectedIndex = clamped }
+                if clamped < matches.count {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        scrollPosition.scrollTo(id: matches[clamped].id)
                     }
                 }
             }
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(
+                .ultraThinMaterial, in: .rect(cornerRadius: 10)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
@@ -100,10 +87,17 @@ struct MentionSuggestionView: View {
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
+}
 
-    private func memberRow(_ member: RoomMemberDetails, isSelected: Bool) -> some View {
+/// A single row in the mention suggestion list.
+private struct MentionRow: View {
+    let member: RoomMemberDetails
+    let isSelected: Bool
+    var onSelect: () -> Void
+
+    var body: some View {
         Button {
-            onSelect(member)
+            onSelect()
         } label: {
             HStack(spacing: 8) {
                 AvatarView(
@@ -115,7 +109,7 @@ struct MentionSuggestionView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(member.displayName ?? member.userId)
                         .font(.callout)
-                        .fontWeight(.medium)
+                        .bold()
                         .lineLimit(1)
 
                     if member.displayName != nil {
@@ -131,13 +125,14 @@ struct MentionSuggestionView: View {
                 if member.role != .user {
                     Text(member.role.rawValue.capitalized)
                         .font(.caption2)
-                        .fontWeight(.medium)
+                        .bold()
                         .foregroundStyle(member.role == .administrator ? .orange : .blue)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(
-                            (member.role == .administrator ? Color.orange : Color.blue).opacity(0.1),
-                            in: Capsule()
+                            (member.role == .administrator ? Color.orange : Color.blue)
+                                .opacity(0.1),
+                            in: .capsule
                         )
                 }
             }
@@ -152,7 +147,6 @@ struct MentionSuggestionView: View {
 /// A button style for mention suggestion rows with hover and keyboard-selection highlighting.
 private struct MentionRowButtonStyle: ButtonStyle {
     let isSelected: Bool
-    @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -178,16 +172,27 @@ private struct MentionRowButtonStyle: ButtonStyle {
     VStack {
         Spacer()
         MentionSuggestionView(
-            members: [
-                RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
-                RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
-                RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis"),
-                RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans")
-            ],
-            query: "",
-            selectedIndex: .constant(0),
-            onSelect: { _ in },
-            onDismiss: {}
+            compose: {
+                let vm = ComposeViewModel()
+                vm.members = [
+                    RoomMemberDetails(
+                        userId: "@alice:matrix.org", displayName: "Alice Smith",
+                        role: .administrator
+                    ),
+                    RoomMemberDetails(
+                        userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator
+                    ),
+                    RoomMemberDetails(
+                        userId: "@charlie:matrix.org", displayName: "Charlie Davis"
+                    ),
+                    RoomMemberDetails(
+                        userId: "@diana:matrix.org", displayName: "Diana Evans"
+                    ),
+                ]
+                vm.mentionQuery = ""
+                return vm
+            }(),
+            onSelect: { _ in }
         )
         .padding()
     }
@@ -199,15 +204,24 @@ private struct MentionRowButtonStyle: ButtonStyle {
     VStack {
         Spacer()
         MentionSuggestionView(
-            members: [
-                RoomMemberDetails(userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator),
-                RoomMemberDetails(userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator),
-                RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis")
-            ],
-            query: "ali",
-            selectedIndex: .constant(0),
-            onSelect: { _ in },
-            onDismiss: {}
+            compose: {
+                let vm = ComposeViewModel()
+                vm.members = [
+                    RoomMemberDetails(
+                        userId: "@alice:matrix.org", displayName: "Alice Smith",
+                        role: .administrator
+                    ),
+                    RoomMemberDetails(
+                        userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator
+                    ),
+                    RoomMemberDetails(
+                        userId: "@charlie:matrix.org", displayName: "Charlie Davis"
+                    ),
+                ]
+                vm.mentionQuery = "ali"
+                return vm
+            }(),
+            onSelect: { _ in }
         )
         .padding()
     }

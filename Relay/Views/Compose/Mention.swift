@@ -12,26 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import AppKit
 import Foundation
 
-// MARK: - Mention Model
-
-/// A resolved user mention embedded in the compose text.
+/// A resolved user mention tracked in the compose bar.
 ///
-/// Each ``Mention`` tracks the Matrix user ID, the visible display name, and the
-/// range within the `NSTextView`'s attributed string where the pill is rendered.
+/// Each ``Mention`` pairs a Matrix user ID with its display name.
+/// Mentions are displayed inline in the text view as ``PillTextAttachment``
+/// capsules. At send time the view model converts each occurrence to a
+/// Matrix.to markdown link via ``ComposeViewModel/markdownWithMentions()``.
 struct Mention: Identifiable, Equatable {
     let id = UUID()
     let userId: String
     let displayName: String
-    /// The character range of this mention pill in the attributed string.
-    var range: NSRange
-}
-
-// MARK: - Custom Attribute Key
-
-extension NSAttributedString.Key {
-    /// Custom attribute key attached to mention pill spans, storing the Matrix user ID.
-    static let mentionUserId = NSAttributedString.Key("relay.mentionUserId")
 }
