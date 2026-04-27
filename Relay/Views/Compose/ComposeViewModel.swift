@@ -104,11 +104,21 @@ final class ComposeViewModel {
     // MARK: - Mention Actions
 
     /// Confirms the currently highlighted mention suggestion.
-    func confirmSelectedMention() {
+    ///
+    /// Returns `true` if a suggestion was selected, or `false` when the
+    /// suggestion list was empty (no match to confirm).  When returning
+    /// `false`, `mentionQuery` is cleared so the caller can fall through
+    /// to normal Return-to-send behaviour.
+    @discardableResult
+    func confirmSelectedMention() -> Bool {
         let matches = filteredMentionMembers
-        guard !matches.isEmpty else { return }
+        guard !matches.isEmpty else {
+            mentionQuery = nil
+            return false
+        }
         let index = max(0, min(mentionSelectedIndex, matches.count - 1))
         selectMention(matches[index])
+        return true
     }
 
     /// Inserts a mention pill for the given member via the text view coordinator.

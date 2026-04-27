@@ -37,7 +37,7 @@ struct ComposeTextView: NSViewRepresentable {
     var onHeightChange: ((CGFloat) -> Void)?
     var onMentionNavigateUp: (() -> Void)?
     var onMentionNavigateDown: (() -> Void)?
-    var onMentionConfirm: (() -> Void)?
+    var onMentionConfirm: (() -> Bool)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -231,11 +231,14 @@ struct ComposeTextView: NSViewRepresentable {
                     return true
                 }
                 if parent.mentionQuery != nil {
-                    // Return with mention popup → confirm selection
-                    parent.onMentionConfirm?()
-                    return true
+                    // Return with mention popup → confirm selection.
+                    // If there are no suggestions the confirm is a no-op;
+                    // fall through to send instead of swallowing the key.
+                    if parent.onMentionConfirm?() == true {
+                        return true
+                    }
                 }
-                // Plain Return → send
+                // Plain Return (or no suggestions) → send
                 parent.onSubmit()
                 return true
             }
@@ -266,7 +269,7 @@ struct ComposeTextView: NSViewRepresentable {
 
         func composeTextViewShouldConfirmOnTab(_ textView: ComposeInputTextView) -> Bool {
             if parent.mentionQuery != nil {
-                parent.onMentionConfirm?()
+                _ = parent.onMentionConfirm?()
                 return true
             }
             return false

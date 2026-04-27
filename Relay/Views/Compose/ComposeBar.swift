@@ -148,7 +148,7 @@ private struct ComposeBarContent: View {
                     compose.mentionSelectedIndex += 1
                 },
                 onMentionConfirm: {
-                    compose.confirmSelectedMention()
+                    return compose.confirmSelectedMention()
                 }
             )
             .frame(height: textViewHeight)
