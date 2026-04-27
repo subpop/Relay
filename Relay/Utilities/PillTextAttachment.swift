@@ -49,28 +49,38 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     /// Stored as a plain `CGFloat` to avoid `Sendable` issues with `NSFont`.
     let pillFontSize: CGFloat
 
-    /// Whether this pill is rendered in an outgoing (sent by the user) message
-    /// bubble. Outgoing pills use white text on a translucent white background
-    /// for contrast against the accent-colored bubble.
-    let isOutgoing: Bool
-
-    init(userId: String, displayName: String, font: NSFont, isOutgoing: Bool = false) {
+    /// Creates a pill attachment for the compose bar (stable color tint, no border).
+    init(userId: String, displayName: String, font: NSFont) {
         self.userId = userId
         self.displayName = displayName
         self.pillFontSize = font.pointSize
-        self.isOutgoing = isOutgoing
         super.init(data: nil, ofType: nil)
-        // On macOS, NSTextAttachment auto-creates an NSTextAttachmentCell.
-        // Nil it out so we control rendering via the image property.
         self.attachmentCell = nil
 
-        // Render the pill SwiftUI view to a static NSImage.
         let pillSize = MentionPillView.measureSize(
             displayName: displayName,
             font: NSFont.systemFont(ofSize: font.pointSize)
         )
         self.image = Self.renderPillImage(
-            displayName: displayName, size: pillSize, isOutgoing: isOutgoing
+            userId: userId, displayName: displayName, size: pillSize, style: .compose
+        )
+        self.bounds = CGRect(origin: .zero, size: pillSize)
+    }
+
+    /// Creates a pill attachment for message rendering with a specific style.
+    init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle) {
+        self.userId = userId
+        self.displayName = displayName
+        self.pillFontSize = font.pointSize
+        super.init(data: nil, ofType: nil)
+        self.attachmentCell = nil
+
+        let pillSize = MentionPillView.measureSize(
+            displayName: displayName,
+            font: NSFont.systemFont(ofSize: font.pointSize)
+        )
+        self.image = Self.renderPillImage(
+            userId: userId, displayName: displayName, size: pillSize, style: style
         )
         self.bounds = CGRect(origin: .zero, size: pillSize)
     }
@@ -82,31 +92,36 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
 
     // MARK: - Image Rendering
 
-    /// Renders the ``MentionPillView`` to a static `NSImage` for inline display.
+    /// Renders the ``MentionPillView`` to a static `NSImage` at 2x resolution.
+    ///
+    /// Uses SwiftUI's `ImageRenderer` with an explicit scale of 2 so that pills
+    /// look sharp on Retina displays without relying on window backing scale.
+    /// The resulting `NSImage` has its logical size set to the 1x point size so
+    /// TextKit positions it correctly.
     private static func renderPillImage(
-        displayName: String, size: CGSize, isOutgoing: Bool
+        userId: String, displayName: String, size: CGSize, style: MentionPillStyle
     ) -> NSImage {
         MainActor.assumeIsolated {
-            let pillView = MentionPillView(displayName: displayName, isOutgoing: isOutgoing)
-            let hostingView = NSHostingView(rootView: pillView)
-            let bounds = CGRect(origin: .zero, size: size)
-            hostingView.frame = bounds
+            let tintColor = StableNameColor.color(for: userId)
+            let pillView = MentionPillView(
+                displayName: displayName, tintColor: tintColor, style: style
+            )
+            let renderer = ImageRenderer(content: pillView)
+            renderer.scale = 2
 
-            // Force layout so the hosting view measures its SwiftUI content.
-            hostingView.layoutSubtreeIfNeeded()
-
-            guard let bitmapRep = hostingView.bitmapImageRepForCachingDisplay(in: bounds) else {
+            guard let cgImage = renderer.cgImage else {
                 return NSImage(size: size)
             }
-            hostingView.cacheDisplay(in: bounds, to: bitmapRep)
-
-            let image = NSImage(size: size)
-            image.addRepresentation(bitmapRep)
-            return image
+            return NSImage(cgImage: cgImage, size: size)
         }
     }
 
     // MARK: - Attachment Bounds
+
+    /// Extra vertical padding (top + bottom) added to the pill's natural height
+    /// so that the line fragment expands and the image draws at full size
+    /// without being compressed.
+    private static let verticalPadding: CGFloat = 2
 
     /// TextKit 2 attachment bounds. Called by `NSTextLayoutManager` during layout.
     @preconcurrency
@@ -117,13 +132,7 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         proposedLineFragment: CGRect,
         position: CGPoint
     ) -> CGRect {
-        let pillSize = bounds.size
-        let font = NSFont.systemFont(ofSize: pillFontSize)
-        // y is relative to the baseline. Place the pill so its vertical
-        // center aligns with the midpoint between ascender and descender.
-        let midline = (font.ascender + font.descender) / 2
-        let y = midline - pillSize.height / 2
-        return CGRect(origin: CGPoint(x: 0, y: y), size: pillSize)
+        Self.paddedBounds(pillSize: bounds.size, fontSize: pillFontSize)
     }
 
     /// TextKit 1 attachment bounds (fallback).
@@ -134,10 +143,20 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         glyphPosition position: CGPoint,
         characterIndex charIndex: Int
     ) -> CGRect {
-        let pillSize = bounds.size
-        let font = NSFont.systemFont(ofSize: pillFontSize)
+        Self.paddedBounds(pillSize: bounds.size, fontSize: pillFontSize)
+    }
+
+    /// Returns attachment bounds with vertical padding so the pill image draws
+    /// at its natural size. The y origin centers the padded rect on the font's
+    /// visual midline (midpoint between ascender and descender).
+    private static func paddedBounds(pillSize: CGSize, fontSize: CGFloat) -> CGRect {
+        let font = NSFont.systemFont(ofSize: fontSize)
+        let paddedHeight = pillSize.height + verticalPadding
         let midline = (font.ascender + font.descender) / 2
-        let y = midline - pillSize.height / 2
-        return CGRect(origin: CGPoint(x: 0, y: y), size: pillSize)
+        let y = midline - paddedHeight / 2
+        return CGRect(
+            origin: CGPoint(x: 0, y: y),
+            size: CGSize(width: pillSize.width, height: paddedHeight)
+        )
     }
 }

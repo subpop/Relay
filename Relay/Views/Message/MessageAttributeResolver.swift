@@ -27,11 +27,15 @@ extension MessageTextView {
     /// inline ``PillTextAttachment`` images rendered from ``MentionPillView``.
     /// The `.link` attribute is preserved on the attachment character so that
     /// click-to-navigate still works via ``MessageTextContent``.
+    ///
+    /// - Parameter pillStyle: The visual style for mention pills. Use
+    ///   `.messageDefault` for incoming grey bubbles, `.messageWhiteText` for
+    ///   outgoing blue or colored bubbles.
     static func applyColorOverrides(
         _ source: NSAttributedString,
         foreground: NSColor,
         linkColor: NSColor,
-        isOutgoing: Bool = false
+        pillStyle: MentionPillStyle = .messageDefault
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: source)
         let fullRange = NSRange(location: 0, length: result.length)
@@ -86,7 +90,7 @@ extension MessageTextView {
                 userId: mention.uri.identifier,
                 displayName: mention.displayName,
                 font: baseFont,
-                isOutgoing: isOutgoing
+                style: pillStyle
             )
             let attachmentString = NSMutableAttributedString(attachment: pill)
             // Preserve the .link attribute so click-to-navigate still works.

@@ -43,6 +43,10 @@ struct MessageTextView: NSViewRepresentable {
         isOutgoing ? NSColor.white.withAlphaComponent(0.9) : .controlAccentColor
     }
 
+    private var pillStyle: MentionPillStyle {
+        isOutgoing ? .messageWhiteText : .messageDefault
+    }
+
     // MARK: - Coordinator
 
     /// Caches the last resolved `NSAttributedString` so that `updateNSView`
@@ -94,7 +98,7 @@ struct MessageTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         let resolved = Self.applyColorOverrides(
             attributedString, foreground: foregroundColor, linkColor: linkColor,
-            isOutgoing: isOutgoing
+            pillStyle: pillStyle
         )
         coordinator.lastAttributedString = attributedString
         coordinator.lastIsOutgoing = isOutgoing
@@ -124,7 +128,7 @@ struct MessageTextView: NSViewRepresentable {
                 attributedString,
                 foreground: foregroundColor,
                 linkColor: linkColor,
-                isOutgoing: isOutgoing
+                pillStyle: pillStyle
             )
             coordinator.lastAttributedString = attributedString
             coordinator.lastIsOutgoing = isOutgoing

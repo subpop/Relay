@@ -15,41 +15,76 @@
 import AppKit
 import SwiftUI
 
+/// The visual style applied to a mention pill, determining text and background colors.
+///
+/// Each style is tuned for a specific bubble context so that the pill reads
+/// clearly without looking like a pasted image:
+///
+/// - ``compose``: Compose text field — stable color tint on a dark surface.
+/// - ``messageDefault``: Default incoming grey bubble — stable color tint with
+///   primary label text. Works in both light and dark mode because the grey
+///   backdrop is neutral.
+/// - ``messageWhiteText``: Any bubble with white text (outgoing blue, or any
+///   colored bubble) — translucent white fill with white text, giving a frosted
+///   glass appearance that works on any saturated hue.
+enum MentionPillStyle: Sendable {
+    /// Compose bar — stable color tint, primary text.
+    case compose
+
+    /// Default incoming (grey bubble) — stable color tint, primary text.
+    case messageDefault
+
+    /// Outgoing blue bubble or any colored bubble — frosted white.
+    case messageWhiteText
+}
+
 /// A capsule-shaped pill view for inline mention display.
 ///
 /// ``MentionPillView`` is rendered to a static `NSImage` by ``PillTextAttachment``
 /// at creation time. The image is set on the attachment and displayed inline by
 /// the `NSTextView`'s layout system. It displays `@DisplayName` in a rounded
-/// capsule.
-///
-/// - Compose bar and incoming messages: accent color text on a translucent
-///   accent background.
-/// - Outgoing messages: white text on a translucent white background, so pills
-///   remain visible against the accent-colored bubble.
+/// capsule styled according to its ``MentionPillStyle``.
 struct MentionPillView: View {
     let displayName: String
-    var isOutgoing = false
+
+    /// The user's stable color derived from ``StableNameColor``.
+    /// Used as the pill's capsule background tint in `.compose` and `.messageDefault` styles.
+    var tintColor: Color = .accentColor
+
+    /// The visual style of the pill. Defaults to `.compose`.
+    var style: MentionPillStyle = .compose
 
     private var pillText: String {
         displayName.hasPrefix("@") ? displayName : "@\(displayName)"
     }
 
-    private var foreground: Color {
-        isOutgoing ? .white : .accentColor
+    private var textColor: Color {
+        switch style {
+        case .compose, .messageDefault:
+            .primary
+        case .messageWhiteText:
+            .white
+        }
     }
 
-    private var background: Color {
-        isOutgoing ? .white.opacity(0.25) : .accentColor.opacity(0.15)
+    private var backgroundColor: Color {
+        switch style {
+        case .compose:
+            tintColor.opacity(0.3)
+        case .messageDefault:
+            tintColor.opacity(0.2)
+        case .messageWhiteText:
+            .white.opacity(0.3)
+        }
     }
 
     var body: some View {
         Text(pillText)
             .font(.callout)
             .bold()
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(background, in: .capsule)
+            .foregroundStyle(textColor)
+            .padding(.horizontal, 4)
+            .background(backgroundColor, in: .capsule)
     }
 
     // MARK: - Measurement
@@ -58,7 +93,7 @@ struct MentionPillView: View {
     private static let horizontalPadding: CGFloat = 12
 
     /// Vertical padding inside the capsule (top + bottom).
-    private static let verticalPadding: CGFloat = 2
+    private static let verticalPadding: CGFloat = 1
 
     /// Measures the size the pill will occupy for layout purposes.
     static func measureSize(displayName: String, font: NSFont) -> CGSize {
@@ -75,14 +110,62 @@ struct MentionPillView: View {
     }
 }
 
-#Preview {
+#Preview("Compose") {
     VStack(spacing: 12) {
-        MentionPillView(displayName: "Alice Smith")
-        MentionPillView(displayName: "Bob", isOutgoing: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .background(Color.accentColor)
-            .clipShape(.rect(cornerRadius: 8))
+        MentionPillView(
+            displayName: "Alice Smith",
+            tintColor: StableNameColor.color(for: "@alice:matrix.org"),
+            style: .compose
+        )
+        MentionPillView(
+            displayName: "Bob",
+            tintColor: StableNameColor.color(for: "@bob:matrix.org"),
+            style: .compose
+        )
     }
     .padding()
+}
+
+#Preview("Default Incoming (Grey Bubble)") {
+    VStack(spacing: 12) {
+        MentionPillView(
+            displayName: "Alice Smith",
+            tintColor: StableNameColor.color(for: "@alice:matrix.org"),
+            style: .messageDefault
+        )
+        MentionPillView(
+            displayName: "Bob",
+            tintColor: StableNameColor.color(for: "@bob:matrix.org"),
+            style: .messageDefault
+        )
+    }
+    .padding()
+    .background(Color(.unemphasizedSelectedContentBackgroundColor))
+}
+
+#Preview("Outgoing Blue Bubble") {
+    VStack(spacing: 12) {
+        MentionPillView(displayName: "Alice Smith", style: .messageWhiteText)
+        MentionPillView(displayName: "Bob", style: .messageWhiteText)
+    }
+    .padding()
+    .background(Color.accentColor)
+}
+
+#Preview("Colored Bubble — Warm") {
+    VStack(spacing: 12) {
+        MentionPillView(displayName: "Alice Smith", style: .messageWhiteText)
+        MentionPillView(displayName: "Bob", style: .messageWhiteText)
+    }
+    .padding()
+    .background(StableNameColor.color(for: "@eve:matrix.org"))
+}
+
+#Preview("Colored Bubble — Cool") {
+    VStack(spacing: 12) {
+        MentionPillView(displayName: "Alice Smith", style: .messageWhiteText)
+        MentionPillView(displayName: "Bob", style: .messageWhiteText)
+    }
+    .padding()
+    .background(StableNameColor.color(for: "@frank:matrix.org"))
 }
