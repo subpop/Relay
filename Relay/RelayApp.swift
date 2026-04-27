@@ -78,6 +78,7 @@ struct RelayApp: App {
         .defaultSize(width: 880, height: 560)
         .commands {
             FileMenuCommands(appActions: appActions)
+            EditLastMessageCommand()
             SidebarCommands()
             CommandGroup(before: .appTermination) {
                 Button("Clear Cache…") {
@@ -275,6 +276,27 @@ struct FileMenuCommands: Commands {
                 appActions.showRoomDirectory = true
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
+        }
+    }
+}
+
+// MARK: - Edit Last Message Command
+
+/// Adds an "Edit Last Message" item (⌘E) to the Edit menu.
+///
+/// The command reads the ``EditLastMessageKey`` focused value published by
+/// ``TimelineView``.  When a timeline is focused and contains at least one
+/// outgoing text message, pressing ⌘E starts editing that message.
+struct EditLastMessageCommand: Commands {
+    @FocusedValue(\.editLastMessage) private var editLastMessage
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Button("Edit Last Message") {
+                editLastMessage?()
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(editLastMessage == nil)
         }
     }
 }

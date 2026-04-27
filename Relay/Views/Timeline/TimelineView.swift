@@ -275,6 +275,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         } message: {
             Text("Are you sure you want to delete this message? This cannot be undone.")
         }
+        .focusedValue(\.editLastMessage, editLastMessageAction)
     }
 
     // MARK: - Message List
@@ -558,6 +559,21 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
             await viewModel.sendFullyReadReceipt(upTo: eventId)
+        }
+    }
+
+    // MARK: - Edit Last Message
+
+    /// Returns a closure that starts editing the current user's most recent
+    /// text message, or `nil` when the compose bar is hidden or no editable
+    /// message exists.
+    private var editLastMessageAction: (() -> Void)? {
+        guard !readOnly else { return nil }
+        guard let message = viewModel.messages.last(where: { $0.isOutgoing && $0.kind == .text }) else {
+            return nil
+        }
+        return {
+            handleContextAction(.edit(message))
         }
     }
 
