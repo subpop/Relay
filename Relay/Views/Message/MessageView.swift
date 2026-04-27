@@ -119,15 +119,15 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                                     showEmojiPicker = false
                                 }
                             }
+                            .background(alignment: .leading) {
+                                if swipeOffset > 0 {
+                                    replyArrow
+                                        .offset(x: -swipeOffset)
+                                }
+                            }
                     }
                 }
                 .frame(maxWidth: 500, alignment: message.isOutgoing ? .trailing : .leading)
-                .background(alignment: .leading) {
-                    if swipeOffset > 0 {
-                        replyArrow
-                            .offset(x: -swipeOffset)
-                    }
-                }
 
             }
             .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
