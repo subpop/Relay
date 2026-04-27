@@ -43,7 +43,8 @@ struct ReplyEditBanner: View {
             .foregroundStyle(.tertiary)
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.horizontal, 12)
         .padding(.bottom, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
