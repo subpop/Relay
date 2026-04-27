@@ -126,7 +126,7 @@ struct ImageMessageView: View {
             }
         }
         .overlay {
-            if shouldShow, image != nil {
+            if shouldShow, !isGIF, image != nil {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 48, weight: .semibold))
                     .foregroundStyle(.ultraThinMaterial)
