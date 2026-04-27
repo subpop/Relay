@@ -15,23 +15,41 @@
 import AppKit
 import SwiftUI
 
-/// A capsule-shaped pill view for inline mention display in the compose text view.
+/// A capsule-shaped pill view for inline mention display.
 ///
 /// ``MentionPillView`` is rendered to a static `NSImage` by ``PillTextAttachment``
 /// at creation time. The image is set on the attachment and displayed inline by
 /// the `NSTextView`'s layout system. It displays `@DisplayName` in a rounded
-/// capsule with the accent color.
+/// capsule.
+///
+/// - Compose bar and incoming messages: accent color text on a translucent
+///   accent background.
+/// - Outgoing messages: white text on a translucent white background, so pills
+///   remain visible against the accent-colored bubble.
 struct MentionPillView: View {
     let displayName: String
+    var isOutgoing = false
+
+    private var pillText: String {
+        displayName.hasPrefix("@") ? displayName : "@\(displayName)"
+    }
+
+    private var foreground: Color {
+        isOutgoing ? .white : .accentColor
+    }
+
+    private var background: Color {
+        isOutgoing ? .white.opacity(0.25) : .accentColor.opacity(0.15)
+    }
 
     var body: some View {
-        Text("@\(displayName)")
+        Text(pillText)
             .font(.callout)
             .bold()
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(Color.accentColor.opacity(0.15), in: .capsule)
+            .background(background, in: .capsule)
     }
 
     // MARK: - Measurement
@@ -43,11 +61,9 @@ struct MentionPillView: View {
     private static let verticalPadding: CGFloat = 2
 
     /// Measures the size the pill will occupy for layout purposes.
-    ///
-    /// This is called by ``PillTextAttachment/attachmentBounds(for:proposedLineFragment:glyphPosition:characterIndex:)``
-    /// to report the correct size before the view provider creates the actual view.
     static func measureSize(displayName: String, font: NSFont) -> CGSize {
-        let text = "@\(displayName)" as NSString
+        let label = displayName.hasPrefix("@") ? displayName : "@\(displayName)"
+        let text = label as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: font.pointSize - 1, weight: .bold),
         ]
@@ -60,6 +76,13 @@ struct MentionPillView: View {
 }
 
 #Preview {
-    MentionPillView(displayName: "Alice Smith")
-        .padding()
+    VStack(spacing: 12) {
+        MentionPillView(displayName: "Alice Smith")
+        MentionPillView(displayName: "Bob", isOutgoing: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(Color.accentColor)
+            .clipShape(.rect(cornerRadius: 8))
+    }
+    .padding()
 }

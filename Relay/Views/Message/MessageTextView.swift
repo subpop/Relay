@@ -68,10 +68,8 @@ struct MessageTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MessageTextContent {
         let storage = NSTextStorage()
-        let layoutManager = PillLayoutManager()
+        let layoutManager = NSLayoutManager()
         layoutManager.usesFontLeading = false
-        layoutManager.pillHorizontalInset = 0.25
-        layoutManager.pillVerticalExpansion = 0
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer()
         container.widthTracksTextView = false
@@ -95,7 +93,8 @@ struct MessageTextView: NSViewRepresentable {
         // causing the hosting controller to compute incorrect row heights.
         let coordinator = context.coordinator
         let resolved = Self.applyColorOverrides(
-            attributedString, foreground: foregroundColor, linkColor: linkColor
+            attributedString, foreground: foregroundColor, linkColor: linkColor,
+            isOutgoing: isOutgoing
         )
         coordinator.lastAttributedString = attributedString
         coordinator.lastIsOutgoing = isOutgoing
@@ -124,7 +123,8 @@ struct MessageTextView: NSViewRepresentable {
             let resolved = Self.applyColorOverrides(
                 attributedString,
                 foreground: foregroundColor,
-                linkColor: linkColor
+                linkColor: linkColor,
+                isOutgoing: isOutgoing
             )
             coordinator.lastAttributedString = attributedString
             coordinator.lastIsOutgoing = isOutgoing
@@ -249,7 +249,7 @@ private struct BubblePreview: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(isOutgoing ? .accentColor : Color(.systemGray).opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .clipShape(.rect(cornerRadius: 17))
     }
 }
 
@@ -269,7 +269,7 @@ private struct HTMLBubblePreview: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(isOutgoing ? .accentColor : Color(.systemGray).opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .clipShape(.rect(cornerRadius: 17))
     }
 }
 
@@ -556,4 +556,29 @@ private struct HTMLBubblePreview: View {
         .padding()
         .frame(width: 500)
     }
+}
+
+#Preview("Mention Pills") {
+    VStack(alignment: .leading, spacing: 12) {
+        HTMLBubblePreview(
+            html: """
+            <p>Hey <a href="https://matrix.to/#/@alice:matrix.org">Alice</a>, \
+            did you see the update?</p>
+            """,
+            isOutgoing: false
+        )
+        HTMLBubblePreview(
+            html: """
+            <p>Thanks <a href="https://matrix.to/#/@bob:example.com">Bob Smith</a>! \
+            Let me check with <a href="https://matrix.to/#/@charlie:matrix.org">Charlie</a> too.</p>
+            """,
+            isOutgoing: true
+        )
+        BubblePreview(
+            text: "Ping [@dave:matrix.org](https://matrix.to/#/@dave:matrix.org)",
+            isOutgoing: false
+        )
+    }
+    .padding()
+    .frame(width: 500)
 }

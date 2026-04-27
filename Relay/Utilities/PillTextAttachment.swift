@@ -49,10 +49,16 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     /// Stored as a plain `CGFloat` to avoid `Sendable` issues with `NSFont`.
     let pillFontSize: CGFloat
 
-    init(userId: String, displayName: String, font: NSFont) {
+    /// Whether this pill is rendered in an outgoing (sent by the user) message
+    /// bubble. Outgoing pills use white text on a translucent white background
+    /// for contrast against the accent-colored bubble.
+    let isOutgoing: Bool
+
+    init(userId: String, displayName: String, font: NSFont, isOutgoing: Bool = false) {
         self.userId = userId
         self.displayName = displayName
         self.pillFontSize = font.pointSize
+        self.isOutgoing = isOutgoing
         super.init(data: nil, ofType: nil)
         // On macOS, NSTextAttachment auto-creates an NSTextAttachmentCell.
         // Nil it out so we control rendering via the image property.
@@ -63,7 +69,9 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
             displayName: displayName,
             font: NSFont.systemFont(ofSize: font.pointSize)
         )
-        self.image = Self.renderPillImage(displayName: displayName, size: pillSize)
+        self.image = Self.renderPillImage(
+            displayName: displayName, size: pillSize, isOutgoing: isOutgoing
+        )
         self.bounds = CGRect(origin: .zero, size: pillSize)
     }
 
@@ -75,9 +83,11 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     // MARK: - Image Rendering
 
     /// Renders the ``MentionPillView`` to a static `NSImage` for inline display.
-    private static func renderPillImage(displayName: String, size: CGSize) -> NSImage {
+    private static func renderPillImage(
+        displayName: String, size: CGSize, isOutgoing: Bool
+    ) -> NSImage {
         MainActor.assumeIsolated {
-            let pillView = MentionPillView(displayName: displayName)
+            let pillView = MentionPillView(displayName: displayName, isOutgoing: isOutgoing)
             let hostingView = NSHostingView(rootView: pillView)
             let bounds = CGRect(origin: .zero, size: size)
             hostingView.frame = bounds

@@ -83,12 +83,12 @@ final class MessageTextContent: NSTextView {
         if let range = linkRange(at: point) {
             if hoveredLinkRange != range {
                 clearHoverUnderline()
-                // Skip hover underline for mention pills — they have their
-                // own capsule background and shouldn't look like web links.
-                let isMentionPill = textStorage?.attribute(
-                    .mentionPillColor, at: range.location, effectiveRange: nil
-                ) != nil
-                if !isMentionPill {
+                // Skip hover underline for mention pill attachments —
+                // they render as inline images and shouldn't be underlined.
+                let isPillAttachment = textStorage?.attribute(
+                    .attachment, at: range.location, effectiveRange: nil
+                ) is PillTextAttachment
+                if !isPillAttachment {
                     textStorage?.addAttribute(
                         .underlineStyle,
                         value: NSUnderlineStyle.single.rawValue,

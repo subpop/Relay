@@ -22,10 +22,16 @@ extension MessageTextView {
     /// Applies foreground and link color overrides to a parsed `NSAttributedString`,
     /// respecting any existing custom colors (e.g. `data-mx-color`). Works for both
     /// HTML-parsed and markdown-parsed attributed strings.
+    ///
+    /// Matrix mention links (`matrix.to` user and room links) are replaced with
+    /// inline ``PillTextAttachment`` images rendered from ``MentionPillView``.
+    /// The `.link` attribute is preserved on the attachment character so that
+    /// click-to-navigate still works via ``MessageTextContent``.
     static func applyColorOverrides(
         _ source: NSAttributedString,
         foreground: NSColor,
-        linkColor: NSColor
+        linkColor: NSColor,
+        isOutgoing: Bool = false
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: source)
         let fullRange = NSRange(location: 0, length: result.length)
@@ -36,6 +42,10 @@ extension MessageTextView {
         let mutedForeground = foreground.withAlphaComponent(0.75)
         // Subtle color for the "|" bar character.
         let barColor = foreground.withAlphaComponent(0.25)
+
+        // Collect mention link ranges for pill replacement (done after the
+        // attribute pass to avoid mutating during enumeration).
+        var mentionRanges: [(range: NSRange, url: URL, uri: MatrixURI, displayName: String)] = []
 
         result.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
             let hasLink = attrs[keys.link] != nil
@@ -48,15 +58,12 @@ extension MessageTextView {
             } else if hasLink {
                 result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
 
-                // Apply pill styling to matrix.to user and room links.
+                // Record matrix.to user and room links for pill replacement.
                 if let url = attrs[keys.link] as? URL,
                    let uri = MatrixURI(url: url),
                    uri.isUser || uri.isRoom {
-                    let pillColor = linkColor.withAlphaComponent(0.35)
-                    result.addAttributes([
-                        .mentionPillColor: pillColor,
-                        .font: NSFont.systemFont(ofSize: baseFont.pointSize, weight: .medium)
-                    ], range: range)
+                    let displayName = result.attributedSubstring(from: range).string
+                    mentionRanges.append((range, url, uri, displayName))
                 }
             } else if isSpoiler {
                 // Keep spoiler coloring as-is.
@@ -72,43 +79,25 @@ extension MessageTextView {
             }
         }
 
-        insertPillSpacing(result)
+        // Replace mention link ranges with PillTextAttachment images.
+        // Process in reverse order so earlier ranges stay valid.
+        for mention in mentionRanges.reversed() {
+            let pill = PillTextAttachment(
+                userId: mention.uri.identifier,
+                displayName: mention.displayName,
+                font: baseFont,
+                isOutgoing: isOutgoing
+            )
+            let attachmentString = NSMutableAttributedString(attachment: pill)
+            // Preserve the .link attribute so click-to-navigate still works.
+            attachmentString.addAttributes([
+                .link: mention.url,
+                .mentionUserID: mention.uri.identifier,
+                .mentionDisplayName: mention.displayName,
+            ], range: NSRange(location: 0, length: attachmentString.length))
+            result.replaceCharacters(in: mention.range, with: attachmentString)
+        }
 
         return result
-    }
-
-    /// Inserts thin spaces inside the pill-attributed range at each edge so
-    /// the capsule background has visual padding around the mention text.
-    /// The `PillLayoutManager` handles the external gap by insetting the
-    /// drawn capsule from the full glyph rect.
-    private static func insertPillSpacing(_ result: NSMutableAttributedString) {
-        // U+2009 THIN SPACE for internal pill padding.
-        let thinSpace = "\u{2009}"
-
-        var pillRanges: [NSRange] = []
-        let keys = NSAttributedString.Key.self
-        result.enumerateAttribute(
-            keys.mentionPillColor,
-            in: NSRange(location: 0, length: result.length),
-            options: []
-        ) { value, range, _ in
-            if value != nil {
-                pillRanges.append(range)
-            }
-        }
-
-        // Insert in reverse order so earlier ranges stay valid.
-        // Two thin spaces on each side: the outer one sits outside the drawn
-        // capsule (external gap, via PillLayoutManager's pillHorizontalInset),
-        // the inner one sits inside the capsule (internal padding).
-        for range in pillRanges.reversed() {
-            let pillAttrs = result.attributes(at: range.location, effectiveRange: nil)
-            let spacer = NSAttributedString(string: thinSpace + thinSpace + thinSpace, attributes: pillAttrs)
-
-            // Trailing spacers (inside pill range).
-            result.insert(spacer, at: range.location + range.length)
-            // Leading spacers (inside pill range).
-            result.insert(spacer, at: range.location)
-        }
     }
 }
