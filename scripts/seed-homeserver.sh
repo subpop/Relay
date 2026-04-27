@@ -82,7 +82,9 @@ step_done() {
 
 next_txn() {
     TXN_ID=$((TXN_ID + 1))
-    echo "txn_${TXN_ID}"
+    # Return value via a variable instead of echo, because $(next_txn) would
+    # run in a subshell and the TXN_ID increment would be lost.
+    NEXT_TXN_RESULT="txn_${TXN_ID}"
 }
 
 # Register a user and store the access token.
@@ -220,7 +222,14 @@ create_room() {
             \"topic\": \"${topic}\",
             \"room_alias_name\": \"${alias}\",
             \"preset\": \"${preset}\",
-            \"visibility\": \"private\"
+            \"visibility\": \"private\",
+            \"initial_state\": [
+                {
+                    \"type\": \"m.room.history_visibility\",
+                    \"content\": {\"history_visibility\": \"shared\"},
+                    \"state_key\": \"\"
+                }
+            ]
         }")
 
     local room_id
@@ -262,6 +271,11 @@ create_space() {
                     \"type\": \"m.room.join_rules\",
                     \"content\": {\"join_rule\": \"invite\"},
                     \"state_key\": \"\"
+                },
+                {
+                    \"type\": \"m.room.history_visibility\",
+                    \"content\": {\"history_visibility\": \"shared\"},
+                    \"state_key\": \"\"
                 }
             ]
         }")
@@ -293,7 +307,14 @@ create_dm() {
         -d "{
             \"is_direct\": true,
             \"preset\": \"trusted_private_chat\",
-            \"invite\": [\"@${other}:${SERVER_NAME}\"]
+            \"invite\": [\"@${other}:${SERVER_NAME}\"],
+            \"initial_state\": [
+                {
+                    \"type\": \"m.room.history_visibility\",
+                    \"content\": {\"history_visibility\": \"shared\"},
+                    \"state_key\": \"\"
+                }
+            ]
         }")
 
     local room_id
@@ -379,17 +400,25 @@ send_message() {
     local body="$3"
     local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
     local token="${TOKENS[$sender]}"
-    local txn
-    txn=$(next_txn)
-
+    next_txn
+    local txn="$NEXT_TXN_RESULT"
     # Escape the body for JSON
     local escaped_body
     escaped_body=$(echo -n "$body" | jq -Rs '.')
 
-    curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
+    local response
+    response=$(curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
         -H "Authorization: Bearer ${token}" \
         -H "Content-Type: application/json" \
-        -d "{\"msgtype\": \"m.text\", \"body\": ${escaped_body}}" >/dev/null
+        -d "{\"msgtype\": \"m.text\", \"body\": ${escaped_body}}")
+
+    local event_id
+    event_id=$(echo "$response" | jq -r '.event_id // empty')
+    if [[ -z "$event_id" ]]; then
+        echo ""
+        echo "Warning: Failed to send message to '${room_key}' as '${sender}'"
+        echo "Response: ${response}"
+    fi
 }
 
 # Send a notice (bot-style message) to a room.
@@ -400,16 +429,25 @@ send_notice() {
     local body="$3"
     local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
     local token="${TOKENS[$sender]}"
-    local txn
-    txn=$(next_txn)
+    next_txn
+    local txn="$NEXT_TXN_RESULT"
 
     local escaped_body
     escaped_body=$(echo -n "$body" | jq -Rs '.')
 
-    curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
+    local response
+    response=$(curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
         -H "Authorization: Bearer ${token}" \
         -H "Content-Type: application/json" \
-        -d "{\"msgtype\": \"m.notice\", \"body\": ${escaped_body}}" >/dev/null
+        -d "{\"msgtype\": \"m.notice\", \"body\": ${escaped_body}}")
+
+    local event_id
+    event_id=$(echo "$response" | jq -r '.event_id // empty')
+    if [[ -z "$event_id" ]]; then
+        echo ""
+        echo "Warning: Failed to send notice to '${room_key}' as '${sender}'"
+        echo "Response: ${response}"
+    fi
 }
 
 # Wait for the homeserver to become available.
@@ -477,7 +515,8 @@ echo ""
 
 # ---- Step 0: Check for existing container ------------------------------------
 
-if "$RUNTIME" inspect "$CONTAINER_NAME" &>/dev/null; then
+existing=$("$RUNTIME" inspect "$CONTAINER_NAME" 2>/dev/null) || existing=""
+if [[ -n "$existing" ]] && [[ $(echo "$existing" | jq 'length') -gt 0 ]]; then
     echo "  A homeserver container already exists."
     printf "  Delete it and start fresh? [y/N] "
     read -r answer
@@ -722,6 +761,22 @@ send_message "announcements" "casey" "We just crossed 10,000 active users on the
 
 send_message "announcements" "morgan" "Heads up: we're upgrading our CI infrastructure this weekend (Saturday 10pm - Sunday 6am PT). Expect intermittent build failures during that window. Sam will post updates in #devops."
 
+send_message "announcements" "casey" "Product update: the Teams feature is officially in internal beta. If you'd like early access, reach out to me or Morgan. We're targeting a public launch in mid-July."
+
+send_message "announcements" "morgan" "Quick process change: starting next week, all PRs will require at least one approval before merging. This applies to all repos. Details in #code-review."
+
+send_message "announcements" "morgan" "Please welcome Casey Brooks, who just celebrated 2 years at Pebble this week. Casey, thank you for everything you do to keep us focused and shipping. We're lucky to have you."
+
+send_message "announcements" "casey" "We're hosting a design sprint next Wednesday and Thursday. Jordan will be leading sessions on the onboarding redesign. Calendar invites are going out today — please make it a priority."
+
+send_message "announcements" "morgan" "Security reminder: please enable 2FA on your GitHub accounts if you haven't already. Sam is auditing access this week and accounts without 2FA will be flagged."
+
+send_message "announcements" "casey" "NPS scores are in from the latest survey: we jumped from 42 to 58 this quarter. Biggest driver was performance improvements. Shoutout to the entire engineering team."
+
+send_message "announcements" "morgan" "The office will be closed Monday for the holiday. Enjoy the long weekend, everyone. If anything urgent comes up, the on-call rotation is in PagerDuty."
+
+send_message "announcements" "casey" "Reminder that Q3 OKR self-assessments are due by end of day Friday. Please update your progress in Lattice. Reach out to your manager if you need help."
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #general
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -746,6 +801,16 @@ send_message "general" "sam"     "Anyone up for a coffee chat today? I found a n
 send_message "general" "taylor"  "I'm in! Right after standup?"
 send_message "general" "jordan"  "Count me in too."
 send_message "general" "morgan"  "Congrats to the team on shipping the notifications feature. Users are already loving it based on early feedback."
+send_message "general" "taylor"  "Has anyone figured out how to get Xcode 26 to stop re-indexing every time you switch branches? It's killing me."
+send_message "general" "alex"    "I've had the same issue. Deleting the DerivedData folder for the project usually fixes it, but it's annoying."
+send_message "general" "sam"     "I added a script to our tooling repo that clears derived data automatically on branch switch. Check out scripts/clean-branch.sh."
+send_message "general" "taylor"  "You're a lifesaver, Sam."
+send_message "general" "jordan"  "Design review for the onboarding flow is tomorrow at 11am. I'll share the Figma link in #design-chat beforehand."
+send_message "general" "casey"   "Everyone please try to make it — onboarding is our top priority for the next sprint."
+send_message "general" "priya"   "I'll be there. Quick question — are we redesigning the server-side onboarding flow too, or just the client UX?"
+send_message "general" "casey"   "Primarily the client UX, but if there are backend changes needed to support it, we'll scope those in."
+send_message "general" "riley"   "Just a heads up, I updated the shared ESLint config. If your editor starts showing new warnings, that's why. All the rules are auto-fixable."
+send_message "general" "morgan"  "Happy Friday, team. Solid week all around. Enjoy the weekend and recharge."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #random
@@ -767,6 +832,16 @@ send_message "random" "jordan"  "I need this in my life. Can you share the setup
 send_message "random" "taylor"  "This is why I love this team."
 send_message "random" "alex"    "Just saw this and thought of us: 'A QA engineer walks into a bar. Orders 1 beer. Orders 0 beers. Orders 99999999 beers. Orders -1 beers. Orders a lizard.'"
 send_message "random" "taylor"  "I feel personally attacked and also very seen."
+send_message "random" "casey"   "Trivia night this Thursday at The Brass Tap. Last time engineering lost to the product team and I will never let you forget it."
+send_message "random" "priya"   "That's because you had a sports category. That's basically cheating against us."
+send_message "random" "morgan"  "I'm in. Redemption arc starts now."
+send_message "random" "jordan"  "Just got back from a typography exhibit at the MoMA. If anyone wants to go, it runs until August. Highly recommend."
+send_message "random" "riley"   "Oh I saw that on Instagram. The variable font section looked incredible."
+send_message "random" "sam"     "My home lab now has more compute power than our staging environment. I might have a problem."
+send_message "random" "alex"    "You definitely have a problem, but it's one of the cooler problems to have."
+send_message "random" "taylor"  "Weekend project update: I taught my dog to bring me a seltzer from a mini fridge. Took 3 weeks and a lot of treats."
+send_message "random" "jordan"  "Please tell me you have a video of this."
+send_message "random" "taylor"  "Obviously. I'll drop it in here Monday."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #backend
@@ -787,6 +862,15 @@ send_message "backend" "priya"  "Nice find. Is that the N+1 issue we flagged las
 send_message "backend" "sam"    "Yep, same one. I'll put up a PR this afternoon."
 send_message "backend" "morgan" "Let's make sure we add a regression test for that."
 send_message "backend" "priya"  "Agreed. I'll review the PR. @alex if you want to keep an eye on it too, the perf improvement should be noticeable on mobile."
+send_message "backend" "priya"  "Heads up — I'm adding rate limiting to the public API. Starting with the /search and /messages endpoints since those are the most expensive."
+send_message "backend" "sam"    "What are you thinking for limits? Per-user or per-IP?"
+send_message "backend" "priya"  "Per-user for authenticated requests, per-IP for unauthenticated. I'm using a sliding window counter backed by Redis. 100 requests per minute for search, 300 for messages."
+send_message "backend" "morgan" "Those numbers seem reasonable. Can we make them configurable per plan later?"
+send_message "backend" "priya"  "Yes, the limits are defined in a config file so we can adjust per tier without a code change. I'll set up the free/pro/enterprise tiers now even though we only use one today."
+send_message "backend" "alex"   "Will the API return rate limit headers? I want to handle 429 responses gracefully on the client."
+send_message "backend" "priya"  "Yep — X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset. Standard stuff. I'll include a Retry-After header on 429 responses too."
+send_message "backend" "alex"   "Great. I'll add a retry-with-backoff handler on the iOS side once those are live."
+send_message "backend" "sam"    "I'll make sure the Redis instance for rate limiting is on a separate cluster from the cache. Don't want rate limit lookups competing with cache reads."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #ios
@@ -810,6 +894,16 @@ send_message "ios" "alex"    "Thanks, Taylor. I'll take a look after lunch."
 send_message "ios" "morgan"  "Quick reminder that we need to submit the TestFlight build by Friday for the beta testers."
 send_message "ios" "alex"    "On track. I'll have the room list changes merged by Thursday. Taylor, can you do a full regression pass on Thursday afternoon?"
 send_message "ios" "taylor"  "Already blocked off my calendar for it."
+send_message "ios" "alex"    "Been experimenting with the new mesh gradient API in SwiftUI. It could give our room avatars a really nice generative background when there's no custom image set."
+send_message "ios" "taylor"  "That sounds cool. How does it perform in a list with 100+ items?"
+send_message "ios" "alex"    "Tested it and it's fine — the gradient is computed once and cached. No measurable impact on scroll performance."
+send_message "ios" "priya"   "I finally got the end-to-end encryption key backup flow working on the client side. The Rust SDK handles most of the heavy lifting, but wiring up the verification UI took some finessing."
+send_message "ios" "alex"    "Nice. How are you handling the case where the user has multiple devices?"
+send_message "ios" "priya"   "Cross-signing handles it. When you verify on one device, the SDK propagates trust to your other sessions automatically. I just needed to surface the right prompts."
+send_message "ios" "morgan"  "E2EE is going to be a big selling point. Great work getting that over the line."
+send_message "ios" "taylor"  "I've written about 40 UI tests for the room list. Coverage is at 85% now. The remaining 15% is edge cases around offline mode that are tricky to simulate."
+send_message "ios" "alex"    "That's solid coverage. For the offline tests, we could inject a mock network layer that returns errors. Want me to set up the protocol for that?"
+send_message "ios" "taylor"  "That would be perfect. A simple protocol with a flag to toggle connectivity would be enough."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #frontend
@@ -827,6 +921,15 @@ send_message "frontend" "priya"  "The API pagination changes I made should help 
 send_message "frontend" "riley"  "I noticed that. The initial render went from 2.8s to under 500ms. Huge difference."
 send_message "frontend" "taylor" "The infinite scroll behavior is smooth. One thing — when you scroll to the bottom and there's no more data, there's no visual indicator. A small 'end of list' message would help."
 send_message "frontend" "riley"  "Good catch. I'll add that."
+send_message "frontend" "riley"  "Started working on the keyboard shortcuts system. I'm using a global event listener that maps key combos to actions. Similar to how VS Code does it."
+send_message "frontend" "morgan" "Are the shortcuts going to be customizable?"
+send_message "frontend" "riley"  "Not in v1, but the architecture supports it. Each shortcut is just a key-action mapping in a JSON config. We can expose a UI for customization later."
+send_message "frontend" "priya"  "For the search filters — I added a new query parameter to the API. You can now pass 'filters' as a JSON object with fields like 'sender', 'date_range', and 'room_type'."
+send_message "frontend" "riley"  "Perfect, that's exactly what I need. I'll build the filter panel this week. Thinking a collapsible sidebar that slides in from the right."
+send_message "frontend" "taylor" "I tested the keyboard shortcuts branch. Cmd+K for search, Cmd+Shift+N for new room, and Cmd+[ for back navigation all feel natural. One issue: Cmd+, should open settings but it opens the browser settings instead."
+send_message "frontend" "riley"  "Good catch. I need to call preventDefault on that one. Will fix."
+send_message "frontend" "morgan" "How are we handling discoverability? Users won't know the shortcuts exist unless we tell them."
+send_message "frontend" "riley"  "I'm adding a Cmd+/ shortcut that opens a quick reference overlay. And tooltips on buttons will show the shortcut hint after a short delay."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #devops
@@ -842,6 +945,16 @@ send_message "devops" "sam"    "Also heads up — I'm rotating the staging API k
 send_message "devops" "priya"  "Thanks for the heads up. I'll update my local config."
 send_message "devops" "sam"    "One more thing: I set up automated database backups for staging. They run every 6 hours and retain for 7 days. If anyone nukes the staging DB again, we can recover in minutes."
 send_message "devops" "morgan" "The 'again' in that sentence is doing a lot of work."
+send_message "devops" "sam"    "Preview environments are live. Every PR now gets a deploy preview URL posted as a comment. Links expire after 48 hours of inactivity."
+send_message "devops" "priya"  "Just tested it on my PR — works beautifully. The deploy took about 90 seconds."
+send_message "devops" "morgan" "This is going to change how we do code review. Being able to click and test live is huge."
+send_message "devops" "sam"    "Next on my list: setting up structured logging. Right now our logs are a mix of plain text and JSON. I want everything in JSON so we can query them properly in Grafana."
+send_message "devops" "priya"  "Yes please. Debugging production issues with grep and hope is not sustainable."
+send_message "devops" "sam"    "I'm also adding correlation IDs to every request. That way you can trace a single user action across all our services."
+send_message "devops" "morgan" "How are we on monitoring coverage? I want to make sure we have alerts for the critical paths."
+send_message "devops" "sam"    "Good — we have alerts on API latency p95, error rate, and database connection pool usage. I'm adding one for the message queue depth this week. If it backs up, we'll know within 2 minutes."
+send_message "devops" "priya"  "Can you also add an alert for when the Redis memory usage crosses 80%? We've been close a couple of times."
+send_message "devops" "sam"    "Done. I'll set it at 75% as a warning and 85% as critical."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #code-review
@@ -859,6 +972,17 @@ send_message "code-review" "taylor" "Finished reviewing #415. Left some comments
 send_message "code-review" "alex"   "Thanks Taylor. Good catches — I'll address those today."
 send_message "code-review" "morgan" "Finished reviewing #412. Solid work, Priya. A few questions about the token refresh flow but nothing blocking. Approved with comments."
 send_message "code-review" "priya"  "Thanks Morgan. I'll respond to the comments and merge once CI passes."
+send_message "code-review" "sam"    "PR #421: adds structured logging to all API endpoints. Replaces the old console.log calls with proper JSON output. Would appreciate a quick look."
+send_message "code-review" "priya"  "Reviewing now. Is this using the new logging library you mentioned in #devops?"
+send_message "code-review" "sam"    "Yes, it's pino. Extremely fast and supports child loggers so we can attach request context automatically."
+send_message "code-review" "priya"  "Looks solid. One suggestion — can we add a sanitizer that strips PII from the log output? Don't want email addresses ending up in Grafana."
+send_message "code-review" "sam"    "Great call. I'll add a redaction layer before merging."
+send_message "code-review" "alex"   "PR #423: rate limit handling on the iOS client. This adds retry-with-backoff for 429 responses and surfaces a user-friendly message when throttled."
+send_message "code-review" "taylor" "Reviewing #423. The backoff logic looks good. One question — do you cap the max retry delay? I see it doubles each time but I didn't spot an upper bound."
+send_message "code-review" "alex"   "Good eye. I'll cap it at 30 seconds. No point waiting longer than that."
+send_message "code-review" "riley"  "PR #425: keyboard shortcuts system for the web client. Adds Cmd+K for search, Cmd+Shift+N for new room, and a Cmd+/ shortcut reference overlay."
+send_message "code-review" "morgan" "I'll take #425. I've been wanting this feature for months."
+send_message "code-review" "morgan" "Reviewed #425 — this is really well done, Riley. Clean separation between the key listener and the action dispatcher. Approved."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #design-chat
@@ -876,6 +1000,16 @@ send_message "design-chat" "alex"   "Agreed. A good empty state can guide users 
 send_message "design-chat" "jordan" "Exactly. Each empty state will have: an illustration, a headline explaining what belongs here, and a primary action button to get started."
 send_message "design-chat" "jordan" "Also, I ran the new designs through an accessibility contrast checker. Everything passes WCAG AA. A few of the secondary text styles are close to the boundary, so I bumped them up."
 send_message "design-chat" "casey"  "Accessibility is non-negotiable for us. Thanks for being proactive on that."
+send_message "design-chat" "jordan" "Working on the onboarding flow mockups. The first-run experience has 4 steps: create workspace, invite members, set up channels, and a quick tour of the UI."
+send_message "design-chat" "casey"  "Can we get it down to 3? Every extra step in onboarding is a drop-off point."
+send_message "design-chat" "jordan" "I think we can combine 'invite members' and 'set up channels' into a single step. The user picks a template that includes both. Like 'Engineering team' or 'Small business'."
+send_message "design-chat" "casey"  "Love that. Templates lower the cognitive load and get users to value faster."
+send_message "design-chat" "alex"   "From a technical standpoint, templates are just JSON configs. Easy to implement and easy to add new ones later."
+send_message "design-chat" "morgan" "Jordan, how are we handling the case where someone joins an existing workspace? That's a different flow from creating a new one."
+send_message "design-chat" "jordan" "Good point. For joiners, the flow is simpler: accept invite, set up profile, quick tour. I'm designing both paths but the joiner flow is lighter — just 2 steps."
+send_message "design-chat" "jordan" "Also shared the empty state illustrations in Figma. There are 6 in the set: no messages, no rooms, no members, no search results, no notifications, and a generic 'nothing here yet' fallback."
+send_message "design-chat" "casey"  "These are beautiful. The illustration style is consistent and they feel warm without being childish. Exactly the right tone."
+send_message "design-chat" "alex"   "I can start implementing the empty states on iOS this sprint. They'll be reusable components in our design system."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #design-system
@@ -889,6 +1023,15 @@ send_message "design-system" "jordan" "Perfect. I'll add it to the Figma library
 send_message "design-system" "riley"  "Also — I want to revisit our spacing scale. We're using 4px increments but some of the designs use 6px and 10px which don't fit the scale. Should we switch to an 8px base?"
 send_message "design-system" "jordan" "I've been thinking about this too. An 8px scale with a 4px half-step for tight spots would cover most of our needs. Let me draft a proposal."
 send_message "design-system" "alex"   "SwiftUI's default spacing tends to align with 8pt grids anyway, so that would work well natively."
+send_message "design-system" "jordan" "Spacing proposal is posted in Figma. The scale is: 4, 8, 12, 16, 24, 32, 48, 64. Covers everything from tight icon padding to section margins."
+send_message "design-system" "riley"  "I like this. It's the same scale Tailwind uses, which makes it familiar for the web side."
+send_message "design-system" "alex"   "I'll define these as constants in the iOS codebase. Something like Spacing.xs, Spacing.sm, Spacing.md, etc."
+send_message "design-system" "jordan" "New component request: StatusBadge. A small colored dot with an optional label for showing online/offline/busy status. We use it in at least 5 places already with inconsistent implementations."
+send_message "design-system" "riley"  "Yeah, I've seen three different versions on the web side alone. Happy to consolidate."
+send_message "design-system" "jordan" "Specs: 8px dot, 3 variants (green for online, amber for idle, gray for offline). The label is optional and uses caption style text."
+send_message "design-system" "alex"   "Simple and clean. I'll build the SwiftUI version this week. Should take less than an hour since it's just a circle with a text label."
+send_message "design-system" "jordan" "Also thinking about our color system. Right now we have 24 named colors but some are only used once. I want to audit and consolidate down to a semantic palette: primary, secondary, accent, destructive, success, warning, and their surface variants."
+send_message "design-system" "riley"  "That would simplify theming a lot. Right now changing the accent color means updating like 12 different CSS variables."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #product-chat
@@ -904,6 +1047,15 @@ send_message "product-chat" "casey"  "Also, churn analysis shows that users who 
 send_message "product-chat" "morgan" "That's a compelling stat. Let's make onboarding a priority for the next sprint."
 send_message "product-chat" "casey"  "I'll draft an onboarding spec this week. Jordan, can we sync on the flow design?"
 send_message "product-chat" "jordan" "Thursday works for me. I'll sketch some ideas beforehand."
+send_message "product-chat" "casey"  "Competitor analysis update: Slack just shipped a new canvas feature and Discord added forum channels. Neither has a great native macOS experience though — that's still our differentiator."
+send_message "product-chat" "morgan" "We need to keep leaning into the native angle. Nobody else is building a Matrix client that feels like a real Mac app."
+send_message "product-chat" "casey"  "Exactly. Our positioning is 'the iMessage experience for team chat.' Fast, native, and beautifully integrated with macOS."
+send_message "product-chat" "jordan" "I've been doing some competitive teardowns. One thing Element does well is their space hierarchy — but the UX around it is confusing. We can do better."
+send_message "product-chat" "casey"  "Feature request from a beta user: message scheduling. They want to type a message now and have it send at a specific time. Thoughts?"
+send_message "product-chat" "morgan" "Interesting. It's a nice-to-have but probably not a priority right now. I'd put it in the 'Q4 maybe' bucket."
+send_message "product-chat" "casey"  "Agreed. I'll add it to the backlog with a 'future' label. Let's focus on the core experience first."
+send_message "product-chat" "jordan" "One more thing — can we add a feedback button in the app? Right now users have to email us or find the GitHub repo. A simple 'Send Feedback' in the menu would lower the barrier."
+send_message "product-chat" "morgan" "That's a great idea and it's trivial to implement. Let's add it to the current sprint."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #roadmap
@@ -917,6 +1069,15 @@ send_message "roadmap" "casey"  "Good. Let's plan for a two-week internal beta b
 send_message "roadmap" "morgan" "Agreed. I'll set up the beta group. Taylor, can you write up a test plan for the Teams feature?"
 send_message "roadmap" "casey"  "M2 is lower risk since it's mostly iteration on existing features. Riley, are you comfortable with the August timeline for search filters?"
 send_message "roadmap" "casey"  "Actually, let's discuss M2 specifics in our Thursday planning session. I want to make sure we're scoping it right."
+send_message "roadmap" "priya"  "Update on M1: the Teams permission system is done. API coverage is now at 95%. Last piece is the admin transfer flow."
+send_message "roadmap" "alex"   "iOS integration for Teams is progressing well. The room list now shows team groupings and the invite flow is working end-to-end."
+send_message "roadmap" "casey"  "Great. I'm scheduling the internal beta for the first week of July. That gives us two weeks of buffer before the public launch mid-July."
+send_message "roadmap" "morgan" "For M3, I want to include a performance audit of the entire app. Not just API latency — also client-side metrics like time-to-interactive and memory usage."
+send_message "roadmap" "alex"   "I've been tracking those on iOS already. Time-to-interactive is around 800ms on an M1 Mac, which is good, but I think we can get it under 500ms with lazy loading."
+send_message "roadmap" "casey"  "Let's capture those benchmarks now so we have a baseline to measure against after the performance pass."
+send_message "roadmap" "priya"  "I'll set up automated API benchmarks in CI. We can track p50, p95, and p99 latency for every endpoint and alert if anything regresses."
+send_message "roadmap" "morgan" "That's exactly the kind of infrastructure we need. Proactive performance monitoring will save us from slow regressions creeping in."
+send_message "roadmap" "casey"  "Updated the roadmap doc with all of this. Link is pinned in the Product space. Let's keep this cadence of weekly check-ins."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # DM: alex <-> priya
@@ -929,6 +1090,12 @@ send_message "dm-alex-priya" "priya"  "Almost — I added a 'role' field to each
 send_message "dm-alex-priya" "alex"   "Perfect, that's exactly what I needed for the member list UI. Thanks!"
 send_message "dm-alex-priya" "priya"  "No problem. Let me know if you run into anything. The endpoint is on staging now if you want to test against it."
 send_message "dm-alex-priya" "priya"  "Oh also — I saw your PR for the room list. The scroll performance fix is really clever. Nice work."
+send_message "dm-alex-priya" "alex"   "Thanks! I was nervous about the approach but the benchmarks speak for themselves."
+send_message "dm-alex-priya" "alex"   "Hey, one more thing — the E2E key backup flow you finished, does it handle the case where the user's key backup password is different from their account password?"
+send_message "dm-alex-priya" "priya"  "Yes, the backup uses a separate recovery key. The user can either save it as a file or protect it with a passphrase. Both flows are implemented."
+send_message "dm-alex-priya" "alex"   "Got it. I'll make sure the UI flow makes it clear that it's a separate credential. Don't want users confused."
+send_message "dm-alex-priya" "priya"  "Good thinking. Maybe a short explainer card in the setup wizard? Something like 'This recovery key is separate from your password and is used to restore your encrypted messages on new devices.'"
+send_message "dm-alex-priya" "alex"   "That's perfect. I'll add it to the key backup screen."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # DM: alex <-> jordan
@@ -941,6 +1108,12 @@ send_message "dm-alex-jordan" "alex"   "We could, but it would change the header
 send_message "dm-alex-jordan" "jordan" "Yes please. Maybe we can use a fixed two-line height so it doesn't jump?"
 send_message "dm-alex-jordan" "alex"   "Good idea. I'll throw something together tomorrow and send you a screenshot."
 send_message "dm-alex-jordan" "jordan" "Awesome, thanks! No rush on it."
+send_message "dm-alex-jordan" "alex"   "Here's the prototype — I went with a fixed two-line height. Screenshot attached. What do you think?"
+send_message "dm-alex-jordan" "jordan" "That looks great. The fixed height keeps things stable and the longer names are fully readable now. Let's go with this."
+send_message "dm-alex-jordan" "alex"   "Cool, I'll clean it up and submit the PR."
+send_message "dm-alex-jordan" "jordan" "By the way, I've been thinking about the room avatar system. Right now all the default avatars are just the first letter of the room name on a colored background. What if we added a set of icon options?"
+send_message "dm-alex-jordan" "alex"   "That could be nice. We have SF Symbols available — users could pick from a curated set of icons instead of just the letter."
+send_message "dm-alex-jordan" "jordan" "Exactly. I'll mock up an icon picker this week. Keep it simple — a grid of maybe 30-40 relevant icons."
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # DM: alex <-> morgan
@@ -952,6 +1125,12 @@ send_message "dm-alex-morgan" "morgan" "Good to hear. Don't hesitate to push bac
 send_message "dm-alex-morgan" "alex"   "Appreciate that. One thing — I'd like to spend a day or two on some tech debt in the networking layer. It's not urgent but it'll make the Teams integration cleaner."
 send_message "dm-alex-morgan" "morgan" "Absolutely. Take the time. Investing in the foundation now pays off later. Just flag it in standup so the rest of the team knows."
 send_message "dm-alex-morgan" "alex"   "Will do. Thanks, Morgan."
+send_message "dm-alex-morgan" "morgan" "Also wanted to mention — I really liked your proposal for the mesh gradient avatars. Small touch but it makes the app feel more polished."
+send_message "dm-alex-morgan" "alex"   "Thanks! It was fun to experiment with. The new SwiftUI APIs make that kind of thing surprisingly easy."
+send_message "dm-alex-morgan" "morgan" "That's what I love about our stack. How's the TestFlight build looking for Friday?"
+send_message "dm-alex-morgan" "alex"   "On track. All the room list changes are merged, Taylor is running the regression pass tomorrow. Barring any surprises we should be good."
+send_message "dm-alex-morgan" "morgan" "Perfect. Let me know if anything comes up. I want this beta release to be really solid."
+send_message "dm-alex-morgan" "alex"   "Will do. I'm feeling good about this one."
 
 step_done
 
@@ -969,5 +1148,6 @@ echo ""
 echo "  Open Relay and sign in with the credentials above."
 echo ""
 echo "  To stop the server:   ${RUNTIME} stop ${CONTAINER_NAME}"
-echo "  To remove all data:   ${RUNTIME} rm -v ${CONTAINER_NAME} && ${RUNTIME} volume rm ${VOLUME_NAME}"
+echo "  To remove all data:   ${RUNTIME} rm ${CONTAINER_NAME} && ${RUNTIME} volume rm ${VOLUME_NAME}"
 echo ""
+
