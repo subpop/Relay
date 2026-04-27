@@ -617,18 +617,37 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// every SwiftUI body evaluation.
     static let urlCache = ParseCache<String, URL?>(capacity: 256)
 
-    /// Returns the first HTTP(S) URL found in the given string, excluding `matrix.to` links.
+    /// Regex matching Matrix identifiers (`@user:server`, `#room:server`,
+    /// `!id:server`) whose server portion `NSDataDetector` misidentifies as
+    /// a standalone URL.
+    private static let matrixIdentifierPattern =
+        /[#@!][a-zA-Z0-9._=\-\/]+:[a-zA-Z0-9.\-]+(:[0-9]+)?/
+
+    /// Returns the first HTTP(S) URL found in the given string, excluding
+    /// `matrix.to` links and false positives from Matrix identifiers.
     static func firstPreviewURL(in body: String) -> URL? {
         urlCache.value(forKey: body) {
             guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
                 return nil
             }
             let matches = detector.matches(in: body, range: NSRange(body.startIndex..., in: body))
+
+            // Collect ranges of Matrix identifiers so we can discard any URL
+            // that NSDataDetector extracted from the server portion of one.
+            let identifierRanges = body.matches(of: matrixIdentifierPattern).map(\.range)
+
             for match in matches {
                 guard let url = match.url,
                       let scheme = url.scheme?.lowercased(),
                       scheme == "https" || scheme == "http",
                       url.host?.lowercased() != "matrix.to" else { continue }
+
+                // Skip URLs whose detected range overlaps a Matrix identifier.
+                if let matchRange = Range(match.range, in: body),
+                   identifierRanges.contains(where: { $0.overlaps(matchRange) }) {
+                    continue
+                }
+
                 return url
             }
             return nil
