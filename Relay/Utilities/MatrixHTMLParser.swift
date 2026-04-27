@@ -592,6 +592,15 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
         }
 
         if result.length == 0 { return nil }
+
+        // Detect bare URLs that are not wrapped in <a> tags.
+        // This covers cases where the sending client includes a URL as plain
+        // text in the `formatted_body` HTML (e.g. alongside mention links).
+        // Since the text view disables automatic link detection, we must
+        // handle this ourselves, mirroring the NSDataDetector pass in
+        // resolveMarkdown().
+        linkBareURLs(in: result)
+
         return result
     }
 
@@ -953,6 +962,34 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
         ).string
         if lastChar != "\n" {
             result.append(NSAttributedString(string: "\n"))
+        }
+    }
+
+    /// Detects bare URLs in the attributed string that are not already
+    /// covered by an `<a>` tag and adds a `.link` attribute for them.
+    ///
+    /// This is needed because `isAutomaticLinkDetectionEnabled` is disabled
+    /// on the text view, so any URL not wrapped in an `<a>` tag would be
+    /// rendered as unclickable plain text.
+    private func linkBareURLs(in result: NSMutableAttributedString) {
+        let plainString = result.string
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        ) else { return }
+
+        let matches = detector.matches(
+            in: plainString,
+            range: NSRange(location: 0, length: result.length)
+        )
+
+        for match in matches {
+            // Skip ranges that already have a .link attribute (from <a> tags).
+            let existingLink = result.attribute(.link, at: match.range.location, effectiveRange: nil)
+            if existingLink != nil { continue }
+
+            if let url = match.url {
+                result.addAttribute(.link, value: url, range: match.range)
+            }
         }
     }
 }

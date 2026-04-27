@@ -583,4 +583,66 @@ struct MatrixHTMLParserTests {
         let afterIndex = (result.string as NSString).range(of: "after").location
         #expect(!isMonospaced(result, at: afterIndex))
     }
+
+    // MARK: - Bare URL Detection in HTML
+
+    @Test func bareURLInHTMLBecomesClickable() {
+        let result = NSAttributedString(matrixHTML:
+            "Check out https://www.getfedora.com for details"
+        )!
+        let urlRange = (result.string as NSString).range(of: "https://www.getfedora.com")
+        let link = attrs(result, at: urlRange.location)[.link]
+        #expect(link != nil)
+        let url = link as? URL
+        #expect(url?.absoluteString == "https://www.getfedora.com")
+    }
+
+    @Test func bareURLAlongsideMentionLink() {
+        // Simulates a message with a Matrix mention <a> tag and a bare URL.
+        let html = """
+            <a href="https://matrix.to/#/@user:example.com">User</a> \
+            check https://www.getfedora.com
+            """
+        let result = NSAttributedString(matrixHTML: html)!
+
+        // The mention link should still work.
+        let userRange = (result.string as NSString).range(of: "User")
+        let mentionLink = attrs(result, at: userRange.location)[.link] as? URL
+        #expect(mentionLink?.absoluteString == "https://matrix.to/#/@user:example.com")
+
+        // The bare URL should also be clickable.
+        let urlRange = (result.string as NSString).range(of: "https://www.getfedora.com")
+        let bareLink = attrs(result, at: urlRange.location)[.link] as? URL
+        #expect(bareLink?.absoluteString == "https://www.getfedora.com")
+    }
+
+    @Test func existingAnchorTagURLNotDuplicated() {
+        // A URL already wrapped in <a> should not get a duplicate .link attribute.
+        let html = """
+            Visit <a href="https://example.com">https://example.com</a> today
+            """
+        let result = NSAttributedString(matrixHTML: html)!
+        let urlRange = (result.string as NSString).range(of: "https://example.com")
+        let link = attrs(result, at: urlRange.location)[.link] as? URL
+        #expect(link?.absoluteString == "https://example.com")
+    }
+
+    @Test func multipleBareURLsInHTML() {
+        let html = "See https://one.com and https://two.org for more"
+        let result = NSAttributedString(matrixHTML: html)!
+
+        let range1 = (result.string as NSString).range(of: "https://one.com")
+        let link1 = attrs(result, at: range1.location)[.link] as? URL
+        #expect(link1?.absoluteString == "https://one.com")
+
+        let range2 = (result.string as NSString).range(of: "https://two.org")
+        let link2 = attrs(result, at: range2.location)[.link] as? URL
+        #expect(link2?.absoluteString == "https://two.org")
+    }
+
+    @Test func plainTextInHTMLWithoutURLsUnaffected() {
+        let result = NSAttributedString(matrixHTML: "No links here, just text")!
+        let firstCharAttrs = attrs(result, at: 0)
+        #expect(firstCharAttrs[.link] == nil)
+    }
 }
