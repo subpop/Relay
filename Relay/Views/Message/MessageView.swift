@@ -106,22 +106,22 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                                         .fill(Color(nsColor: .windowBackgroundColor))
                                 }
                             }
+                            .onLongPressGesture {
+                                showEmojiPicker = true
+                            }
+                            .popover(
+                                isPresented: $showEmojiPicker,
+                                attachmentAnchor: .point(message.isOutgoing ? .topLeading : .topTrailing),
+                                arrowEdge: .top
+                            ) {
+                                EmojiPickerPopover { emoji in
+                                    onToggleReaction?(emoji)
+                                    showEmojiPicker = false
+                                }
+                            }
                     }
                 }
                 .frame(maxWidth: 500, alignment: message.isOutgoing ? .trailing : .leading)
-                .onLongPressGesture {
-                    showEmojiPicker = true
-                }
-                .popover(
-                    isPresented: $showEmojiPicker,
-                    attachmentAnchor: .point(message.isOutgoing ? .topLeading : .topTrailing),
-                    arrowEdge: .top
-                ) {
-                    EmojiPickerPopover { emoji in
-                        onToggleReaction?(emoji)
-                        showEmojiPicker = false
-                    }
-                }
                 .background(alignment: .leading) {
                     if swipeOffset > 0 {
                         replyArrow
