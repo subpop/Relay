@@ -22,7 +22,11 @@ import Security
 /// across app launches, and by `KeychainSessionDelegate` to handle OIDC token refreshes.
 nonisolated enum KeychainService: Sendable {
     private static let service = "app.subpop.Relay"
+    #if DEBUG
+    private static let account = "matrix-session-debug"
+    #else
     private static let account = "matrix-session"
+    #endif
 
     /// Saves session data to the keychain, replacing any previously stored value.
     ///
