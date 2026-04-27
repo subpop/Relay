@@ -634,10 +634,20 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     self.isLoadingMore = false
                     self.hasReachedStart = hitStart
 
-                    // Auto-paginate if we have few items and haven't hit start,
-                    // ensuring enough content to fill the viewport so the user
-                    // doesn't immediately see the pagination trigger.
-                    if !hitStart && self.timelineItems.count < 20 {
+                    // Auto-paginate if we have few message-like events and
+                    // haven't hit start, ensuring enough content to fill the
+                    // viewport.  We count only msgLike event items (skipping
+                    // state events, membership changes, date dividers, etc.)
+                    // because a room with many members can easily have 20+
+                    // non-message items but zero actual messages.
+                    let msgLikeCount = self.timelineItems.lazy
+                        .compactMap { $0.asEvent() }
+                        .filter {
+                            if case .msgLike = $0.content { return true }
+                            return false
+                        }
+                        .count
+                    if !hitStart && msgLikeCount < 20 {
                         try? await Task.sleep(for: .milliseconds(500))
                         _ = try? await tl.paginateBackwards(numEvents: 100)
                     } else if self.isLoading {
