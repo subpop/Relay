@@ -300,6 +300,116 @@ final class ComposeViewModel {
         }
     }
 
+    // MARK: - Drop Handling
+
+    /// UTTypes accepted for drag-and-drop into the compose bar or timeline.
+    ///
+    /// Covers file URLs, file promises, and raw image data so that screenshots
+    /// dragged from the macOS floating preview are accepted alongside Finder files.
+    static let dropTypes: [UTType] = [.fileURL, .image]
+
+    /// Processes drop providers, handling both file URLs and raw image data.
+    ///
+    /// File URLs are staged directly. For raw image data (e.g. a screenshot
+    /// dragged from the macOS floating preview), the data is written to a temp
+    /// file before staging. This mirrors the behaviour of ``PasteHandler``.
+    func handleDropProviders(
+        _ providers: [NSItemProvider],
+        errorReporter: ErrorReporter
+    ) {
+        for provider in providers {
+            // Prefer file URL — covers Finder drags and saved files.
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(
+                    forTypeIdentifier: UTType.fileURL.identifier
+                ) { data, error in
+                    guard let data = data as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true)
+                    else {
+                        if let error {
+                            logger.error("Error loading URL: \(error.localizedDescription)")
+                        }
+                        return
+                    }
+                    Task { @MainActor in
+                        self.stageAttachments([url], errorReporter: errorReporter)
+                    }
+                }
+                continue
+            }
+
+            // Fall back to raw image data (screenshots, "Copy Image" drags).
+            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                loadDroppedImage(from: provider, errorReporter: errorReporter)
+                continue
+            }
+        }
+    }
+
+    /// Loads raw image data from an `NSItemProvider` and stages it as an attachment.
+    ///
+    /// Tries concrete image formats in preference order before falling back to
+    /// TIFF (macOS's generic image pasteboard type), which is converted to PNG.
+    private func loadDroppedImage(
+        from provider: NSItemProvider,
+        errorReporter: ErrorReporter
+    ) {
+        // Concrete types in preference order; TIFF last because it needs conversion.
+        let imageTypes: [(type: UTType, ext: String)] = [
+            (.png, ".png"),
+            (.jpeg, ".jpg"),
+            (.gif, ".gif"),
+            (.webP, ".webp"),
+            (.heic, ".heic"),
+            (.tiff, ".png"),
+        ]
+
+        // Find the first concrete type the provider can supply.
+        guard let match = imageTypes.first(where: {
+            provider.hasItemConformingToTypeIdentifier($0.type.identifier)
+        }) else { return }
+
+        provider.loadDataRepresentation(
+            forTypeIdentifier: match.type.identifier
+        ) { data, error in
+            guard let rawData = data else {
+                if let error {
+                    logger.error("Error loading dropped image: \(error.localizedDescription)")
+                }
+                return
+            }
+
+            let fileData: Data
+            if match.type == .tiff {
+                guard let rep = NSBitmapImageRep(data: rawData),
+                      let png = rep.representation(using: .png, properties: [:])
+                else { return }
+                fileData = png
+            } else {
+                fileData = rawData
+            }
+
+            let tempURL = FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString + "-Dropped Image" + match.ext)
+            do {
+                try fileData.write(to: tempURL)
+            } catch {
+                logger.error("Failed to write dropped image to temp file: \(error)")
+                return
+            }
+
+            Task { @MainActor in
+                let thumbnail = self.generateThumbnail(for: tempURL)
+                let staged = StagedAttachment(
+                    url: tempURL,
+                    filename: tempURL.lastPathComponent,
+                    thumbnail: thumbnail
+                )
+                self.attachments.append(staged)
+            }
+        }
+    }
+
     // MARK: - Private Helpers
 
     /// Generates a small thumbnail for image files, or `nil` for other types.

@@ -33,6 +33,7 @@ struct ComposeBar: View {
     /// Called when the user selects a GIF from the picker.
     var onGIFSelected: (GIFSearchResult) async -> Void
 
+    @Environment(\.errorReporter) private var errorReporter
     @State private var pasteHandler = PasteHandler()
     @State private var mentionSuggestionsHeight: CGFloat = 0
 
@@ -55,15 +56,20 @@ struct ComposeBar: View {
                 onAttach(urls)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            let fileURLs = urls.filter(\.isFileURL)
-            guard !fileURLs.isEmpty else { return false }
-            onAttach(fileURLs)
+        .onDrop(
+            of: ComposeViewModel.dropTypes,
+            isTargeted: Binding(
+                get: { compose.isDropTargeted },
+                set: { targeted in
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        compose.isDropTargeted = targeted
+                    }
+                }
+            )
+        ) { providers in
+            guard !providers.isEmpty else { return false }
+            compose.handleDropProviders(providers, errorReporter: errorReporter)
             return true
-        } isTargeted: { targeted in
-            withAnimation(.easeOut(duration: 0.15)) {
-                compose.isDropTargeted = targeted
-            }
         }
         .onAppear { pasteHandler.startMonitoring() }
         .onDisappear { pasteHandler.stopMonitoring() }

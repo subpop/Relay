@@ -15,6 +15,7 @@
 import OSLog
 import RelayInterface
 import SwiftUI
+import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "Relay", category: "Timeline")
 
@@ -141,17 +142,22 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                     composeBarSection
                 }
             }
-            .dropDestination(for: URL.self) { urls, _ in
+            .onDrop(
+                of: ComposeViewModel.dropTypes,
+                isTargeted: Binding(
+                    get: { isTimelineDropTargeted },
+                    set: { targeted in
+                        guard !readOnly else { return }
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            isTimelineDropTargeted = targeted
+                        }
+                    }
+                )
+            ) { providers in
                 guard !readOnly else { return false }
-                let fileURLs = urls.filter(\.isFileURL)
-                guard !fileURLs.isEmpty else { return false }
-                compose.stageAttachments(fileURLs, errorReporter: errorReporter)
+                guard !providers.isEmpty else { return false }
+                compose.handleDropProviders(providers, errorReporter: errorReporter)
                 return true
-            } isTargeted: { targeted in
-                guard !readOnly else { return }
-                withAnimation(.easeOut(duration: 0.15)) {
-                    isTimelineDropTargeted = targeted
-                }
             }
             .overlay {
                 if !readOnly, isTimelineDropTargeted {
