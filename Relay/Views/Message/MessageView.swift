@@ -88,17 +88,18 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                                 .padding(message.isOutgoing ? .trailing : .leading, 20)
                         }
 
-                        messageContent
-                            .overlay(alignment: .topTrailing) {
-                                if message.isHighlighted {
-                                    Image(systemName: "at")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 16, height: 16)
-                                        .background(.red, in: Circle())
-                                        .offset(x: 4, y: -4)
-                                }
+                    messageContent
+                        .overlay(alignment: .topTrailing) {
+                            if message.isHighlighted {
+                                Image(systemName: "at")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 16, height: 16)
+                                    .background(.red, in: Circle())
+                                    .offset(x: 4, y: -4)
                             }
+                        }
+                        .padding(.top, message.isHighlighted && !showSenderName ? 4 : 0)
                             .padding(message.replyDetail != nil ? 2 : 0)
                             .background {
                                 if message.replyDetail != nil {
