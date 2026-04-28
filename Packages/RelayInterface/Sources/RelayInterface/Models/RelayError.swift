@@ -108,6 +108,11 @@ public enum RelayError: LocalizedError, Sendable {
     /// A direct message room could not be opened or created.
     case dmCreationFailed(String)
 
+    // MARK: Calls
+
+    /// A call could not be started.
+    case callFailed(String)
+
     // MARK: LocalizedError
 
     public var errorDescription: String? {
@@ -160,6 +165,8 @@ public enum RelayError: LocalizedError, Sendable {
             "Could Not Update Display Name"
         case .dmCreationFailed:
             "Could Not Open Conversation"
+        case .callFailed:
+            "Call Failed"
         }
     }
 
@@ -212,6 +219,8 @@ public enum RelayError: LocalizedError, Sendable {
         case .displayNameUpdateFailed(let reason):
             reason
         case .dmCreationFailed(let reason):
+            reason
+        case .callFailed(let reason):
             reason
         }
     }

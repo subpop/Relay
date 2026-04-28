@@ -214,10 +214,9 @@ struct CallView: View {
 
             // End call
             Button {
-                Task {
-                    await viewModel.disconnect()
-                    onDismiss()
-                }
+                // Only disconnect — the endedOverlay auto-dismiss
+                // will call onDismiss() after a brief delay.
+                Task { await viewModel.disconnect() }
             } label: {
                 Image(systemName: "phone.down.fill")
                     .font(.title3)
@@ -312,10 +311,7 @@ struct CallView: View {
                 .font(.headline)
                 .foregroundStyle(.white.opacity(0.7))
             Button("Cancel") {
-                Task {
-                    await viewModel.disconnect()
-                    onDismiss()
-                }
+                Task { await viewModel.disconnect() }
             }
             .buttonStyle(.bordered)
             .foregroundStyle(.white)
