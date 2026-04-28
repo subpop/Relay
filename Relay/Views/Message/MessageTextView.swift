@@ -103,7 +103,10 @@ struct MessageTextView: NSViewRepresentable {
         coordinator.lastAttributedString = attributedString
         coordinator.lastIsOutgoing = isOutgoing
         coordinator.cachedResolved = resolved
-        view.linkTextAttributes = [.foregroundColor: linkColor]
+        view.linkTextAttributes = [
+            .foregroundColor: linkColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
         storage.setAttributedString(resolved)
 
         return view
@@ -134,7 +137,10 @@ struct MessageTextView: NSViewRepresentable {
             coordinator.lastIsOutgoing = isOutgoing
             coordinator.cachedResolved = resolved
 
-            view.linkTextAttributes = [.foregroundColor: linkColor]
+            view.linkTextAttributes = [
+                .foregroundColor: linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ]
             view.textStorage?.setAttributedString(resolved)
 
             // Invalidate the size cache — the text content changed.

@@ -64,7 +64,7 @@ final class MessageTextContent: NSTextView {
 
     // MARK: - Hover State
 
-    private var hoveredLinkRange: NSRange?
+    private var isHoveringLink = false
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -80,47 +80,22 @@ final class MessageTextContent: NSTextView {
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let range = linkRange(at: point) {
-            if hoveredLinkRange != range {
-                clearHoverUnderline()
-                // Skip hover underline for mention pill attachments —
-                // they render as inline images and shouldn't be underlined.
-                let isPillAttachment = textStorage?.attribute(
-                    .attachment, at: range.location, effectiveRange: nil
-                ) is PillTextAttachment
-                if !isPillAttachment {
-                    textStorage?.addAttribute(
-                        .underlineStyle,
-                        value: NSUnderlineStyle.single.rawValue,
-                        range: range
-                    )
-                }
-                hoveredLinkRange = range
-            }
+        if linkRange(at: point) != nil {
+            isHoveringLink = true
             NSCursor.pointingHand.set()
         } else {
-            if hoveredLinkRange != nil { clearHoverUnderline() }
+            if isHoveringLink { isHoveringLink = false }
             super.mouseMoved(with: event)
         }
     }
 
     override func mouseExited(with event: NSEvent) {
-        clearHoverUnderline()
+        isHoveringLink = false
         super.mouseExited(with: event)
     }
 
     func resetHoverState() {
-        clearHoverUnderline()
-    }
-
-    // MARK: - Private Helpers
-
-    private func clearHoverUnderline() {
-        if let range = hoveredLinkRange, let textStorage,
-           range.upperBound <= textStorage.length {
-            textStorage.removeAttribute(.underlineStyle, range: range)
-        }
-        hoveredLinkRange = nil
+        isHoveringLink = false
     }
 
     private func linkRange(at point: NSPoint) -> NSRange? {

@@ -61,6 +61,11 @@ extension MessageTextView {
                 result.addAttribute(keys.foregroundColor, value: barColor, range: range)
             } else if hasLink {
                 result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
+                result.addAttribute(
+                    keys.underlineStyle,
+                    value: NSUnderlineStyle.single.rawValue,
+                    range: range
+                )
 
                 // Record matrix.to user and room links for pill replacement.
                 if let url = attrs[keys.link] as? URL,
