@@ -449,7 +449,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             ComposeBar(
                 compose: compose,
                 onSend: {
-                    await compose.send(
+                    compose.send(
                         using: viewModel,
                         matrixService: matrixService,
                         roomId: roomId,
@@ -462,7 +462,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                     compose.stageAttachments(urls, errorReporter: errorReporter)
                 },
                 onGIFSelected: { gif in
-                    await compose.sendGIF(
+                    compose.sendGIF(
                         gif,
                         using: viewModel,
                         gifSearchService: gifSearchService,

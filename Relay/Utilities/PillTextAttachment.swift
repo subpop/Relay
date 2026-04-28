@@ -57,10 +57,13 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
-        let pillSize = MentionPillView.measureSize(
-            displayName: displayName,
-            font: NSFont.systemFont(ofSize: font.pointSize)
-        )
+        let fontSize = font.pointSize
+        let pillSize = MainActor.assumeIsolated {
+            MentionPillView.measureSize(
+                displayName: displayName,
+                font: NSFont.systemFont(ofSize: fontSize)
+            )
+        }
         self.image = Self.renderPillImage(
             userId: userId, displayName: displayName, size: pillSize, style: .compose
         )
@@ -75,10 +78,13 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
-        let pillSize = MentionPillView.measureSize(
-            displayName: displayName,
-            font: NSFont.systemFont(ofSize: font.pointSize)
-        )
+        let fontSize = font.pointSize
+        let pillSize = MainActor.assumeIsolated {
+            MentionPillView.measureSize(
+                displayName: displayName,
+                font: NSFont.systemFont(ofSize: fontSize)
+            )
+        }
         self.image = Self.renderPillImage(
             userId: userId, displayName: displayName, size: pillSize, style: style
         )
