@@ -116,7 +116,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
             members: [
                 RoomMemberDetails(
                     userId: "@alice:matrix.org", displayName: "Alice Smith",
-                    role: .administrator, powerLevel: 100
+                    role: .administrator, powerLevel: 100, isCreator: true
                 ),
                 RoomMemberDetails(
                     userId: "@bob:matrix.org", displayName: "Bob Chen",

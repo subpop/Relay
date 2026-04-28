@@ -34,19 +34,24 @@ struct UserProfile: Hashable {
     /// The user's raw power level within the room context, if applicable.
     let powerLevel: Int64?
 
+    /// Whether this member is the room creator.
+    let isCreator: Bool
+
     /// Creates a ``UserProfile`` with explicit values.
     init(
         userId: String,
         displayName: String? = nil,
         avatarURL: String? = nil,
         role: RoomMemberDetails.Role? = nil,
-        powerLevel: Int64? = nil
+        powerLevel: Int64? = nil,
+        isCreator: Bool = false
     ) {
         self.userId = userId
         self.displayName = displayName
         self.avatarURL = avatarURL
         self.role = role
         self.powerLevel = powerLevel
+        self.isCreator = isCreator
     }
 
     /// Creates a ``UserProfile`` from a room member's details.
@@ -56,6 +61,7 @@ struct UserProfile: Hashable {
         self.avatarURL = member.avatarURL
         self.role = member.role
         self.powerLevel = member.powerLevel
+        self.isCreator = member.isCreator
     }
 
     /// Creates a ``UserProfile`` from a timeline message's sender information.
@@ -65,5 +71,6 @@ struct UserProfile: Hashable {
         self.avatarURL = message.senderAvatarURL
         self.role = nil
         self.powerLevel = nil
+        self.isCreator = false
     }
 }

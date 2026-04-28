@@ -660,8 +660,9 @@ public final class MatrixService: MatrixServiceProtocol {
             if let chunk {
                 memberDetails = chunk.compactMap { member -> RoomMemberDetails? in
                     guard member.membership == .join else { return nil }
+                    let isCreator = member.suggestedRoleForPowerLevel == .creator
                     let role: RoomMemberDetails.Role = switch member.suggestedRoleForPowerLevel {
-                    case .administrator: .administrator
+                    case .creator, .administrator: .administrator
                     case .moderator: .moderator
                     default: .user
                     }
@@ -674,7 +675,8 @@ public final class MatrixService: MatrixServiceProtocol {
                         displayName: member.displayName,
                         avatarURL: member.avatarUrl,
                         role: role,
-                        powerLevel: pl
+                        powerLevel: pl,
+                        isCreator: isCreator
                     )
                 }
             }
@@ -727,8 +729,9 @@ public final class MatrixService: MatrixServiceProtocol {
 
         while let chunk = membersIterator.nextChunk(chunkSize: 500) {
             for member in chunk where member.membership == .join {
+                let isCreator = member.suggestedRoleForPowerLevel == .creator
                 let role: RoomMemberDetails.Role = switch member.suggestedRoleForPowerLevel {
-                case .administrator: .administrator
+                case .creator, .administrator: .administrator
                 case .moderator: .moderator
                 default: .user
                 }
@@ -742,7 +745,8 @@ public final class MatrixService: MatrixServiceProtocol {
                         displayName: member.displayName,
                         avatarURL: member.avatarUrl,
                         role: role,
-                        powerLevel: pl
+                        powerLevel: pl,
+                        isCreator: isCreator
                     )
                 )
             }

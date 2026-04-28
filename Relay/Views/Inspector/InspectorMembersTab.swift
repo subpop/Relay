@@ -14,10 +14,27 @@
 
 import RelayInterface
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// A lightweight transferable payload for dragging a member between role sections.
+private struct MemberDragItem: Codable, Sendable, Transferable {
+    let userId: String
+
+    nonisolated static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .memberDragItem)
+    }
+}
+
+extension UTType {
+    nonisolated fileprivate static let memberDragItem = UTType(
+        exportedAs: "com.anomaly.relay.member-drag-item"
+    )
+}
 
 /// The Members tab of the timeline inspector, showing a searchable list of room members
-/// with a slide-in detail panel when a member is selected. In space context, an invite
-/// section is shown at the top for inviting users by Matrix ID.
+/// grouped by role, with a slide-in detail panel when a member is selected. Administrators
+/// can drag and drop members between role sections to promote or demote them. In space
+/// context, an invite section is shown at the top for inviting users by Matrix ID.
 struct InspectorMembersTab: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
@@ -48,12 +65,44 @@ struct InspectorMembersTab: View {
         }
     }
 
+    private var administrators: [RoomMemberDetails] {
+        filteredMembers.filter { $0.role == .administrator }
+    }
+
+    private var moderators: [RoomMemberDetails] {
+        filteredMembers.filter { $0.role == .moderator }
+    }
+
+    private var regularMembers: [RoomMemberDetails] {
+        filteredMembers.filter { $0.role == .user }
+    }
+
+    private var canEditRoles: Bool {
+        guard let currentUserId = viewModel.currentUserId else { return false }
+        return viewModel.allMembers.first { $0.userId == currentUserId }?.role == .administrator
+    }
+
+    private func isSelfMember(_ member: RoomMemberDetails) -> Bool {
+        member.userId == viewModel.currentUserId
+    }
+
     var body: some View {
         Group {
             if let profile = displayedProfile {
                 MemberDetailPanel(
                     profile: profile,
                     roomId: viewModel.roomId,
+                    canEditRoles: canEditRoles,
+                    onRoleChange: { powerLevel in
+                        try await viewModel.setMemberPowerLevel(
+                            userId: profile.userId,
+                            powerLevel: powerLevel
+                        )
+                        // Refresh the displayed profile with the updated role
+                        if let updated = viewModel.allMembers.first(where: { $0.userId == profile.userId }) {
+                            displayedProfile = UserProfile(member: updated)
+                        }
+                    },
                     onMessageTap: onMessageUser.map { handler in
                         { handler(profile.userId) }
                     },
@@ -95,24 +144,29 @@ struct InspectorMembersTab: View {
                         inviteSection
                     }
 
-                    ForEach(
-                        filteredMembers.enumerated(), id: \.element.id
-                    ) { index, member in
-                        if index > 0 || context == .space {
-                            Divider().padding(.leading, 44)
-                        }
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                displayedProfile = UserProfile(member: member)
-                            }
-                        } label: {
-                            InspectorMemberRow(member: member)
-                                .padding(.horizontal)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    roleSection(
+                        title: "Administrators",
+                        icon: "crown",
+                        color: .orange,
+                        members: administrators,
+                        targetPowerLevel: 100
+                    )
+
+                    roleSection(
+                        title: "Moderators",
+                        icon: "shield.fill",
+                        color: .blue,
+                        members: moderators,
+                        targetPowerLevel: 50
+                    )
+
+                    roleSection(
+                        title: "Members",
+                        icon: "person",
+                        color: .secondary,
+                        members: regularMembers,
+                        targetPowerLevel: 0
+                    )
                 }
                 .padding(.vertical, 4)
             }
@@ -148,6 +202,125 @@ struct InspectorMembersTab: View {
         .font(.callout)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Role Sections
+
+    @ViewBuilder
+    private func roleSection(
+        title: String,
+        icon: String,
+        color: Color,
+        members: [RoomMemberDetails],
+        targetPowerLevel: Int64
+    ) -> some View {
+        if !members.isEmpty || canEditRoles {
+            roleSectionHeader(
+                title: title,
+                icon: icon,
+                color: color,
+                count: members.count
+            )
+
+            if members.isEmpty {
+                dropPlaceholder(color: color)
+                    .dropDestination(for: MemberDragItem.self) { items, _ in
+                        handleDrop(items, powerLevel: targetPowerLevel)
+                    } isTargeted: { _ in }
+            } else {
+                memberRows(members)
+                    .dropDestination(for: MemberDragItem.self) { items, _ in
+                        handleDrop(items, powerLevel: targetPowerLevel)
+                    } isTargeted: { _ in }
+            }
+        }
+    }
+
+    private func roleSectionHeader(
+        title: String,
+        icon: String,
+        color: Color,
+        count: Int
+    ) -> some View {
+        HStack {
+            Label("\(title) (\(count))", systemImage: icon)
+                .font(.caption)
+                .foregroundStyle(color)
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+
+    /// A placeholder drop target shown when a role section has no members.
+    private func dropPlaceholder(color: Color) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(color.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
+            .frame(height: 36)
+            .overlay {
+                Text("Drop here")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 4)
+    }
+
+    private func memberRows(_ members: [RoomMemberDetails]) -> some View {
+        ForEach(
+            members.enumerated(), id: \.element.id
+        ) { index, member in
+            if index > 0 {
+                Divider().padding(.leading, 44)
+            }
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    displayedProfile = UserProfile(member: member)
+                }
+            } label: {
+                InspectorMemberRow(member: member)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .draggable(MemberDragItem(userId: member.userId)) {
+                if canEditRoles, !isSelfMember(member), !member.isCreator {
+                    InspectorMemberRow(member: member)
+                        .padding(.horizontal)
+                        .padding(.vertical, 6)
+                        .frame(width: 240)
+                        .background(.regularMaterial, in: .rect(cornerRadius: 8))
+                } else {
+                    EmptyView()
+                }
+            }
+        }
+    }
+
+    // MARK: - Drag & Drop
+
+    private func handleDrop(_ items: [MemberDragItem], powerLevel: Int64) -> Bool {
+        guard canEditRoles, let item = items.first else { return false }
+        // Don't allow dropping self
+        guard item.userId != viewModel.currentUserId else { return false }
+        // Don't drop into the same role section
+        if let member = viewModel.allMembers.first(where: { $0.userId == item.userId }) {
+            let currentPowerLevel: Int64 = switch member.role {
+            case .administrator: 100
+            case .moderator: 50
+            case .user: 0
+            }
+            guard currentPowerLevel != powerLevel else { return false }
+        }
+        Task {
+            try? await viewModel.setMemberPowerLevel(
+                userId: item.userId,
+                powerLevel: powerLevel
+            )
+        }
+        return true
     }
 
     // MARK: - Invite Section
@@ -216,6 +389,12 @@ struct InspectorMembersTab: View {
 
 #Preview("Room") {
     InspectorMembersTab(viewModel: .preview(), selectedProfile: .constant(nil))
+        .environment(\.matrixService, PreviewMatrixService())
+        .frame(width: 280, height: 600)
+}
+
+#Preview("Room (Admin)") {
+    InspectorMembersTab(viewModel: .preview(asAdmin: true), selectedProfile: .constant(nil))
         .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }

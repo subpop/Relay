@@ -126,6 +126,9 @@ public struct RoomMemberDetails: Identifiable, Sendable {
     /// The member's raw power level within this room (e.g. 100 for admin, 50 for moderator, 0 for user).
     public let powerLevel: Int64
 
+    /// Whether this member is the room creator.
+    public let isCreator: Bool
+
     /// The power-level role a member holds within a room.
     public enum Role: String, Sendable {
         /// Full administrative privileges (power level 100).
@@ -144,17 +147,20 @@ public struct RoomMemberDetails: Identifiable, Sendable {
     ///   - avatarURL: The `mxc://` URL for the member's avatar.
     ///   - role: The member's power-level role. Defaults to `.user`.
     ///   - powerLevel: The member's raw power level. Defaults to `0`.
+    ///   - isCreator: Whether this member is the room creator. Defaults to `false`.
     nonisolated public init(
         userId: String,
         displayName: String? = nil,
         avatarURL: String? = nil,
         role: Role = .user,
-        powerLevel: Int64 = 0
+        powerLevel: Int64 = 0,
+        isCreator: Bool = false
     ) {
         self.userId = userId
         self.displayName = displayName
         self.avatarURL = avatarURL
         self.role = role
         self.powerLevel = powerLevel
+        self.isCreator = isCreator
     }
 }

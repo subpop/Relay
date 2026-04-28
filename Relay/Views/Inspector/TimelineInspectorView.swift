@@ -30,7 +30,6 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     case behavior
     case notifications
     case security
-    case roles
     case settings
 
     var id: String { rawValue }
@@ -42,7 +41,6 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .behavior: "slider.horizontal.3"
         case .notifications: "bell"
         case .security: "lock.shield"
-        case .roles: "crown"
         case .settings: "gearshape"
         }
     }
@@ -54,7 +52,6 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .behavior: "Behavior"
         case .notifications: "Notifications"
         case .security: "Security & Privacy"
-        case .roles: "Roles & Permissions"
         case .settings: "Settings"
         }
     }
@@ -64,7 +61,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         switch self {
         case .general, .members, .notifications:
             true
-        case .behavior, .security, .roles:
+        case .behavior, .security:
             context == .room
         case .settings:
             context == .space
@@ -189,8 +186,6 @@ struct TimelineInspectorView: View {
             InspectorNotificationsTab(viewModel: viewModel)
         case .security:
             InspectorSecurityTab(viewModel: viewModel)
-        case .roles:
-            InspectorRolesTab(viewModel: viewModel)
         case .settings:
             InspectorSettingsTab(viewModel: viewModel)
         }

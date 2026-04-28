@@ -108,8 +108,25 @@ final class TimelineInspectorViewModel {
     func setMemberPowerLevel(userId: String, powerLevel: Int64) async throws {
         guard let matrixService else { return }
         try await matrixService.setMemberPowerLevel(roomId: roomId, userId: userId, powerLevel: powerLevel)
-        // Reload members to reflect the change
-        await loadAllMembers()
+        // Optimistically update the local member list so the UI reflects the
+        // change immediately, rather than re-fetching from the SDK cache which
+        // may not yet reflect the new power levels.
+        if let index = allMembers.firstIndex(where: { $0.userId == userId }) {
+            let member = allMembers[index]
+            let newRole: RoomMemberDetails.Role = switch powerLevel {
+            case 100...: .administrator
+            case 50..<100: .moderator
+            default: .user
+            }
+            allMembers[index] = RoomMemberDetails(
+                userId: member.userId,
+                displayName: member.displayName,
+                avatarURL: member.avatarURL,
+                role: newRole,
+                powerLevel: powerLevel,
+                isCreator: member.isCreator
+            )
+        }
     }
 
     // MARK: - Room Access Actions
@@ -205,7 +222,7 @@ final class TimelineInspectorViewModel {
             members: [
                 RoomMemberDetails(
                     userId: "@alice:matrix.org", displayName: "Alice Smith",
-                    role: .administrator, powerLevel: 100
+                    role: .administrator, powerLevel: 100, isCreator: true
                 ),
                 RoomMemberDetails(
                     userId: "@bob:matrix.org", displayName: "Bob Chen",

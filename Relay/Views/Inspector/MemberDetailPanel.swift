@@ -23,6 +23,12 @@ struct MemberDetailPanel: View {
     let profile: UserProfile
     let roomId: String
 
+    /// Whether the current user has permission to change roles.
+    var canEditRoles = false
+
+    /// Called when the user selects a new power level for this member.
+    var onRoleChange: ((Int64) async throws -> Void)?
+
     /// Called when the user taps the "Message" button to open a DM.
     var onMessageTap: (() -> Void)?
 
@@ -36,6 +42,7 @@ struct MemberDetailPanel: View {
     @State private var isIgnored = false
     @State private var isPerformingAction = false
     @State private var confirmationAction: ModerationAction?
+    @State private var showRoleChangeDialog = false
 
     private var isSelf: Bool {
         profile.userId == matrixService.userId()
@@ -92,6 +99,17 @@ struct MemberDetailPanel: View {
         } message: { action in
             Text(action.message(for: name))
         }
+        .confirmationDialog(
+            "Change Role",
+            isPresented: $showRoleChangeDialog
+        ) {
+            Button("Administrator (100)") { changeRole(to: 100) }
+            Button("Moderator (50)") { changeRole(to: 50) }
+            Button("Member (0)") { changeRole(to: 0) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Change role for \(name)")
+        }
     }
 
     // MARK: - Back Header
@@ -127,8 +145,42 @@ struct MemberDetailPanel: View {
                 .textSelection(.enabled)
 
             if let role = profile.role, role != .user {
-                MemberRoleBadge(role: role)
+                if canEditRoles, !isSelf, !profile.isCreator {
+                    Button {
+                        showRoleChangeDialog = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            MemberRoleBadge(role: role, isCreator: profile.isCreator)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
                     .padding(.top, 4)
+                } else {
+                    MemberRoleBadge(role: role, isCreator: profile.isCreator)
+                        .padding(.top, 4)
+                }
+            } else if canEditRoles, !isSelf {
+                // Regular member — show a tappable "Member" badge to allow promotion
+                Button {
+                    showRoleChangeDialog = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Member")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.secondary.opacity(0.1), in: Capsule())
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
         }
         .padding(.horizontal)
@@ -148,7 +200,10 @@ struct MemberDetailPanel: View {
 
                 if let powerLevel = profile.powerLevel {
                     Divider().padding(.vertical, 4)
-                    InspectorInfoRow(label: "Power Level", value: "\(powerLevel)")
+                    InspectorInfoRow(
+                        label: "Power Level",
+                        value: profile.isCreator ? "∞" : "\(powerLevel)"
+                    )
                 }
             }
             .padding(.vertical, 2)
@@ -203,6 +258,14 @@ struct MemberDetailPanel: View {
     }
 
     // MARK: - Action Handling
+
+    private func changeRole(to powerLevel: Int64) {
+        isPerformingAction = true
+        Task {
+            defer { isPerformingAction = false }
+            try? await onRoleChange?(powerLevel)
+        }
+    }
 
     private func performAction(_ action: ModerationAction) {
         isPerformingAction = true
@@ -304,7 +367,7 @@ private struct ModerationButton: View {
     }
 }
 
-#Preview {
+#Preview("Administrator") {
     MemberDetailPanel(
         profile: UserProfile(
             userId: "@alice:matrix.org",
@@ -313,6 +376,27 @@ private struct ModerationButton: View {
             powerLevel: 100
         ),
         roomId: "!design:matrix.org",
+        canEditRoles: true,
+        onRoleChange: { _ in },
+        onMessageTap: { print("Message tapped") },
+        onBack: { print("Back tapped") }
+    )
+    .environment(\.matrixService, PreviewMatrixService())
+    .frame(width: 260, height: 600)
+}
+
+#Preview("Creator") {
+    MemberDetailPanel(
+        profile: UserProfile(
+            userId: "@bob:matrix.org",
+            displayName: "Bob Chen",
+            role: .administrator,
+            powerLevel: 100,
+            isCreator: true
+        ),
+        roomId: "!design:matrix.org",
+        canEditRoles: true,
+        onRoleChange: { _ in },
         onMessageTap: { print("Message tapped") },
         onBack: { print("Back tapped") }
     )
