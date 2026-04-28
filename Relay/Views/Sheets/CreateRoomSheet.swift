@@ -99,12 +99,14 @@ struct CreateRoomSheet: View {
                     Text("Public").tag(true)
                 }
                 .pickerStyle(.radioGroup)
-                .onChange(of: isPublic) { _, newValue in
-                    // Auto-adjust encryption default based on visibility.
-                    isEncrypted = !newValue
+                .onChange(of: isPublic) {
+                    // Public rooms cannot use end-to-end encryption.
+                    isEncrypted = !isPublic
                 }
 
-                Toggle("End-to-End Encryption", isOn: $isEncrypted)
+                if !isPublic {
+                    Toggle("End-to-End Encryption", isOn: $isEncrypted)
+                }
             } header: {
                 Text("Security & Access")
                 Text(isPublic
