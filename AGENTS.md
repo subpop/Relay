@@ -32,6 +32,18 @@ Only `RelayApp.swift` imports `RelayKit` directly.
 - Keep commits focused and atomic. Use imperative mood, sentence-case
   commit messages (e.g. "Add thread support to timeline view").
 
+## Commit Conventions
+
+- Include a summary of what changed in the commit message.
+- When authoring a commit, use either `Assisted-By: <name of code assistant>` or
+  `Generated-By: <name of code assistant"` in the commit message
+  footer.
+  - **Assisted-By**: You directed the work and edited meaningfully
+    (default for typical use).
+  - **Generated-By**:  A substantial portion was generated with
+    minimal human edit (e.g. full file scaffold).
+- Never push commits without explicit approval from the user.
+
 ## Architecture Rules
 
 - Never import `MatrixRustSDK` or `RelayKit` from view code. Views depend
