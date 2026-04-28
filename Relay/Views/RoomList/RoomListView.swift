@@ -54,7 +54,7 @@ struct RoomListView: View {
                             onDecline: { confirmDecline(invite) },
                             onTap: { previewingInvite = invite }
                         )
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        .swipeActions(edge: .trailing) {
                             Button("Decline", systemImage: "xmark", role: .destructive) {
                                 confirmDecline(invite)
                             }
@@ -135,7 +135,7 @@ struct RoomListView: View {
     private func roomRow(_ room: RoomSummary) -> some View {
         RoomListRow(room: room)
             .tag(room.id)
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            .swipeActions(edge: .trailing) {
                 Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
             }
             .contextMenu {
