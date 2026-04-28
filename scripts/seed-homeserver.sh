@@ -48,10 +48,11 @@ fi
 # Transaction ID counter (for idempotent message sends)
 TXN_ID=0
 
-# Associative arrays for tokens and room IDs
+# Associative arrays for tokens, room IDs, and display names
 declare -A TOKENS
 declare -A ROOMS
 declare -A SPACES
+declare -A DISPLAY_NAMES
 
 # User definitions: username|display_name
 USERS=(
@@ -421,6 +422,69 @@ send_message() {
     fi
 }
 
+# Send a text message that mentions one or more users.
+# The body should contain the mentioned user's display name where the mention
+# should appear. This function adds the Matrix m.mentions structured data and
+# an HTML formatted_body with proper matrix.to user pills.
+# Usage: send_mention <room_key> <sender_username> <body> <mentioned_user_id> [additional_user_ids...]
+send_mention() {
+    local room_key="$1"
+    local sender="$2"
+    local body="$3"
+    shift 3
+    local mentioned_ids=("$@")
+    local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
+    local token="${TOKENS[$sender]}"
+    next_txn
+    local txn="$NEXT_TXN_RESULT"
+
+    local escaped_body
+    escaped_body=$(echo -n "$body" | jq -Rs '.')
+
+    # Build the HTML formatted_body by replacing display names with pills.
+    # Start with the plain body as the base HTML.
+    local html_body="$body"
+
+    # Build the m.mentions.user_ids JSON array and replace display names with
+    # pills in the HTML body.
+    local user_ids_json="["
+    local first=true
+    for uid in "${mentioned_ids[@]}"; do
+        if [[ "$first" == true ]]; then
+            first=false
+        else
+            user_ids_json+=","
+        fi
+        user_ids_json+="\"${uid}\""
+
+        # Look up the display name for this user (strip the @...:server part).
+        local username="${uid#@}"
+        username="${username%%:*}"
+        local display_name="${DISPLAY_NAMES[$username]:-$username}"
+
+        # Replace the display name in the HTML body with a mention pill link.
+        html_body="${html_body//$display_name/<a href=\"https://matrix.to/#\/${uid}\">$display_name</a>}"
+    done
+    user_ids_json+="]"
+
+    local escaped_html
+    escaped_html=$(echo -n "$html_body" | jq -Rs '.')
+
+    local response
+    response=$(curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d "{\"msgtype\": \"m.text\", \"body\": ${escaped_body}, \"format\": \"org.matrix.custom.html\", \"formatted_body\": ${escaped_html}, \"m.mentions\": {\"user_ids\": ${user_ids_json}}}")
+
+    local event_id
+    event_id=$(echo "$response" | jq -r '.event_id // empty')
+    if [[ -z "$event_id" ]]; then
+        echo ""
+        echo "Warning: Failed to send mention to '${room_key}' as '${sender}'"
+        echo "Response: ${response}"
+    fi
+}
+
 # Send a notice (bot-style message) to a room.
 # Usage: send_notice <room_key> <sender_username> <body>
 send_notice() {
@@ -567,6 +631,7 @@ BOOTSTRAP_TOKEN=$(get_bootstrap_token)
 first_user=true
 for user_def in "${USERS[@]}"; do
     IFS='|' read -r username display_name <<< "$user_def"
+    DISPLAY_NAMES[$username]="$display_name"
     if [[ "$first_user" == true ]]; then
         ACTIVE_TOKEN="$BOOTSTRAP_TOKEN"
         first_user=false
@@ -811,6 +876,9 @@ send_message "general" "priya"   "I'll be there. Quick question — are we redes
 send_message "general" "casey"   "Primarily the client UX, but if there are backend changes needed to support it, we'll scope those in."
 send_message "general" "riley"   "Just a heads up, I updated the shared ESLint config. If your editor starts showing new warnings, that's why. All the rules are auto-fixable."
 send_message "general" "morgan"  "Happy Friday, team. Solid week all around. Enjoy the weekend and recharge."
+send_message "general" "casey"   "Alright, I've finalized the agenda for Monday's standup. We're going to cover the sprint retro, onboarding progress, and the beta release."
+send_mention "general" "casey" "Alex Kim — can you give a quick update on the iOS release status at Monday's standup?" "@alex:pebble.dev"
+send_mention "general" "jordan" "Also Alex Kim, I left some updated assets in the Figma file for the new empty states. Take a look when you get a chance!" "@alex:pebble.dev"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #random
@@ -871,6 +939,8 @@ send_message "backend" "alex"   "Will the API return rate limit headers? I want 
 send_message "backend" "priya"  "Yep — X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset. Standard stuff. I'll include a Retry-After header on 429 responses too."
 send_message "backend" "alex"   "Great. I'll add a retry-with-backoff handler on the iOS side once those are live."
 send_message "backend" "sam"    "I'll make sure the Redis instance for rate limiting is on a separate cluster from the cache. Don't want rate limit lookups competing with cache reads."
+send_message "backend" "priya"  "Just deployed the rate limiting changes to staging. All the tests are passing and I've verified the headers manually with curl."
+send_mention "backend" "priya" "Alex Kim — the rate limit headers are live on staging. You should be good to start on the retry-with-backoff handler whenever you're ready." "@alex:pebble.dev"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #ios
@@ -904,6 +974,9 @@ send_message "ios" "morgan"  "E2EE is going to be a big selling point. Great wor
 send_message "ios" "taylor"  "I've written about 40 UI tests for the room list. Coverage is at 85% now. The remaining 15% is edge cases around offline mode that are tricky to simulate."
 send_message "ios" "alex"    "That's solid coverage. For the offline tests, we could inject a mock network layer that returns errors. Want me to set up the protocol for that?"
 send_message "ios" "taylor"  "That would be perfect. A simple protocol with a flag to toggle connectivity would be enough."
+send_message "ios" "priya"   "Just finished rebasing the async bridging branch. Had to rework a few of the cancellation handlers but it's cleaner now."
+send_message "ios" "priya"   "Also added a unit test for the backpressure case — turns out we were dropping events when the buffer filled up. Fixed."
+send_mention "ios" "priya" "Hey Alex Kim, I pushed the AsyncStream bridging changes to the feature branch. Can you pull and see if it plays nicely with the room list?" "@alex:pebble.dev"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #frontend
@@ -983,6 +1056,8 @@ send_message "code-review" "alex"   "Good eye. I'll cap it at 30 seconds. No poi
 send_message "code-review" "riley"  "PR #425: keyboard shortcuts system for the web client. Adds Cmd+K for search, Cmd+Shift+N for new room, and a Cmd+/ shortcut reference overlay."
 send_message "code-review" "morgan" "I'll take #425. I've been wanting this feature for months."
 send_message "code-review" "morgan" "Reviewed #425 — this is really well done, Riley. Clean separation between the key listener and the action dispatcher. Approved."
+send_message "code-review" "taylor" "Did another pass on #423 this morning. The error handling for network timeouts during retry is solid."
+send_mention "code-review" "taylor" "Alex Kim, one last thing on PR #423 — I think we should add jitter to the backoff to avoid thundering herd. Quick fix!" "@alex:pebble.dev"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #design-chat
@@ -1010,6 +1085,7 @@ send_message "design-chat" "jordan" "Good point. For joiners, the flow is simple
 send_message "design-chat" "jordan" "Also shared the empty state illustrations in Figma. There are 6 in the set: no messages, no rooms, no members, no search results, no notifications, and a generic 'nothing here yet' fallback."
 send_message "design-chat" "casey"  "These are beautiful. The illustration style is consistent and they feel warm without being childish. Exactly the right tone."
 send_message "design-chat" "alex"   "I can start implementing the empty states on iOS this sprint. They'll be reusable components in our design system."
+send_mention "design-chat" "jordan" "Alex Kim, I just uploaded the final empty state illustrations to Figma with export-ready assets. The 'no messages' and 'no rooms' ones turned out really well." "@alex:pebble.dev"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #design-system
