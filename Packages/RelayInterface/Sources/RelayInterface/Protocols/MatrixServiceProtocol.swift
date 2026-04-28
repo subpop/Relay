@@ -363,18 +363,21 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
 
     /// Downloads the full-resolution content of a Matrix media URL.
     ///
-    /// - Parameter mxcURL: The `mxc://` URL of the media.
+    /// - Parameters:
+    ///   - mxcURL: The `mxc://` URL of the media.
+    ///   - mediaSourceJSON: Optional JSON-serialized media source with encryption metadata.
     /// - Returns: The raw media data, or `nil` if the download failed.
-    func mediaContent(mxcURL: String) async -> Data?
+    func mediaContent(mxcURL: String, mediaSourceJSON: String?) async -> Data?
 
     /// Downloads a thumbnail of a Matrix media URL at the specified dimensions.
     ///
     /// - Parameters:
     ///   - mxcURL: The `mxc://` URL of the media.
+    ///   - mediaSourceJSON: Optional JSON-serialized media source with encryption metadata.
     ///   - width: The desired thumbnail width in pixels.
     ///   - height: The desired thumbnail height in pixels.
     /// - Returns: The thumbnail data, or `nil` if the download failed.
-    func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data?
+    func mediaThumbnail(mxcURL: String, mediaSourceJSON: String?, width: UInt64, height: UInt64) async -> Data?
 
     /// Returns the display name of the currently authenticated user.
     func userDisplayName() async -> String?
@@ -749,8 +752,8 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func roomDetails(roomId: String) async -> RoomDetails? { nil }
     func roomMembers(roomId: String) async -> [RoomMemberDetails] { [] }
     func pinnedMessages(roomId: String) async -> [TimelineMessage] { [] }
-    func mediaContent(mxcURL: String) async -> Data? { nil }
-    func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data? { nil }
+    func mediaContent(mxcURL: String, mediaSourceJSON: String?) async -> Data? { nil }
+    func mediaThumbnail(mxcURL: String, mediaSourceJSON: String?, width: UInt64, height: UInt64) async -> Data? { nil }
     func userDisplayName() async -> String? { nil }
     func setDisplayName(_ name: String) async throws {}
     func userAvatarURL() async -> String? { nil }

@@ -102,6 +102,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         msgKind = .image
                         msgMediaInfo = .init(
                             mxcURL: imageContent.source.url(),
+                            mediaSourceJSON: imageContent.source.toJson(),
                             filename: imageContent.filename,
                             mimetype: imageContent.info?.mimetype,
                             width: imageContent.info?.width,
@@ -114,6 +115,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         msgKind = .video
                         msgMediaInfo = .init(
                             mxcURL: videoContent.source.url(),
+                            mediaSourceJSON: videoContent.source.toJson(),
                             filename: videoContent.filename,
                             mimetype: videoContent.info?.mimetype,
                             width: videoContent.info?.width,
@@ -127,6 +129,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         msgKind = .audio
                         msgMediaInfo = .init(
                             mxcURL: audioContent.source.url(),
+                            mediaSourceJSON: audioContent.source.toJson(),
                             filename: audioContent.filename,
                             mimetype: audioContent.info?.mimetype,
                             size: audioContent.info?.size,
@@ -138,6 +141,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         msgKind = .file
                         msgMediaInfo = .init(
                             mxcURL: fileContent.source.url(),
+                            mediaSourceJSON: fileContent.source.toJson(),
                             filename: fileContent.filename,
                             mimetype: fileContent.info?.mimetype,
                             size: fileContent.info?.size,
@@ -349,6 +353,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .image
                     msgMediaInfo = .init(
                         mxcURL: imageContent.source.url(),
+                        mediaSourceJSON: imageContent.source.toJson(),
                         filename: imageContent.filename,
                         mimetype: imageContent.info?.mimetype,
                         width: imageContent.info?.width,
@@ -361,6 +366,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .video
                     msgMediaInfo = .init(
                         mxcURL: videoContent.source.url(),
+                        mediaSourceJSON: videoContent.source.toJson(),
                         filename: videoContent.filename,
                         mimetype: videoContent.info?.mimetype,
                         width: videoContent.info?.width,
@@ -374,6 +380,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .audio
                     msgMediaInfo = .init(
                         mxcURL: audioContent.source.url(),
+                        mediaSourceJSON: audioContent.source.toJson(),
                         filename: audioContent.filename,
                         mimetype: audioContent.info?.mimetype,
                         size: audioContent.info?.size,
@@ -385,6 +392,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .file
                     msgMediaInfo = .init(
                         mxcURL: fileContent.source.url(),
+                        mediaSourceJSON: fileContent.source.toJson(),
                         filename: fileContent.filename,
                         mimetype: fileContent.info?.mimetype,
                         size: fileContent.info?.size,
@@ -655,6 +663,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .image
                     msgMediaInfo = .init(
                         mxcURL: imageContent.source.url(),
+                        mediaSourceJSON: imageContent.source.toJson(),
                         filename: imageContent.filename,
                         mimetype: imageContent.info?.mimetype,
                         width: imageContent.info?.width,
@@ -667,6 +676,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .video
                     msgMediaInfo = .init(
                         mxcURL: videoContent.source.url(),
+                        mediaSourceJSON: videoContent.source.toJson(),
                         filename: videoContent.filename,
                         mimetype: videoContent.info?.mimetype,
                         width: videoContent.info?.width,
@@ -680,6 +690,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .audio
                     msgMediaInfo = .init(
                         mxcURL: audioContent.source.url(),
+                        mediaSourceJSON: audioContent.source.toJson(),
                         filename: audioContent.filename,
                         mimetype: audioContent.info?.mimetype,
                         size: audioContent.info?.size,
@@ -691,6 +702,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     msgKind = .file
                     msgMediaInfo = .init(
                         mxcURL: fileContent.source.url(),
+                        mediaSourceJSON: fileContent.source.toJson(),
                         filename: fileContent.filename,
                         mimetype: fileContent.info?.mimetype,
                         size: fileContent.info?.size,

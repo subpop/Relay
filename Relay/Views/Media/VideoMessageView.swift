@@ -157,6 +157,7 @@ struct VideoMessageView: View {
             // Try server-side thumbnail first.
             if let data = await matrixService.mediaThumbnail(
                 mxcURL: mediaInfo.mxcURL,
+                mediaSourceJSON: mediaInfo.mediaSourceJSON,
                 width: UInt64(displaySize.width * 2),
                 height: UInt64(displaySize.height * 2)
             ) {
@@ -164,7 +165,10 @@ struct VideoMessageView: View {
             }
 
             // Fall back to extracting a frame from the video locally.
-            if thumbnail == nil, let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) {
+            if thumbnail == nil, let data = await matrixService.mediaContent(
+                mxcURL: mediaInfo.mxcURL,
+                mediaSourceJSON: mediaInfo.mediaSourceJSON
+            ) {
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(mediaInfo.filename)
                 if (try? data.write(to: tempURL)) != nil {
@@ -208,7 +212,10 @@ struct VideoMessageView: View {
         if let cached = cachedVideoFileURL, FileManager.default.fileExists(atPath: cached.path) {
             url = cached
         } else {
-            guard let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) else { return }
+            guard let data = await matrixService.mediaContent(
+                mxcURL: mediaInfo.mxcURL,
+                mediaSourceJSON: mediaInfo.mediaSourceJSON
+            ) else { return }
             url = FileManager.default.temporaryDirectory.appendingPathComponent(mediaInfo.filename)
             do {
                 try data.write(to: url)
@@ -230,7 +237,10 @@ struct VideoMessageView: View {
         if let cached = cachedVideoFileURL, let d = try? Data(contentsOf: cached) {
             data = d
         // swiftlint:disable:next identifier_name
-        } else if let d = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) {
+        } else if let d = await matrixService.mediaContent(
+            mxcURL: mediaInfo.mxcURL,
+            mediaSourceJSON: mediaInfo.mediaSourceJSON
+        ) {
             data = d
         } else {
             return

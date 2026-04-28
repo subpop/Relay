@@ -180,9 +180,10 @@ final class MediaService {
     ///
     /// - Parameters:
     ///   - mxcURL: The `mxc://` URL of the media.
+    ///   - mediaSourceJSON: Optional JSON-serialized media source with encryption metadata.
     ///   - client: The authenticated client proxy.
     /// - Returns: The raw media data, or `nil` if the download failed.
-    func mediaContent(mxcURL: String, client: any ClientProxyProtocol) async -> Data? {
+    func mediaContent(mxcURL: String, mediaSourceJSON: String? = nil, client: any ClientProxyProtocol) async -> Data? {
         let cacheKey = mxcURL
 
         // 1. In-memory cache hit.
@@ -221,7 +222,7 @@ final class MediaService {
 
             // 3b. Download from the network.
             do {
-                let source = try MediaSource.fromUrl(url: mxcURL)
+                let source = try Self.makeMediaSource(mxcURL: mxcURL, json: mediaSourceJSON)
                 let data = try await client.getMediaContent(mediaSource: source)
                 self.mediaCache.setObject(data as NSData, forKey: cacheKey as NSString)
 
@@ -257,11 +258,12 @@ final class MediaService {
     ///
     /// - Parameters:
     ///   - mxcURL: The `mxc://` URL of the media.
+    ///   - mediaSourceJSON: Optional JSON-serialized media source with encryption metadata.
     ///   - width: The desired thumbnail width in pixels.
     ///   - height: The desired thumbnail height in pixels.
     ///   - client: The authenticated client proxy.
     /// - Returns: The thumbnail data, or `nil` if the download failed.
-    func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64, client: any ClientProxyProtocol) async -> Data? {
+    func mediaThumbnail(mxcURL: String, mediaSourceJSON: String? = nil, width: UInt64, height: UInt64, client: any ClientProxyProtocol) async -> Data? {
         let cacheKey = "\(mxcURL)_thumb_\(width)x\(height)"
 
         if let cached = mediaCache.object(forKey: cacheKey as NSString) {
@@ -298,7 +300,7 @@ final class MediaService {
 
             // Download.
             do {
-                let source = try MediaSource.fromUrl(url: mxcURL)
+                let source = try Self.makeMediaSource(mxcURL: mxcURL, json: mediaSourceJSON)
                 let data = try await client.getMediaThumbnail(mediaSource: source, width: width, height: height)
                 self.mediaCache.setObject(data as NSData, forKey: cacheKey as NSString)
 
@@ -324,6 +326,21 @@ final class MediaService {
         let result = await task.value
         mediaInflight[cacheKey] = nil
         return result
+    }
+
+    // MARK: - Media Source Construction
+
+    /// Creates a ``MediaSource`` from either a JSON-serialized source (preserving encryption
+    /// metadata) or a plain `mxc://` URL.
+    ///
+    /// Encrypted media requires the full JSON representation (containing keys, IV, and hashes)
+    /// to be decrypted after download. When `json` is `nil`, falls back to constructing a
+    /// plain source from the URL alone.
+    nonisolated private static func makeMediaSource(mxcURL: String, json: String?) throws -> MediaSource {
+        if let json {
+            return try MediaSource.fromJson(json: json)
+        }
+        return try MediaSource.fromUrl(url: mxcURL)
     }
 
     // MARK: - Cache Management

@@ -155,6 +155,13 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         /// The `mxc://` URL pointing to the media content on the homeserver.
         public var mxcURL: String
 
+        /// A JSON-serialized representation of the media source, preserving encryption metadata.
+        ///
+        /// For encrypted media, this contains the encryption keys, IV, and hashes needed to
+        /// decrypt the downloaded content. For unencrypted media, this may be `nil` (the
+        /// ``mxcURL`` alone is sufficient).
+        public var mediaSourceJSON: String?
+
         /// The original filename of the uploaded media.
         public var filename: String
 
@@ -180,6 +187,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         ///
         /// - Parameters:
         ///   - mxcURL: The `mxc://` URL for the media content.
+        ///   - mediaSourceJSON: The JSON-serialized media source with encryption metadata.
         ///   - filename: The original filename.
         ///   - mimetype: The MIME type of the media.
         ///   - width: The width in pixels.
@@ -189,6 +197,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         ///   - duration: The duration in seconds (audio/video).
         nonisolated public init(
             mxcURL: String,
+            mediaSourceJSON: String? = nil,
             filename: String,
             mimetype: String? = nil,
             width: UInt64? = nil,
@@ -198,6 +207,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
             duration: TimeInterval? = nil
         ) {
             self.mxcURL = mxcURL
+            self.mediaSourceJSON = mediaSourceJSON
             self.filename = filename
             self.mimetype = mimetype
             self.width = width

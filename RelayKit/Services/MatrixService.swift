@@ -835,14 +835,14 @@ public final class MatrixService: MatrixServiceProtocol {
         return await media.avatarThumbnail(mxcURL: mxcURL, size: size, client: client)
     }
 
-    public func mediaContent(mxcURL: String) async -> Data? {
+    public func mediaContent(mxcURL: String, mediaSourceJSON: String?) async -> Data? {
         guard let client else { return nil }
-        return await media.mediaContent(mxcURL: mxcURL, client: client)
+        return await media.mediaContent(mxcURL: mxcURL, mediaSourceJSON: mediaSourceJSON, client: client)
     }
 
-    public func mediaThumbnail(mxcURL: String, width: UInt64, height: UInt64) async -> Data? {
+    public func mediaThumbnail(mxcURL: String, mediaSourceJSON: String?, width: UInt64, height: UInt64) async -> Data? {
         guard let client else { return nil }
-        return await media.mediaThumbnail(mxcURL: mxcURL, width: width, height: height, client: client)
+        return await media.mediaThumbnail(mxcURL: mxcURL, mediaSourceJSON: mediaSourceJSON, width: width, height: height, client: client)
     }
 
     // MARK: - Notification Settings

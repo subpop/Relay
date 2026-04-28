@@ -173,13 +173,17 @@ struct ImageMessageView: View {
             isLoading = true
             if isGIF {
                 // Load full content for GIFs to preserve animation frames.
-                if let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) {
+                if let data = await matrixService.mediaContent(
+                    mxcURL: mediaInfo.mxcURL,
+                    mediaSourceJSON: mediaInfo.mediaSourceJSON
+                ) {
                     imageData = data
                     image = NSImage(data: data)
                 }
             } else {
                 if let data = await matrixService.mediaThumbnail(
                     mxcURL: mediaInfo.mxcURL,
+                    mediaSourceJSON: mediaInfo.mediaSourceJSON,
                     width: UInt64(displaySize.width * 2),
                     height: UInt64(displaySize.height * 2)
                 ) {
@@ -208,7 +212,10 @@ struct ImageMessageView: View {
         isLoadingFullImage = true
         defer { isLoadingFullImage = false }
 
-        guard let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) else { return }
+        guard let data = await matrixService.mediaContent(
+            mxcURL: mediaInfo.mxcURL,
+            mediaSourceJSON: mediaInfo.mediaSourceJSON
+        ) else { return }
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(mediaInfo.filename)
         do {
@@ -220,7 +227,10 @@ struct ImageMessageView: View {
     }
 
     private func saveImage() async {
-        guard let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) else { return }
+        guard let data = await matrixService.mediaContent(
+            mxcURL: mediaInfo.mxcURL,
+            mediaSourceJSON: mediaInfo.mediaSourceJSON
+        ) else { return }
 
         let panel = NSSavePanel()
         panel.nameFieldStringValue = mediaInfo.filename

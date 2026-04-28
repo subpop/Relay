@@ -118,7 +118,10 @@ struct AudioMessageView: View {
         isLoadingMedia = true
         defer { isLoadingMedia = false }
 
-        guard let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) else { return }
+        guard let data = await matrixService.mediaContent(
+            mxcURL: mediaInfo.mxcURL,
+            mediaSourceJSON: mediaInfo.mediaSourceJSON
+        ) else { return }
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(mediaInfo.filename)
         do {
@@ -130,7 +133,10 @@ struct AudioMessageView: View {
     }
 
     private func saveMedia() async {
-        guard let data = await matrixService.mediaContent(mxcURL: mediaInfo.mxcURL) else { return }
+        guard let data = await matrixService.mediaContent(
+            mxcURL: mediaInfo.mxcURL,
+            mediaSourceJSON: mediaInfo.mediaSourceJSON
+        ) else { return }
 
         let panel = NSSavePanel()
         panel.nameFieldStringValue = mediaInfo.filename
