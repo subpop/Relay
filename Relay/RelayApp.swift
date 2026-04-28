@@ -114,10 +114,11 @@ struct RelayApp: App {
                 .environment(\.matrixService, matrixService)
                 .environment(\.callManager, callManager)
         }
-        .windowStyle(.plain)
-        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 360, height: 540)
         .defaultPosition(.topTrailing)
+        .defaultLaunchBehavior(.suppressed)
     }
 
     // MARK: - Notifications

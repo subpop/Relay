@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AppKit
 import RelayInterface
 import SwiftUI
 
@@ -31,9 +32,16 @@ final class CallManager {
 
     func endCall() async {
         await activeCallViewModel?.disconnect()
-        activeCallViewModel = nil
-        isPreparingCredentials = false
-        callRoomId = nil
+        // Defer observable state teardown to the next run-loop iteration.
+        // Setting activeCallViewModel = nil swaps the entire CallWindowView
+        // body (CallView → Color.black). If that fires during an active
+        // AppKit layout pass it triggers a recursive constraint update crash
+        // on the main window.
+        DispatchQueue.main.async { [self] in
+            activeCallViewModel = nil
+            isPreparingCredentials = false
+            callRoomId = nil
+        }
     }
 }
 
@@ -66,27 +74,46 @@ struct CallWindowView: View {
                     viewModel: viewModel,
                     isPreparingCredentials: callManager.isPreparingCredentials
                 ) {
-                    Task {
-                        await callManager.endCall()
-                        // Defer dismissal to the next run loop iteration so it
-                        // doesn't fire during a SwiftUI layout pass, which causes
-                        // a recursive constraint update crash.
-                        DispatchQueue.main.async {
-                            dismissWindow(id: "call")
-                        }
-                    }
+                    // Only tear down state — the onChange handler below is the
+                    // single dismiss path once hasActiveCall becomes false.
+                    Task { await callManager.endCall() }
                 }
             } else {
                 // No active call — show placeholder until the window closes.
                 Color.black
             }
         }
+        .ignoresSafeArea()
+        .background(WindowStyler())
         .onChange(of: callManager.hasActiveCall) { _, hasCall in
             if !hasCall {
                 DispatchQueue.main.async {
                     dismissWindow(id: "call")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Window Styler
+
+/// Configures the call window to have a fully transparent title bar with
+/// content extending underneath it, while keeping the `.hiddenTitleBar`
+/// window style for drag, resize, and window management support.
+private struct WindowStyler: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { StylerView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private class StylerView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            // Hide the traffic light buttons.
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
         }
     }
 }

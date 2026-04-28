@@ -407,15 +407,23 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 callManager.callRoomId = nil
                 return
             }
-            callManager.activeCallViewModel = viewModel
-            openWindow(id: "call")
+
+            // Defer the observable state change + window open to the next
+            // run-loop iteration. Setting activeCallViewModel invalidates
+            // the CallWindowView body across window boundaries; if that
+            // fires during an active layout pass the recursive constraint
+            // update crash occurs.
+            let openWindowAction = openWindow
+            DispatchQueue.main.async {
+                callManager.activeCallViewModel = viewModel
+                openWindowAction(id: "call")
+            }
 
             do {
                 let creds = try await matrixService.callCredentials(for: roomId)
                 try await viewModel.connect(url: creds.livekitURL, token: creds.token, sfuServiceURL: creds.sfuServiceURL)
             } catch {
-                // Credential fetch or connect failed — viewModel stays in .idle so
-                // CallView shows the manual-entry join form as a fallback.
+                errorReporter.report(.callFailed(error.localizedDescription))
             }
             callManager.isPreparingCredentials = false
         }
