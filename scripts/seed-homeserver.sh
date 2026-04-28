@@ -393,6 +393,32 @@ add_space_child() {
         -d "{\"via\": [\"${SERVER_NAME}\"], \"canonical\": true}" >/dev/null
 }
 
+# Promote a user to admin (power level 100) in a room.
+# The caller must be the room creator (or already have sufficient power).
+# Usage: promote_to_admin <room_key> <promoter_username> <target_username>
+promote_to_admin() {
+    local room_key="$1"
+    local promoter="$2"
+    local target="$3"
+
+    local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
+    local token="${TOKENS[$promoter]}"
+
+    # Fetch current power levels
+    local current
+    current=$(curl -s -X GET "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/state/m.room.power_levels" \
+        -H "Authorization: Bearer ${token}")
+
+    # Inject the target user at power level 100 and PUT back
+    local updated
+    updated=$(echo "$current" | jq --arg uid "@${target}:${SERVER_NAME}" '.users[$uid] = 100')
+
+    curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/state/m.room.power_levels" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d "$updated" >/dev/null
+}
+
 # Send a text message to a room.
 # Usage: send_message <room_key> <sender_username> <body>
 send_message() {
@@ -803,6 +829,10 @@ invite_and_join "product-chat" "casey" "jordan"
 invite_and_join "roadmap" "casey" "morgan"
 invite_and_join "roadmap" "casey" "priya"
 invite_and_join "roadmap" "casey" "alex"
+
+# -- Promote alex to admin in select rooms --
+promote_to_admin "random"      "morgan" "alex"
+promote_to_admin "code-review" "morgan" "alex"
 
 step_done
 
