@@ -85,31 +85,44 @@ private struct InspectorHeaderSection: View {
                     .lineLimit(3)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 switch context {
                 case .room:
-                    InspectorBadge(
+                    InspectorTile(
                         icon: details.isEncrypted ? "lock.fill" : "lock.open",
-                        label: details.isEncrypted ? "Encrypted" : "Unencrypted",
+                        title: "Encryption",
+                        status: details.isEncrypted ? "On" : "Off",
                         color: details.isEncrypted ? .green : .secondary
                     )
 
-                    InspectorBadge(
+                    InspectorTile(
                         icon: details.isPublic ? "globe" : "lock.shield",
-                        label: details.isPublic ? "Public" : "Private",
+                        title: "Visibility",
+                        status: details.isPublic ? "Public" : "Private",
                         color: details.isPublic ? .blue : .secondary
                     )
 
                     if details.isDirect {
-                        InspectorBadge(icon: "person.fill", label: "Direct", color: .orange)
+                        InspectorTile(
+                            icon: "person.fill",
+                            title: "Type",
+                            status: "Direct",
+                            color: .orange
+                        )
                     }
 
                 case .space:
-                    InspectorBadge(icon: "square.stack.3d.up", label: "Space", color: .purple)
+                    InspectorTile(
+                        icon: "square.stack.3d.up",
+                        title: "Type",
+                        status: "Space",
+                        color: .purple
+                    )
 
-                    InspectorBadge(
+                    InspectorTile(
                         icon: details.isPublic ? "globe" : "lock.shield",
-                        label: details.isPublic ? "Public" : "Private",
+                        title: "Visibility",
+                        status: details.isPublic ? "Public" : "Private",
                         color: details.isPublic ? .blue : .secondary
                     )
                 }
@@ -185,19 +198,31 @@ private struct InspectorFooterSection: View {
 
 // MARK: - Shared Components
 
-/// A small pill badge showing an icon and label with a tinted background.
-struct InspectorBadge: View {
+/// A compact tile showing an icon, category title, and status value.
+struct InspectorTile: View {
     let icon: String
-    let label: String
+    let title: String
+    let status: String
     let color: Color
 
     var body: some View {
-        Label(label, systemImage: icon)
-            .font(.caption2)
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color.opacity(0.1), in: Capsule())
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(color)
+
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Text(status)
+                .font(.caption)
+                .bold()
+                .foregroundStyle(color)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(color.opacity(0.08), in: .rect(cornerRadius: 8))
     }
 }
 
@@ -223,6 +248,12 @@ struct InspectorInfoRow: View {
 
 #Preview("Room") {
     InspectorGeneralTab(viewModel: .preview())
+        .environment(\.matrixService, PreviewMatrixService())
+        .frame(width: 280, height: 600)
+}
+
+#Preview("Direct") {
+    InspectorGeneralTab(viewModel: .preview(isDirect: true))
         .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }

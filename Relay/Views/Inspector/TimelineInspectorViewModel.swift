@@ -186,7 +186,8 @@ final class TimelineInspectorViewModel {
     static func preview(
         roomId: String = "!design:matrix.org",
         context: InspectorContext = .room,
-        asAdmin: Bool = false
+        asAdmin: Bool = false,
+        isDirect: Bool = false
     ) -> TimelineInspectorViewModel {
         let vm = TimelineInspectorViewModel(roomId: roomId, context: context)
         let service = PreviewMatrixService()
@@ -198,6 +199,7 @@ final class TimelineInspectorViewModel {
             name: "Design Team",
             topic: "A place for the team to collaborate and share ideas.",
             isEncrypted: true,
+            isDirect: isDirect,
             canonicalAlias: "#design-team:matrix.org",
             memberCount: 5,
             members: [
