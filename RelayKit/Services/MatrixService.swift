@@ -63,6 +63,12 @@ public final class MatrixService: MatrixServiceProtocol {
     private var client: ClientProxy?
     private var syncTask: Task<Void, Never>?
     private var timelineViewModels: [String: TimelineViewModel] = [:]
+    /// Room IDs ordered by most-recent access (last element = most recent).
+    /// Used to implement LRU eviction for ``timelineViewModels``.
+    private var timelineAccessOrder: [String] = []
+    /// Maximum number of ``TimelineViewModel`` instances to keep cached.
+    /// When exceeded, the least-recently-used entry is evicted.
+    private let timelineCacheCapacity = 10
     private var cachedNotificationKeywords: [String] = []
     private var verificationController: SessionVerificationControllerProxy?
     private var verificationObservationTask: Task<Void, Never>?
@@ -166,6 +172,7 @@ public final class MatrixService: MatrixServiceProtocol {
         spaceListManager.reset()
         media.reset()
         timelineViewModels = [:]
+        timelineAccessOrder = []
         cachedNotificationKeywords = []
         pendingDeepLink = nil
     }
@@ -196,6 +203,7 @@ public final class MatrixService: MatrixServiceProtocol {
         spaceListManager.reset()
         media.reset()
         timelineViewModels = [:]
+        timelineAccessOrder = []
         cachedNotificationKeywords = []
         pendingDeepLink = nil
 
@@ -388,7 +396,10 @@ public final class MatrixService: MatrixServiceProtocol {
     }
 
     public func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? {
-        if let cached = timelineViewModels[roomId] { return cached }
+        if let cached = timelineViewModels[roomId] {
+            touchTimelineAccessOrder(roomId)
+            return cached
+        }
         guard let room = room(id: roomId) else { return nil }
         let unreadCount = rooms.first(where: { $0.id == roomId })?.unreadMessages ?? 0
         // swiftlint:disable:next identifier_name
@@ -399,6 +410,8 @@ public final class MatrixService: MatrixServiceProtocol {
             errorReporter: errorReporter
         )
         timelineViewModels[roomId] = vm
+        touchTimelineAccessOrder(roomId)
+        evictStaleTimelines()
 
         // Subscribe to this room at a higher detail level in the sliding sync.
         // This requests additional state events (including m.room.pinned_events)
@@ -425,6 +438,27 @@ public final class MatrixService: MatrixServiceProtocol {
     /// observation with the SDK.
     public func resumeTimeline(roomId: String) async {
         await timelineViewModels[roomId]?.resume()
+    }
+
+    /// Moves `roomId` to the end of the access-order list (most recently used).
+    private func touchTimelineAccessOrder(_ roomId: String) {
+        timelineAccessOrder.removeAll { $0 == roomId }
+        timelineAccessOrder.append(roomId)
+    }
+
+    /// Evicts the least-recently-used timeline view models when the cache
+    /// exceeds ``timelineCacheCapacity``. Suspended VMs are evicted first;
+    /// if all are active, the oldest is suspended then evicted.
+    private func evictStaleTimelines() {
+        while timelineViewModels.count > timelineCacheCapacity, !timelineAccessOrder.isEmpty {
+            let candidateId = timelineAccessOrder.removeFirst()
+            guard let vm = timelineViewModels[candidateId] else { continue }
+            if !vm.isSuspended {
+                vm.suspend()
+            }
+            timelineViewModels.removeValue(forKey: candidateId)
+            logger.info("Evicted timeline VM for room \(candidateId)")
+        }
     }
 
     // MARK: - Room Management
@@ -517,6 +551,7 @@ public final class MatrixService: MatrixServiceProtocol {
         guard let room = room(id: id) else { return }
         try await room.leave()
         timelineViewModels.removeValue(forKey: id)
+        timelineAccessOrder.removeAll { $0 == id }
     }
 
     public func leaveSpace(spaceId: String) async throws -> [LeaveSpaceChild] {
@@ -546,6 +581,7 @@ public final class MatrixService: MatrixServiceProtocol {
         try await handle.leave(roomIds: allIds)
         for id in allIds {
             timelineViewModels.removeValue(forKey: id)
+            timelineAccessOrder.removeAll { $0 == id }
         }
     }
 
