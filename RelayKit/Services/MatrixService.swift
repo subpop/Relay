@@ -431,13 +431,28 @@ public final class MatrixService: MatrixServiceProtocol {
     /// available for instant display, but its SDK observation tasks and handles
     /// are released.
     public func suspendTimeline(roomId: String) {
-        timelineViewModels[roomId]?.suspend()
+        guard let vm = timelineViewModels[roomId], !vm.isSuspended else { return }
+        vm.suspend()
+        // The SDK's Timeline object is released by suspend(), allowing the
+        // Rust runtime to drop its internal resources.  There is no explicit
+        // unsubscribe API on RoomListService -- the server-side sliding sync
+        // window is managed automatically by the SDK.
+        logger.info("Suspended timeline VM for room \(roomId)")
     }
 
     /// Resumes a previously suspended timeline view model, re-establishing live
     /// observation with the SDK.
+    ///
+    /// This also re-subscribes to the room in sliding sync so the server
+    /// prioritises updates for it again.
     public func resumeTimeline(roomId: String) async {
         await timelineViewModels[roomId]?.resume()
+
+        // Re-subscribe so the sliding sync proxy knows this room is active
+        // again and should receive higher-detail updates.
+        if let rls = roomListManager.roomListService {
+            try? await rls.subscribeToRooms(roomIds: [roomId])
+        }
     }
 
     /// Moves `roomId` to the end of the access-order list (most recently used).
