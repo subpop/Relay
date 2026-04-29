@@ -13,6 +13,7 @@
 		3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; };
 		3BRK00022FC00002001F0EA1 /* RelayKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DF41154C2F82F7A30028241B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BLK00022FD10002001F0EA1 /* LiveKit */; };
+		DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = DFDAFCB12FA2C56400A27353 /* LiveKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,6 +98,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */,
 				3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */,
 				3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */,
 			);
@@ -123,6 +125,7 @@
 				3B4AFD8B2F638A35001F0EA1 /* Relay */,
 				3BRK00112FC00011001F0EA1 /* RelayKit */,
 				3B11E0892F9A3F600051F7B3 /* RelayTests */,
+				DFDAFCAE2FA2C4F700A27353 /* Frameworks */,
 				3B4AFD8A2F638A35001F0EA1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -135,6 +138,13 @@
 				3B11E0882F9A3F600051F7B3 /* RelayTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		DFDAFCAE2FA2C4F700A27353 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -194,6 +204,7 @@
 			name = Relay;
 			packageProductDependencies = (
 				3BRI00042FC10004001F0EA1 /* RelayInterface */,
+				DFDAFCB12FA2C56400A27353 /* LiveKit */,
 			);
 			productName = Relay;
 			productReference = 3B4AFD892F638A35001F0EA1 /* Relay.app */;
@@ -778,6 +789,11 @@
 		3BRI00042FC10004001F0EA1 /* RelayInterface */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RelayInterface;
+		};
+		DFDAFCB12FA2C56400A27353 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
