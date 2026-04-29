@@ -95,8 +95,11 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                     ideal: matrixService.spaces.isEmpty ? 240 : 280,
                     max: matrixService.spaces.isEmpty ? 340 : 380
                 )
-                .onChange(of: selectedRoomId) {
-                    if selectedRoomId != nil {
+                .onChange(of: selectedRoomId) { oldRoomId, newRoomId in
+                    if let oldRoomId {
+                        matrixService.suspendTimeline(roomId: oldRoomId)
+                    }
+                    if newRoomId != nil {
                         appActions.showRoomDirectory = false
                         previewingDirectoryRoom = nil
                         previewingInvite = nil

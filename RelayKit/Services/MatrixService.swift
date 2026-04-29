@@ -412,6 +412,21 @@ public final class MatrixService: MatrixServiceProtocol {
         return vm
     }
 
+    /// Suspends the timeline view model for a room to free background resources.
+    ///
+    /// The cached ``TimelineViewModel`` is kept so previously loaded messages are
+    /// available for instant display, but its SDK observation tasks and handles
+    /// are released.
+    public func suspendTimeline(roomId: String) {
+        timelineViewModels[roomId]?.suspend()
+    }
+
+    /// Resumes a previously suspended timeline view model, re-establishing live
+    /// observation with the SDK.
+    public func resumeTimeline(roomId: String) async {
+        await timelineViewModels[roomId]?.resume()
+    }
+
     // MARK: - Room Management
 
     public func joinRoom(idOrAlias: String) async throws {

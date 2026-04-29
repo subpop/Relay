@@ -123,6 +123,10 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     // MARK: - Public
 
     public func loadTimeline(focusedOnEventId fullyReadEventId: String? = nil) async {
+        if isSuspended {
+            await resume()
+            return
+        }
         guard sdkTimeline == nil else { return }
 
         isLoading = true
@@ -476,6 +480,66 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     }
 
     // MARK: - Timeline Lifecycle
+
+    /// Whether the timeline has been suspended to save resources while off-screen.
+    ///
+    /// When `true`, the timeline's observation tasks and SDK handles have been
+    /// released but the cached ``messages`` array is preserved for instant display
+    /// if the user returns to this room.
+    private(set) var isSuspended = false
+
+    /// Suspends background timeline observation to save resources while off-screen.
+    ///
+    /// Cancels observation, pagination, and typing tasks and releases SDK handles,
+    /// but preserves the current ``messages`` array so the view can display cached
+    /// content immediately if the user returns. Call ``resume()`` to re-establish
+    /// live timeline observation.
+    func suspend() {
+        guard !isSuspended, sdkTimeline != nil else { return }
+        logger.info("Suspending timeline for room \(self.roomId)")
+        isSuspended = true
+
+        observationTask?.cancel()
+        observationTask = nil
+        paginationTask?.cancel()
+        paginationTask = nil
+        typingTask?.cancel()
+        typingTask = nil
+        timelineHandle = nil
+        paginationHandle = nil
+        typingHandle = nil
+        sdkTimeline = nil
+
+        // Clear raw SDK items but keep the mapped messages for instant display.
+        timelineItems = []
+        timelineItemIDs = []
+        pendingChangedIndices = IndexSet()
+        rebuildGeneration &+= 1
+        initialDiffsContinuation?.finish()
+        initialDiffsContinuation = nil
+        initialDiffsStream = nil
+        typingUserDisplayNames = []
+    }
+
+    /// Resumes live timeline observation after a ``suspend()``.
+    ///
+    /// Re-creates the SDK timeline and re-subscribes to diffs, pagination status,
+    /// and typing notifications. The existing ``messages`` remain visible until
+    /// fresh data arrives.
+    func resume() async {
+        guard isSuspended else { return }
+        logger.info("Resuming timeline for room \(self.roomId)")
+        isSuspended = false
+
+        do {
+            try await setupTimeline(focus: .live(hideThreadedEvents: true))
+            timelineFocus = .live
+            hasReachedEnd = true
+            observeTypingNotifications()
+        } catch {
+            logger.error("Failed to resume timeline: \(error)")
+        }
+    }
 
     /// Tears down the current timeline: cancels observation tasks, releases SDK handles,
     /// and clears the in-memory timeline items and messages.

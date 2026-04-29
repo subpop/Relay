@@ -214,6 +214,21 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Returns: A ``TimelineViewModelProtocol`` instance, or `nil` if the room is not found.
     func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)?
 
+    /// Suspends the timeline view model for a room to free background resources.
+    ///
+    /// The cached view model is preserved so previously loaded messages remain
+    /// available for instant display, but SDK observation tasks and handles are
+    /// released. Call ``resumeTimeline(roomId:)`` to re-establish live observation.
+    ///
+    /// - Parameter roomId: The Matrix room identifier to suspend.
+    func suspendTimeline(roomId: String)
+
+    /// Resumes a previously suspended timeline view model, re-establishing live
+    /// observation with the SDK.
+    ///
+    /// - Parameter roomId: The Matrix room identifier to resume.
+    func resumeTimeline(roomId: String) async
+
     /// Joins a room by its ID or alias.
     ///
     /// - Parameter idOrAlias: A room ID (e.g. `"!abc:matrix.org"`) or alias (e.g. `"#room:matrix.org"`).
@@ -732,6 +747,8 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func userId() -> String? { nil }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
     func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? { nil }
+    func suspendTimeline(roomId: String) {}
+    func resumeTimeline(roomId: String) async {}
     func joinRoom(idOrAlias: String) async throws {}
     func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String { "" }
     func createRoom(options: CreateRoomOptions) async throws -> String { "" }

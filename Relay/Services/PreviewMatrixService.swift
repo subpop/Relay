@@ -48,6 +48,8 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? {
         PreviewTimelineViewModel()
     }
+    func suspendTimeline(roomId: String) {}
+    func resumeTimeline(roomId: String) async {}
     func joinRoom(idOrAlias: String) async throws {}
     func acceptInvite(roomId: String) async throws {
         if let index = rooms.firstIndex(where: { $0.id == roomId }) {
