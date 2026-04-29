@@ -62,10 +62,10 @@ public final class MatrixService: MatrixServiceProtocol {
 
     private var client: ClientProxy?
     private var syncTask: Task<Void, Never>?
-    private var timelineViewModels: [String: TimelineViewModel] = [:]
+    @ObservationIgnored private var timelineViewModels: [String: TimelineViewModel] = [:]
     /// Room IDs ordered by most-recent access (last element = most recent).
     /// Used to implement LRU eviction for ``timelineViewModels``.
-    private var timelineAccessOrder: [String] = []
+    @ObservationIgnored private var timelineAccessOrder: [String] = []
     /// Maximum number of ``TimelineViewModel`` instances to keep cached.
     /// When exceeded, the least-recently-used entry is evicted.
     private let timelineCacheCapacity = 10
