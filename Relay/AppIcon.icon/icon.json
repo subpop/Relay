@@ -1,26 +1,48 @@
 {
   "fill" : {
-    "automatic-gradient" : "extended-srgb:0.20392,0.78039,0.34902,1.00000"
+    "automatic-gradient" : "extended-gray:1.00000,1.00000"
   },
   "groups" : [
     {
       "layers" : [
         {
-          "fill-specializations" : [
-            {
-              "appearance" : "dark",
-              "value" : {
-                "automatic-gradient" : "extended-srgb:0.20392,0.78039,0.34902,1.00000"
-              }
-            }
-          ],
-          "image-name" : "Bubble.png",
-          "name" : "Bubble",
+          "fill" : {
+            "solid" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+          },
+          "image-name" : "Medium.png",
+          "name" : "Medium",
           "position" : {
-            "scale" : 0.7,
+            "scale" : 0.85,
             "translation-in-points" : [
-              -60.612499999999955,
-              -79.21718750000002
+              111.84375,
+              -253.4912109375
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+          },
+          "image-name" : "Short.png",
+          "name" : "Short",
+          "position" : {
+            "scale" : 0.85,
+            "translation-in-points" : [
+              196.84375,
+              256.9208984374999
             ]
           }
         }
@@ -39,24 +61,65 @@
         {
           "fill-specializations" : [
             {
+              "value" : {
+                "solid" : "extended-gray:0.50000,1.00000"
+              }
+            },
+            {
               "appearance" : "dark",
               "value" : {
-                "automatic-gradient" : "extended-srgb:0.20392,0.78039,0.34902,1.00000"
+                "automatic-gradient" : "extended-gray:0.50000,1.00000"
               }
             }
           ],
-          "image-name" : "Bubble.png",
-          "name" : "Bubble",
+          "image-name" : "Short.png",
+          "name" : "Short",
           "position" : {
-            "scale" : 0.4,
+            "scale" : 0.85,
             "translation-in-points" : [
-              195.91250000000014,
-              203.01718749999998
+              -209.70703125,
+              -83.35384114583337
             ]
           }
         }
       ],
-      "lighting" : "individual",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-gray:0.50000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "automatic-gradient" : "extended-gray:0.50000,1.00000"
+              }
+            }
+          ],
+          "image-name" : "Medium.png",
+          "name" : "Medium",
+          "position" : {
+            "scale" : 0.85,
+            "translation-in-points" : [
+              -124.70703125,
+              86.78352864583326
+            ]
+          }
+        }
+      ],
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 0.5
