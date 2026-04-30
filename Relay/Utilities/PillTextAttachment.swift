@@ -109,9 +109,13 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     ) -> NSImage {
         MainActor.assumeIsolated {
             let tintColor = StableNameColor.color(for: userId)
+            let colorScheme: ColorScheme =
+                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? .dark : .light
             let pillView = MentionPillView(
                 displayName: displayName, tintColor: tintColor, style: style
             )
+            .environment(\.colorScheme, colorScheme)
             let renderer = ImageRenderer(content: pillView)
             renderer.scale = 2
 
