@@ -114,11 +114,19 @@ struct ComposeTextView: NSViewRepresentable {
         // Only update if the plain text actually differs (e.g. cleared after send).
         let currentPlain = context.coordinator.plainText(from: textView.textStorage!)
         if currentPlain != text {
+            let font = Coordinator.composeFontForText(text)
             let storage = textView.textStorage!
             storage.beginEditing()
             storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
-            storage.setAttributes(textView.typingAttributes, range: NSRange(location: 0, length: storage.length))
+            storage.setAttributes([
+                .font: font,
+                .foregroundColor: NSColor.textColor,
+            ], range: NSRange(location: 0, length: storage.length))
             storage.endEditing()
+            textView.typingAttributes = [
+                .font: font,
+                .foregroundColor: NSColor.textColor,
+            ]
             textView.recalculateHeight()
             // Defer to the next main actor turn to avoid
             // "Modifying state during view update".
@@ -162,19 +170,25 @@ struct ComposeTextView: NSViewRepresentable {
 
         // MARK: - NSTextViewDelegate
 
+        /// The font size used for emoji-only compose text.
+        private static let emojiFontSize: CGFloat = 40
+
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             let storage = textView.textStorage!
 
-            // Reset typing attributes after a pill so subsequent typing is plain.
-            textView.typingAttributes = [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: NSColor.textColor,
-            ]
-
             // Sync plain text to the binding.
             didPushTextChange = true
-            parent.text = plainText(from: storage)
+            let newText = plainText(from: storage)
+            parent.text = newText
+
+            // Switch to a larger font when the draft is emoji-only.
+            let font = Self.composeFontForText(newText)
+            textView.typingAttributes = [
+                .font: font,
+                .foregroundColor: NSColor.textColor,
+            ]
+            applyFont(font, to: storage)
 
             // Detect mention query based on cursor position.
             let cursorPosition = textView.selectedRange().location
@@ -182,6 +196,28 @@ struct ComposeTextView: NSViewRepresentable {
 
             textView.recalculateHeight()
             parent.onHeightChange?(textView.cachedHeight)
+        }
+
+        /// Returns the appropriate compose font: large for emoji-only text, normal otherwise.
+        static func composeFontForText(_ text: String) -> NSFont {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && trimmed.isEmojiOnly {
+                return .systemFont(ofSize: emojiFontSize)
+            }
+            return .systemFont(ofSize: NSFont.systemFontSize)
+        }
+
+        /// Applies a font to the entire text storage, skipping pill attachments.
+        private func applyFont(_ font: NSFont, to storage: NSTextStorage) {
+            let fullRange = NSRange(location: 0, length: storage.length)
+            guard fullRange.length > 0 else { return }
+            storage.beginEditing()
+            storage.enumerateAttributes(in: fullRange) { attrs, range, _ in
+                // Don't change the font on pill attachments.
+                if attrs[.attachment] is PillTextAttachment { return }
+                storage.addAttribute(.font, value: font, range: range)
+            }
+            storage.endEditing()
         }
 
         func textView(
