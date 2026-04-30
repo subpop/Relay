@@ -350,20 +350,32 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 
     @ViewBuilder
     private var roomDirectoryButton: some View {
-        Button {
-            appActions.showRoomDirectory.toggle()
-            if appActions.showRoomDirectory {
-                previewingInvite = nil
-            } else {
+        if appActions.showRoomDirectory {
+            Button {
+                appActions.showRoomDirectory = false
                 previewingDirectoryRoom = nil
+            } label: {
+                Label("Close Directory", systemImage: "xmark")
             }
-        } label: {
-            Label(
-                appActions.showRoomDirectory ? "Close Directory" : "Room Directory",
-                systemImage: appActions.showRoomDirectory ? "xmark" : "plus.bubble"
-            )
+            .help("Close Directory")
+        } else {
+            Menu {
+                Button("Create Room…") {
+                    appActions.showCreateRoom = true
+                }
+                Button("Join Room…") {
+                    appActions.showJoinRoom = true
+                }
+                Divider()
+                Button("Room Directory") {
+                    appActions.showRoomDirectory = true
+                    previewingInvite = nil
+                }
+            } label: {
+                Label("Room Directory", systemImage: "plus.bubble")
+            }
+            .help("Room Directory")
         }
-        .help(appActions.showRoomDirectory ? "Close Directory" : "Room Directory")
     }
 
     @ViewBuilder
