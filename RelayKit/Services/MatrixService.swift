@@ -1320,11 +1320,15 @@ public final class MatrixService: MatrixServiceProtocol {
             throw LiveKitCredentialError.serverError
         }
         let session = try client.session()
+        // Extract the server name from the user ID (e.g. "@user:fedora.im" → "fedora.im").
+        // .well-known must be queried on the server name domain, not the delegated homeserver.
+        let serverName = client.userID.split(separator: ":").dropFirst().joined(separator: ":")
         let service = LiveKitCredentialService(
             homeserver: client.homeserver,
             accessToken: session.accessToken,
             userID: client.userID,
-            deviceID: client.deviceID
+            deviceID: client.deviceID,
+            serverName: serverName
         )
         let result = try await service.credentials(for: roomId)
         return (livekitURL: result.url, token: result.token, sfuServiceURL: result.sfuServiceURL)
