@@ -300,11 +300,26 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
         
         if !appActions.showRoomDirectory && previewingInvite == nil {
+            if let selectedRoomId, currentRoom != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    startCallButton(roomId: selectedRoomId)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 showInspectorButton
             }
         }
 
+    }
+
+    private func startCallButton(roomId: String) -> some View {
+        Button {
+            startCall(roomId: roomId)
+        } label: {
+            Label("Start Call", systemImage: "phone.fill")
+        }
+        .help("Start Call")
+        .disabled(callManager.hasActiveCall)
     }
 
     private var toolbarTitleCapsule: some View {
