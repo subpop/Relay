@@ -41,6 +41,10 @@ struct LiveKitCredentialService {
     let accessToken: String
     let userID: String
     let deviceID: String
+    /// The Matrix server name (e.g. `fedora.im`) extracted from the user ID.
+    /// Used for `.well-known` lookups, which must query the server name domain,
+    /// not the delegated homeserver URL (e.g. `fedora.ems.host`).
+    let serverName: String
 
     // MARK: - Public Entry Point
 
@@ -91,11 +95,7 @@ struct LiveKitCredentialService {
     }
 
     private func fetchWellKnownSFUURL() async throws -> String {
-        guard let serverURL = URL(string: homeserver), let host = serverURL.host else {
-            throw LiveKitCredentialError.invalidURL
-        }
-        let scheme = serverURL.scheme ?? "https"
-        guard let url = URL(string: "\(scheme)://\(host)/.well-known/matrix/client") else {
+        guard let url = URL(string: "https://\(serverName)/.well-known/matrix/client") else {
             throw LiveKitCredentialError.invalidURL
         }
 
