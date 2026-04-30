@@ -205,27 +205,31 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             // Fetch room members for mention autocomplete
             compose.members = await matrixService.roomMembers(roomId: roomId)
 
-            // Auto-dismiss the "New" marker after 5 seconds, then clear it
-            if viewModel.firstUnreadMessageId != nil {
-                showUnreadMarker = true
-                unreadMarkerDismissTask?.cancel()
-                unreadMarkerDismissTask = Task {
-                    try? await Task.sleep(for: .seconds(5))
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeOut(duration: 0.4)) {
-                        showUnreadMarker = false
-                    }
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
-                    viewModel.firstUnreadMessageId = nil
-                }
-            }
         }
         .onDisappear {
             if !readOnly, sendTypingNotifications {
                 Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: false) }
             }
             memberRefreshTask?.cancel()
+            unreadMarkerDismissTask?.cancel()
+        }
+        .onChange(of: viewModel.firstUnreadMessageId) { oldValue, newValue in
+            // When the unread marker position is first computed (nil -> value),
+            // start a 5-second auto-dismiss timer. This avoids the race where
+            // the old .task check fired before the diff pipeline had set the ID.
+            guard oldValue == nil, newValue != nil else { return }
+            showUnreadMarker = true
+            unreadMarkerDismissTask?.cancel()
+            unreadMarkerDismissTask = Task {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.4)) {
+                    showUnreadMarker = false
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                viewModel.firstUnreadMessageId = nil
+            }
         }
         .onChange(of: membershipEventCount) {
             guard !readOnly else { return }

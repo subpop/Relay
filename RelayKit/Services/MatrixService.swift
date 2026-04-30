@@ -662,10 +662,14 @@ public final class MatrixService: MatrixServiceProtocol {
 
         // Optimistically clear unread indicators so the room list updates immediately
         // rather than waiting for the server round-trip through the sync loop.
+        // The isOptimisticallyCleared flag prevents the room info listener from
+        // overwriting these zeros with stale SDK values before the server processes
+        // the read receipt.
         if let summary = rooms.first(where: { $0.id == roomId }) {
             summary.unreadMessages = 0
             summary.unreadMentions = 0
             summary.hasKeywordHighlight = false
+            summary.isOptimisticallyCleared = true
         }
 
         let receiptType: ReceiptType = sendPublicReceipt ? .read : .readPrivate

@@ -437,17 +437,32 @@ private final class RoomEntry: Identifiable {
             summary.avatarURL = nil
         }
 
-        summary.unreadMessages = UInt(info.numUnreadMessages)
-        // Use the SDK's mention count as a floor; our client-side detection
-        // may have already incremented unreadMentions higher than what the
-        // SDK reports (e.g. for keyword matches). When the SDK value drops
-        // to zero (room marked as read), reset our count too.
+        // When the room was optimistically marked as read, the SDK may still
+        // report stale non-zero unread counts until the server processes the
+        // read receipt. Skip overwriting the cleared values in that case.
+        // Once the SDK itself reports zero, clear the optimistic flag.
+        let sdkUnread = UInt(info.numUnreadMessages)
         let sdkMentions = UInt(info.numUnreadMentions)
-        if sdkMentions == 0 && info.numUnreadMessages == 0 {
-            summary.unreadMentions = 0
-            summary.hasKeywordHighlight = false
-        } else if sdkMentions > summary.unreadMentions {
-            summary.unreadMentions = sdkMentions
+        if summary.isOptimisticallyCleared {
+            if sdkUnread == 0 && sdkMentions == 0 {
+                // Server confirmed — safe to clear the guard.
+                summary.isOptimisticallyCleared = false
+                summary.unreadMentions = 0
+                summary.hasKeywordHighlight = false
+            }
+            // Otherwise keep the optimistically-cleared zeros.
+        } else {
+            summary.unreadMessages = sdkUnread
+            // Use the SDK's mention count as a floor; our client-side detection
+            // may have already incremented unreadMentions higher than what the
+            // SDK reports (e.g. for keyword matches). When the SDK value drops
+            // to zero (room marked as read), reset our count too.
+            if sdkMentions == 0 && sdkUnread == 0 {
+                summary.unreadMentions = 0
+                summary.hasKeywordHighlight = false
+            } else if sdkMentions > summary.unreadMentions {
+                summary.unreadMentions = sdkMentions
+            }
         }
         summary.isDirect = info.isDirect
         summary.canonicalAlias = info.canonicalAlias

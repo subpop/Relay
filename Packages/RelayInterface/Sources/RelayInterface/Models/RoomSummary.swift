@@ -105,6 +105,13 @@ public final class RoomSummary: Identifiable {
     /// cleared when the room is marked as read.
     public var hasKeywordHighlight: Bool = false
 
+    /// Whether unread counts were optimistically cleared by ``markAsRead``.
+    ///
+    /// When `true`, the room list manager should not overwrite the cleared counts
+    /// with stale SDK values. The flag is reset when the SDK itself reports zero
+    /// unread messages, confirming the server has processed the read receipt.
+    public var isOptimisticallyCleared: Bool = false
+
     /// The user's current membership state in this room.
     public var membership: RoomMembership
 
