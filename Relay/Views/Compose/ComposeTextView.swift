@@ -477,6 +477,13 @@ final class ComposeInputTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // When an input method (e.g. the emoji picker) has marked text,
+        // let the system handle the key event so Return confirms the
+        // selection instead of sending the message.
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
         if let keyDelegate, keyDelegate.composeTextView(self, shouldHandleKeyDown: event) {
             return
         }
