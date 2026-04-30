@@ -285,7 +285,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
 
     private var emojiOnlyContent: some View {
         Text(message.body)
-            .font(.system(size: message.body.emojiCount <= 3 ? 48 : 32))
+            .font(.system(size: message.body.emojiCount <= 3 ? 72 : 48))
     }
 
     // MARK: - Emote Content
