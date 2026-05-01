@@ -420,7 +420,10 @@ promote_to_admin() {
 }
 
 # Send a text message to a room.
+# The event ID of the sent message is stored in LAST_EVENT_ID for use as a
+# thread root by send_thread_reply.
 # Usage: send_message <room_key> <sender_username> <body>
+LAST_EVENT_ID=""
 send_message() {
     local room_key="$1"
     local sender="$2"
@@ -446,6 +449,7 @@ send_message() {
         echo "Warning: Failed to send message to '${room_key}' as '${sender}'"
         echo "Response: ${response}"
     fi
+    LAST_EVENT_ID="$event_id"
 }
 
 # Send a text message that mentions one or more users.
@@ -538,6 +542,53 @@ send_notice() {
         echo "Warning: Failed to send notice to '${room_key}' as '${sender}'"
         echo "Response: ${response}"
     fi
+}
+
+# Send a threaded reply to a room.
+# The thread_root_event_id identifies the root message of the thread.
+# The reply_to_event_id is the specific message being replied to within the
+# thread (often the same as the root for a direct reply, or the latest message
+# in the thread for a continued conversation).
+# Usage: send_thread_reply <room_key> <sender_username> <body> <thread_root_event_id> [reply_to_event_id]
+send_thread_reply() {
+    local room_key="$1"
+    local sender="$2"
+    local body="$3"
+    local thread_root="$4"
+    local reply_to="${5:-$thread_root}"
+    local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
+    local token="${TOKENS[$sender]}"
+    next_txn
+    local txn="$NEXT_TXN_RESULT"
+
+    local escaped_body
+    escaped_body=$(echo -n "$body" | jq -Rs '.')
+
+    local response
+    response=$(curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"msgtype\": \"m.text\",
+            \"body\": ${escaped_body},
+            \"m.relates_to\": {
+                \"rel_type\": \"m.thread\",
+                \"event_id\": \"${thread_root}\",
+                \"is_falling_back\": true,
+                \"m.in_reply_to\": {
+                    \"event_id\": \"${reply_to}\"
+                }
+            }
+        }")
+
+    local event_id
+    event_id=$(echo "$response" | jq -r '.event_id // empty')
+    if [[ -z "$event_id" ]]; then
+        echo ""
+        echo "Warning: Failed to send thread reply to '${room_key}' as '${sender}'"
+        echo "Response: ${response}"
+    fi
+    LAST_EVENT_ID="$event_id"
 }
 
 # Wait for the homeserver to become available.
@@ -921,13 +972,15 @@ send_message "random" "alex"    "Anyone have lunch recs near the office? I'm tir
 send_message "random" "jordan"  "There's a new ramen place on 3rd Street that's really good. Opened last week."
 send_message "random" "taylor"  "I went there yesterday, can confirm. The tonkotsu is excellent."
 send_message "random" "casey"   "Has anyone been watching Severance? Just started it and I can't stop."
-send_message "random" "morgan"  "One of the best shows I've seen in years. You're in for a ride."
-send_message "random" "alex"    "The set design alone is worth watching it for. Every frame is so intentional."
-send_message "random" "priya"   "I finished it last weekend. The finale is incredible."
+THREAD_RANDOM_SHOW="$LAST_EVENT_ID"
+send_thread_reply "random" "morgan" "One of the best shows I've seen in years. You're in for a ride." "$THREAD_RANDOM_SHOW"
+send_thread_reply "random" "alex"   "The set design alone is worth watching it for. Every frame is so intentional." "$THREAD_RANDOM_SHOW" "$LAST_EVENT_ID"
+send_thread_reply "random" "priya"  "I finished it last weekend. The finale is incredible." "$THREAD_RANDOM_SHOW" "$LAST_EVENT_ID"
 send_message "random" "sam"     "Fun fact: I automated my coffee machine with a Raspberry Pi. It now starts brewing when my first CI build of the day kicks off."
-send_message "random" "riley"   "That is either genius or deeply concerning. Possibly both."
-send_message "random" "jordan"  "I need this in my life. Can you share the setup?"
-send_message "random" "taylor"  "This is why I love this team."
+THREAD_RANDOM_COFFEE="$LAST_EVENT_ID"
+send_thread_reply "random" "riley"  "That is either genius or deeply concerning. Possibly both." "$THREAD_RANDOM_COFFEE"
+send_thread_reply "random" "jordan" "I need this in my life. Can you share the setup?" "$THREAD_RANDOM_COFFEE" "$LAST_EVENT_ID"
+send_thread_reply "random" "taylor" "This is why I love this team." "$THREAD_RANDOM_COFFEE" "$LAST_EVENT_ID"
 send_message "random" "alex"    "Just saw this and thought of us: 'A QA engineer walks into a bar. Orders 1 beer. Orders 0 beers. Orders 99999999 beers. Orders -1 beers. Orders a lizard.'"
 send_message "random" "taylor"  "I feel personally attacked and also very seen."
 send_message "random" "casey"   "Trivia night this Thursday at The Brass Tap. Last time engineering lost to the product team and I will never let you forget it."
@@ -956,19 +1009,21 @@ send_message "backend" "alex"   "Perfect, thanks."
 send_message "backend" "morgan" "Priya, can you also document the new schema in the architecture repo? I want to keep that up to date."
 send_message "backend" "priya"  "Already on my list. I'll open the PR today."
 send_message "backend" "sam"    "On a different topic — I've been profiling the /search endpoint and found that we're making 3 redundant database calls per request. Should be an easy fix, expecting about 2x improvement."
-send_message "backend" "priya"  "Nice find. Is that the N+1 issue we flagged last sprint?"
-send_message "backend" "sam"    "Yep, same one. I'll put up a PR this afternoon."
-send_message "backend" "morgan" "Let's make sure we add a regression test for that."
-send_message "backend" "priya"  "Agreed. I'll review the PR. @alex if you want to keep an eye on it too, the perf improvement should be noticeable on mobile."
+THREAD_BACKEND_SEARCH="$LAST_EVENT_ID"
+send_thread_reply "backend" "priya" "Nice find. Is that the N+1 issue we flagged last sprint?" "$THREAD_BACKEND_SEARCH"
+send_thread_reply "backend" "sam"   "Yep, same one. I'll put up a PR this afternoon." "$THREAD_BACKEND_SEARCH" "$LAST_EVENT_ID"
+send_thread_reply "backend" "morgan" "Let's make sure we add a regression test for that." "$THREAD_BACKEND_SEARCH" "$LAST_EVENT_ID"
+send_thread_reply "backend" "priya" "Agreed. I'll review the PR. @alex if you want to keep an eye on it too, the perf improvement should be noticeable on mobile." "$THREAD_BACKEND_SEARCH" "$LAST_EVENT_ID"
 send_message "backend" "priya"  "Heads up — I'm adding rate limiting to the public API. Starting with the /search and /messages endpoints since those are the most expensive."
-send_message "backend" "sam"    "What are you thinking for limits? Per-user or per-IP?"
-send_message "backend" "priya"  "Per-user for authenticated requests, per-IP for unauthenticated. I'm using a sliding window counter backed by Redis. 100 requests per minute for search, 300 for messages."
-send_message "backend" "morgan" "Those numbers seem reasonable. Can we make them configurable per plan later?"
-send_message "backend" "priya"  "Yes, the limits are defined in a config file so we can adjust per tier without a code change. I'll set up the free/pro/enterprise tiers now even though we only use one today."
-send_message "backend" "alex"   "Will the API return rate limit headers? I want to handle 429 responses gracefully on the client."
-send_message "backend" "priya"  "Yep — X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset. Standard stuff. I'll include a Retry-After header on 429 responses too."
-send_message "backend" "alex"   "Great. I'll add a retry-with-backoff handler on the iOS side once those are live."
-send_message "backend" "sam"    "I'll make sure the Redis instance for rate limiting is on a separate cluster from the cache. Don't want rate limit lookups competing with cache reads."
+THREAD_BACKEND_RATELIMIT="$LAST_EVENT_ID"
+send_thread_reply "backend" "sam"    "What are you thinking for limits? Per-user or per-IP?" "$THREAD_BACKEND_RATELIMIT"
+send_thread_reply "backend" "priya"  "Per-user for authenticated requests, per-IP for unauthenticated. I'm using a sliding window counter backed by Redis. 100 requests per minute for search, 300 for messages." "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
+send_thread_reply "backend" "morgan" "Those numbers seem reasonable. Can we make them configurable per plan later?" "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
+send_thread_reply "backend" "priya"  "Yes, the limits are defined in a config file so we can adjust per tier without a code change. I'll set up the free/pro/enterprise tiers now even though we only use one today." "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
+send_thread_reply "backend" "alex"   "Will the API return rate limit headers? I want to handle 429 responses gracefully on the client." "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
+send_thread_reply "backend" "priya"  "Yep — X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset. Standard stuff. I'll include a Retry-After header on 429 responses too." "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
+send_thread_reply "backend" "alex"   "Great. I'll add a retry-with-backoff handler on the iOS side once those are live." "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
+send_thread_reply "backend" "sam"    "I'll make sure the Redis instance for rate limiting is on a separate cluster from the cache. Don't want rate limit lookups competing with cache reads." "$THREAD_BACKEND_RATELIMIT" "$LAST_EVENT_ID"
 send_message "backend" "priya"  "Just deployed the rate limiting changes to staging. All the tests are passing and I've verified the headers manually with curl."
 send_mention "backend" "priya" "Alex Kim — the rate limit headers are live on staging. You should be good to start on the retry-with-backoff handler whenever you're ready." "@alex:pebble.dev"
 
@@ -980,15 +1035,17 @@ send_message "ios" "alex"    "I've been working on the new room list implementat
 send_message "ios" "priya"   "Are you using the new ScrollPosition API for restoring scroll state?"
 send_message "ios" "alex"    "Yes, it's so much cleaner than ScrollViewReader. The anchor-based approach just works."
 send_message "ios" "taylor"  "I've been testing the build on macOS 26 beta 3 and noticed a rendering glitch with the sidebar when the window is resized quickly. Want me to file an issue?"
-send_message "ios" "alex"    "Please do. Is it reproducible or intermittent?"
-send_message "ios" "taylor"  "Reproducible, but only at certain window widths. I'll capture a screen recording."
+THREAD_IOS_SIDEBAR="$LAST_EVENT_ID"
+send_thread_reply "ios" "alex"   "Please do. Is it reproducible or intermittent?" "$THREAD_IOS_SIDEBAR"
+send_thread_reply "ios" "taylor" "Reproducible, but only at certain window widths. I'll capture a screen recording." "$THREAD_IOS_SIDEBAR" "$LAST_EVENT_ID"
 send_message "ios" "morgan"  "Nice work on the room list, Alex. How's the memory footprint looking compared to the old implementation?"
 send_message "ios" "alex"    "About 30% lower at steady state. The lazy loading means we're not keeping hundreds of views in memory anymore. The Observable framework handles invalidation really efficiently."
 send_message "ios" "priya"   "I've been looking at how we handle the sync response on the client side. Right now we're doing too much work on the main actor. I think we should move the parsing to a background task."
-send_message "ios" "alex"    "Agreed. I was thinking we could use an AsyncStream to bridge the SDK callbacks and process them off the main actor, then only push the final state updates to the UI."
-send_message "ios" "priya"   "That's exactly what I had in mind. Want to pair on it tomorrow?"
-send_message "ios" "alex"    "Sounds great. Morning work for you?"
-send_message "ios" "priya"   "Let's do 10am."
+THREAD_IOS_ASYNC="$LAST_EVENT_ID"
+send_thread_reply "ios" "alex"  "Agreed. I was thinking we could use an AsyncStream to bridge the SDK callbacks and process them off the main actor, then only push the final state updates to the UI." "$THREAD_IOS_ASYNC"
+send_thread_reply "ios" "priya" "That's exactly what I had in mind. Want to pair on it tomorrow?" "$THREAD_IOS_ASYNC" "$LAST_EVENT_ID"
+send_thread_reply "ios" "alex"  "Sounds great. Morning work for you?" "$THREAD_IOS_ASYNC" "$LAST_EVENT_ID"
+send_thread_reply "ios" "priya" "Let's do 10am." "$THREAD_IOS_ASYNC" "$LAST_EVENT_ID"
 send_message "ios" "taylor"  "Filed the sidebar issue: #347. Includes the screen recording and steps to reproduce."
 send_message "ios" "alex"    "Thanks, Taylor. I'll take a look after lunch."
 send_message "ios" "morgan"  "Quick reminder that we need to submit the TestFlight build by Friday for the beta testers."
@@ -1002,8 +1059,9 @@ send_message "ios" "alex"    "Nice. How are you handling the case where the user
 send_message "ios" "priya"   "Cross-signing handles it. When you verify on one device, the SDK propagates trust to your other sessions automatically. I just needed to surface the right prompts."
 send_message "ios" "morgan"  "E2EE is going to be a big selling point. Great work getting that over the line."
 send_message "ios" "taylor"  "I've written about 40 UI tests for the room list. Coverage is at 85% now. The remaining 15% is edge cases around offline mode that are tricky to simulate."
-send_message "ios" "alex"    "That's solid coverage. For the offline tests, we could inject a mock network layer that returns errors. Want me to set up the protocol for that?"
-send_message "ios" "taylor"  "That would be perfect. A simple protocol with a flag to toggle connectivity would be enough."
+THREAD_IOS_TESTS="$LAST_EVENT_ID"
+send_thread_reply "ios" "alex"   "That's solid coverage. For the offline tests, we could inject a mock network layer that returns errors. Want me to set up the protocol for that?" "$THREAD_IOS_TESTS"
+send_thread_reply "ios" "taylor" "That would be perfect. A simple protocol with a flag to toggle connectivity would be enough." "$THREAD_IOS_TESTS" "$LAST_EVENT_ID"
 send_message "ios" "priya"   "Just finished rebasing the async bridging branch. Had to rework a few of the cancellation handlers but it's cleaner now."
 send_message "ios" "priya"   "Also added a unit test for the backpressure case — turns out we were dropping events when the buffer filled up. Fixed."
 send_mention "ios" "priya" "Hey Alex Kim, I pushed the AsyncStream bridging changes to the feature branch. Can you pull and see if it plays nicely with the room list?" "@alex:pebble.dev"
@@ -1064,30 +1122,36 @@ send_message "devops" "sam"    "Done. I'll set it at 75% as a warning and 85% as
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 send_message "code-review" "priya"  "PR #412 is up: refactors the authentication middleware to support OAuth2 PKCE. It's a big one but I broke it into small commits. Reviews welcome."
-send_message "code-review" "morgan" "I'll take first pass. How urgent is it?"
-send_message "code-review" "priya"  "Moderate — it's blocking the SSO work Casey wants for Q3, but no rush today."
+THREAD_CR_412="$LAST_EVENT_ID"
+send_thread_reply "code-review" "morgan" "I'll take first pass. How urgent is it?" "$THREAD_CR_412"
+send_thread_reply "code-review" "priya"  "Moderate — it's blocking the SSO work Casey wants for Q3, but no rush today." "$THREAD_CR_412" "$LAST_EVENT_ID"
 send_message "code-review" "alex"   "PR #415: new room list implementation for iOS. This is the LazyVStack refactor I mentioned in #ios. Would love eyes on the scroll state management in particular."
-send_message "code-review" "taylor" "I'll review #415. I've been testing the feature branch so I have good context."
+THREAD_CR_415="$LAST_EVENT_ID"
+send_thread_reply "code-review" "taylor" "I'll review #415. I've been testing the feature branch so I have good context." "$THREAD_CR_415"
 send_message "code-review" "riley"  "PR #418: dashboard layout rewrite (CSS Grid migration). Straightforward refactor, no logic changes. Should be a quick review."
-send_message "code-review" "sam"    "Reviewed #418 — looks good. Left one minor comment about the media query ordering but it's a nit. Approved."
-send_message "code-review" "riley"  "Thanks Sam, I'll fix that before merging."
-send_message "code-review" "taylor" "Finished reviewing #415. Left some comments on the accessibility of the pinned section headers. Overall looks great, Alex."
-send_message "code-review" "alex"   "Thanks Taylor. Good catches — I'll address those today."
-send_message "code-review" "morgan" "Finished reviewing #412. Solid work, Priya. A few questions about the token refresh flow but nothing blocking. Approved with comments."
-send_message "code-review" "priya"  "Thanks Morgan. I'll respond to the comments and merge once CI passes."
+THREAD_CR_418="$LAST_EVENT_ID"
+send_thread_reply "code-review" "sam"   "Reviewed #418 — looks good. Left one minor comment about the media query ordering but it's a nit. Approved." "$THREAD_CR_418"
+send_thread_reply "code-review" "riley" "Thanks Sam, I'll fix that before merging." "$THREAD_CR_418" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "taylor" "Finished reviewing #415. Left some comments on the accessibility of the pinned section headers. Overall looks great, Alex." "$THREAD_CR_415" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "alex"  "Thanks Taylor. Good catches — I'll address those today." "$THREAD_CR_415" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "morgan" "Finished reviewing #412. Solid work, Priya. A few questions about the token refresh flow but nothing blocking. Approved with comments." "$THREAD_CR_412" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "priya" "Thanks Morgan. I'll respond to the comments and merge once CI passes." "$THREAD_CR_412" "$LAST_EVENT_ID"
 send_message "code-review" "sam"    "PR #421: adds structured logging to all API endpoints. Replaces the old console.log calls with proper JSON output. Would appreciate a quick look."
-send_message "code-review" "priya"  "Reviewing now. Is this using the new logging library you mentioned in #devops?"
-send_message "code-review" "sam"    "Yes, it's pino. Extremely fast and supports child loggers so we can attach request context automatically."
-send_message "code-review" "priya"  "Looks solid. One suggestion — can we add a sanitizer that strips PII from the log output? Don't want email addresses ending up in Grafana."
-send_message "code-review" "sam"    "Great call. I'll add a redaction layer before merging."
+THREAD_CR_421="$LAST_EVENT_ID"
+send_thread_reply "code-review" "priya" "Reviewing now. Is this using the new logging library you mentioned in #devops?" "$THREAD_CR_421"
+send_thread_reply "code-review" "sam"   "Yes, it's pino. Extremely fast and supports child loggers so we can attach request context automatically." "$THREAD_CR_421" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "priya" "Looks solid. One suggestion — can we add a sanitizer that strips PII from the log output? Don't want email addresses ending up in Grafana." "$THREAD_CR_421" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "sam"   "Great call. I'll add a redaction layer before merging." "$THREAD_CR_421" "$LAST_EVENT_ID"
 send_message "code-review" "alex"   "PR #423: rate limit handling on the iOS client. This adds retry-with-backoff for 429 responses and surfaces a user-friendly message when throttled."
-send_message "code-review" "taylor" "Reviewing #423. The backoff logic looks good. One question — do you cap the max retry delay? I see it doubles each time but I didn't spot an upper bound."
-send_message "code-review" "alex"   "Good eye. I'll cap it at 30 seconds. No point waiting longer than that."
+THREAD_CR_423="$LAST_EVENT_ID"
+send_thread_reply "code-review" "taylor" "Reviewing #423. The backoff logic looks good. One question — do you cap the max retry delay? I see it doubles each time but I didn't spot an upper bound." "$THREAD_CR_423"
+send_thread_reply "code-review" "alex"   "Good eye. I'll cap it at 30 seconds. No point waiting longer than that." "$THREAD_CR_423" "$LAST_EVENT_ID"
 send_message "code-review" "riley"  "PR #425: keyboard shortcuts system for the web client. Adds Cmd+K for search, Cmd+Shift+N for new room, and a Cmd+/ shortcut reference overlay."
-send_message "code-review" "morgan" "I'll take #425. I've been wanting this feature for months."
-send_message "code-review" "morgan" "Reviewed #425 — this is really well done, Riley. Clean separation between the key listener and the action dispatcher. Approved."
-send_message "code-review" "taylor" "Did another pass on #423 this morning. The error handling for network timeouts during retry is solid."
-send_mention "code-review" "taylor" "Alex Kim, one last thing on PR #423 — I think we should add jitter to the backoff to avoid thundering herd. Quick fix!" "@alex:pebble.dev"
+THREAD_CR_425="$LAST_EVENT_ID"
+send_thread_reply "code-review" "morgan" "I'll take #425. I've been wanting this feature for months." "$THREAD_CR_425"
+send_thread_reply "code-review" "morgan" "Reviewed #425 — this is really well done, Riley. Clean separation between the key listener and the action dispatcher. Approved." "$THREAD_CR_425" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "taylor" "Did another pass on #423 this morning. The error handling for network timeouts during retry is solid." "$THREAD_CR_423" "$LAST_EVENT_ID"
+send_thread_reply "code-review" "taylor" "One last thing on #423 — I think we should add jitter to the backoff to avoid thundering herd. Quick fix!" "$THREAD_CR_423" "$LAST_EVENT_ID"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #design-chat
