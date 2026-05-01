@@ -178,7 +178,7 @@ final class ComposeViewModel {
         let messageText = markdownWithMentions().trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let editing = editingMessage {
-            let editId = editing.id
+            let editId = editing.eventID
             text = ""
             mentions = []
             editingMessage = nil
@@ -193,7 +193,7 @@ final class ComposeViewModel {
             return
         }
 
-        let replyEventId = replyingTo?.id
+        let replyEventId = replyingTo?.eventID
         text = ""
         mentions = []
         replyingTo = nil

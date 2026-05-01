@@ -218,8 +218,20 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         }
     }
 
-    /// The unique event or transaction identifier for this message.
+    /// A stable, opaque identifier for this message that remains constant across the
+    /// local echo → server confirmation transition. Derived from the SDK's `uniqueId()`.
+    ///
+    /// Use this value (via ``Identifiable/id``) for table diffing, SwiftUI identity,
+    /// and any purpose that requires a stable identity. For SDK operations that require
+    /// an event or transaction ID, use ``eventID`` instead.
     public let id: String
+
+    /// The Matrix event ID (prefixed with `$`) or transaction ID for this message.
+    ///
+    /// Use this value when calling SDK methods that require an ``EventOrTransactionId``
+    /// (edit, redact, react, pin, send read receipt). For identity and diffing, use
+    /// ``id`` instead.
+    public let eventID: String
 
     /// The Matrix user ID of the sender (e.g. `"@alice:matrix.org"`).
     public let senderID: String
@@ -274,7 +286,9 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     /// Creates a new ``TimelineMessage`` value.
     ///
     /// - Parameters:
-    ///   - id: The event or transaction identifier.
+    ///   - id: The stable unique identifier (from the SDK's `uniqueId()`).
+    ///   - eventID: The Matrix event ID or transaction ID for SDK operations.
+    ///     Defaults to `id` when not provided (e.g. in previews).
     ///   - senderID: The sender's Matrix user ID.
     ///   - senderDisplayName: The sender's display name.
     ///   - senderAvatarURL: The sender's avatar URL.
@@ -291,6 +305,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     ///   - sendState: The delivery state for outgoing messages. Defaults to `nil`.
     nonisolated public init(
         id: String,
+        eventID: String? = nil,
         senderID: String,
         senderDisplayName: String? = nil,
         senderAvatarURL: String? = nil,
@@ -307,6 +322,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         sendState: SendState? = nil
     ) {
         self.id = id
+        self.eventID = eventID ?? id
         self.senderID = senderID
         self.senderDisplayName = senderDisplayName
         self.senderAvatarURL = senderAvatarURL

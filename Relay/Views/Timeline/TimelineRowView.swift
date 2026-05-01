@@ -131,7 +131,7 @@ struct TimelineRowView: View, Equatable {
                 .id(message.id)
                 .help(message.formattedTime)
                 .onAppear { onAppear(row) }
-                .messageHighlight(highlightedMessageId == message.id) {
+                .messageHighlight(highlightedMessageId == message.eventID) {
                     onHighlightDismissed()
                 }
         } else {
@@ -140,7 +140,7 @@ struct TimelineRowView: View, Equatable {
                 isLastInGroup: info.isLastInGroup,
                 showSenderName: info.showSenderName,
                 onToggleReaction: { key in
-                    onToggleReaction(message.id, key)
+                    onToggleReaction(message.eventID, key)
                 },
                 onTapReply: { eventID in
                     onTapReply(eventID)
@@ -160,7 +160,7 @@ struct TimelineRowView: View, Equatable {
             .contextMenu {
                 contextMenu
             }
-            .messageHighlight(highlightedMessageId == message.id) {
+            .messageHighlight(highlightedMessageId == message.eventID) {
                 onHighlightDismissed()
             }
 
@@ -189,9 +189,9 @@ struct TimelineRowView: View, Equatable {
             Label("Copy", systemImage: "doc.on.doc")
         }
 
-        if message.id.hasPrefix("$") {
+        if message.eventID.hasPrefix("$") {
             Button {
-                onContextAction(.togglePin(message.id))
+                onContextAction(.togglePin(message.eventID))
             } label: {
                 // The actual pinned state is resolved by the parent
                 Label("Pin/Unpin", systemImage: "pin")

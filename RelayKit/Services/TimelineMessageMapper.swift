@@ -278,6 +278,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             // swiftlint:disable:next identifier_name
             let ts = Date(timeIntervalSince1970: TimeInterval(event.timestamp) / 1000)
 
+            let stableId = item.uniqueId().id
             let eventId: String
             switch event.eventOrTransactionId {
             case .eventId(let id):
@@ -291,7 +292,8 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             }
 
             result.append(TimelineMessage(
-                id: eventId,
+                id: stableId,
+                eventID: eventId,
                 senderID: event.sender,
                 senderDisplayName: displayName,
                 senderAvatarURL: avatarURL,
@@ -525,6 +527,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
         // swiftlint:disable:next identifier_name
         let ts = Date(timeIntervalSince1970: TimeInterval(event.timestamp) / 1000)
 
+        let stableId = item.uniqueId().id
         let eventId: String
         switch event.eventOrTransactionId {
         case .eventId(let id):
@@ -534,7 +537,8 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
         }
 
         let message = TimelineMessage(
-            id: eventId,
+            id: stableId,
+            eventID: eventId,
             senderID: event.sender,
             senderDisplayName: displayName,
             senderAvatarURL: avatarURL,
@@ -605,7 +609,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             ffiLookups += 1
             if let mapped = mapItem(item) {
                 if mapped.hasUnresolvedReply {
-                    pendingReplyFetchIds.insert(mapped.message.id)
+                    pendingReplyFetchIds.insert(mapped.message.eventID)
                 }
                 result.append(mapped.message)
             }
@@ -623,7 +627,13 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
     /// Maps a single `EventTimelineItem` into a ``TimelineMessage``, if it is a supported event.
     ///
     /// Returns `nil` for unsupported content types (e.g. call invites).
-    func mapEventItem(_ event: EventTimelineItem) -> TimelineMessage? {
+    ///
+    /// - Parameters:
+    ///   - event: The SDK event timeline item.
+    ///   - uniqueId: The stable unique identifier from the parent ``TimelineItem``.
+    ///     When mapping from an `EventTimelineItem` directly (e.g. pinned messages),
+    ///     pass the event ID as a fallback since pinned messages are always server-confirmed.
+    func mapEventItem(_ event: EventTimelineItem, uniqueId: String) -> TimelineMessage? {
     // swiftlint:enable function_body_length cyclomatic_complexity
         // Re-use the batch mapper with a synthetic wrapper — the logic is identical.
         // EventTimelineItem doesn't conform to TimelineItem, so we duplicate the
@@ -775,7 +785,8 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
         }
 
         return TimelineMessage(
-            id: eventId,
+            id: uniqueId,
+            eventID: eventId,
             senderID: event.sender,
             senderDisplayName: displayName,
             senderAvatarURL: avatarURL,

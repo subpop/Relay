@@ -117,7 +117,7 @@ struct PinnedMessagesView: View {
 
         if let onSelectMessage {
             Button {
-                onSelectMessage(message.id)
+                onSelectMessage(message.eventID)
             } label: {
                 content
             }

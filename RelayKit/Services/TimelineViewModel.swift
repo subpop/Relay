@@ -757,16 +757,16 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         }
     }
 
-    /// Extracts the event or transaction ID from a timeline item without
-    /// crossing the FFI bridge during incremental mapping. This is called
+    /// Extracts the stable unique ID from a timeline item. This is called
     /// once per item during `applyDiffs` (when we already have the item)
     /// so the mapper can reuse cached messages by index lookup alone.
+    ///
+    /// Uses the SDK's `uniqueId()` which remains constant across the
+    /// local echo → server confirmation transition, preventing structural
+    /// updates in the table's diffable data source.
     private static func extractItemID(_ item: TimelineItem) -> String? {
-        guard let event = item.asEvent() else { return nil }
-        switch event.eventOrTransactionId {
-        case .eventId(let id): return id
-        case .transactionId(let id): return id
-        }
+        guard item.asEvent() != nil else { return nil }
+        return item.uniqueId().id
     }
 
     // swiftlint:disable:next cyclomatic_complexity

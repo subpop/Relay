@@ -257,9 +257,9 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             guard let eventId = focusedMessageId else { return }
             focusedMessageId = nil
 
-            if viewModel.messages.contains(where: { $0.id == eventId }) {
+            if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
                 // Message is already loaded — scroll to it and highlight
-                tableProxy.scrollToRow(id: eventId)
+                tableProxy.scrollToRow(id: message.id)
                 highlightedMessageId = eventId
             } else {
                 // Message is not in the loaded timeline — load an event-focused timeline
@@ -275,7 +275,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         )) {
             Button("Delete", role: .destructive) {
                 if let message = messageToDelete {
-                    Task { await viewModel.redact(messageId: message.id, reason: nil) }
+                    Task { await viewModel.redact(messageId: message.eventID, reason: nil) }
                 }
                 messageToDelete = nil
             }
@@ -360,8 +360,8 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 Task { await viewModel.toggleReaction(messageId: messageId, key: key) }
             },
             onTapReply: { eventID in
-                if viewModel.messages.contains(where: { $0.id == eventID }) {
-                    tableProxy.scrollToRow(id: eventID)
+                if let message = viewModel.messages.first(where: { $0.eventID == eventID }) {
+                    tableProxy.scrollToRow(id: message.id)
                     highlightedMessageId = eventID
                 } else {
                     focusedMessageId = eventID
@@ -383,7 +383,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             },
             onRoomTap: onRoomTap,
             onAppear: { row in
-                advanceFullyReadMarker(to: row.message.id)
+                advanceFullyReadMarker(to: row.message.eventID)
             },
             onContextAction: { action in
                 handleContextAction(action)
@@ -510,10 +510,10 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// sleep that may fire before or after the data is ready.
     private func scrollToEventWhenAvailable(_ eventId: String) async {
         // If the message is already present, scroll immediately.
-        if viewModel.messages.contains(where: { $0.id == eventId }) {
+        if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
             // Allow the table one layout pass to apply the snapshot.
             try? await Task.sleep(for: .milliseconds(100))
-            tableProxy.scrollToRow(id: eventId)
+            tableProxy.scrollToRow(id: message.id)
             highlightedMessageId = eventId
             return
         }
@@ -529,10 +529,10 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 }
             }
             guard found else { break }
-            if viewModel.messages.contains(where: { $0.id == eventId }) {
+            if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
                 // Give the table time to apply the snapshot and measure row heights.
                 try? await Task.sleep(for: .milliseconds(100))
-                tableProxy.scrollToRow(id: eventId)
+                tableProxy.scrollToRow(id: message.id)
                 highlightedMessageId = eventId
                 return
             }
@@ -540,7 +540,9 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
         // Best-effort fallback: if the message never appeared within the
         // timeout, try scrolling anyway in case it arrived just now.
-        tableProxy.scrollToRow(id: eventId)
+        if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
+            tableProxy.scrollToRow(id: message.id)
+        }
         highlightedMessageId = eventId
     }
 
@@ -557,8 +559,8 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
 
         // Only advance if this event is later in the timeline than the last marker
         if let lastId = lastFullyReadEventId,
-           let lastIndex = viewModel.messages.firstIndex(where: { $0.id == lastId }),
-           let newIndex = viewModel.messages.firstIndex(where: { $0.id == eventId }),
+           let lastIndex = viewModel.messages.firstIndex(where: { $0.eventID == lastId }),
+           let newIndex = viewModel.messages.firstIndex(where: { $0.eventID == eventId }),
            newIndex <= lastIndex {
             return
         }
