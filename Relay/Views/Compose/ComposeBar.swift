@@ -144,6 +144,15 @@ private struct ComposeBarContent: View {
                         Task { await onSend() }
                     }
                 },
+                onCancel: compose.editingMessage != nil || compose.replyingTo != nil ? {
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                        if compose.editingMessage != nil {
+                            compose.cancelEdit()
+                        } else {
+                            compose.cancelReply()
+                        }
+                    }
+                } : nil,
                 onHeightChange: { textViewHeight = $0 },
                 onMentionNavigateUp: {
                     compose.mentionSelectedIndex = max(

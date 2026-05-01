@@ -34,6 +34,7 @@ struct ComposeTextView: NSViewRepresentable {
     /// to insert a mention pill at the current `@query` position.
     @Binding var insertMentionHandler: ((_ userId: String, _ displayName: String) -> Void)?
     var onSubmit: () -> Void
+    var onCancel: (() -> Void)?
     var onHeightChange: ((CGFloat) -> Void)?
     var onMentionNavigateUp: (() -> Void)?
     var onMentionNavigateDown: (() -> Void)?
@@ -279,10 +280,14 @@ struct ComposeTextView: NSViewRepresentable {
                 return true
             }
 
-            // Escape → dismiss mention popup
+            // Escape → dismiss mention popup, or cancel reply/edit
             if event.keyCode == 53 {
                 if parent.mentionQuery != nil {
                     parent.mentionQuery = nil
+                    return true
+                }
+                if let onCancel = parent.onCancel {
+                    onCancel()
                     return true
                 }
                 return false
