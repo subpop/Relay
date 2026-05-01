@@ -19,7 +19,7 @@ import SwiftUI
 ///
 /// ``ComposeTextView`` hosts ``PillTextAttachment`` pills rendered as
 /// static images (SwiftUI ``MentionPillView`` snapshots). It supports:
-/// - Return to send, Option+Return for newline
+/// - Return to send, Shift+Return for newline
 /// - Arrow key / Tab / Escape navigation for mention suggestions
 /// - Atomic deletion of pill attachments
 /// - Auto-sizing height (1–5 lines, scrollable beyond)
@@ -261,8 +261,8 @@ struct ComposeTextView: NSViewRepresentable {
 
             // Return key handling
             if event.keyCode == 36 { // Return
-                if flags.contains(.option) {
-                    // Option+Return → insert newline
+                if flags.contains(.shift) {
+                    // Shift+Return → insert newline
                     textView.insertNewlineIgnoringFieldEditor(nil)
                     return true
                 }
