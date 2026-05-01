@@ -32,7 +32,6 @@ A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](http
 ## Roadmap
 
 - 🧵 Thread support
-- 🔔 Notification sync
 
 # Try It Out
 
