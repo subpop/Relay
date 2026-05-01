@@ -243,8 +243,8 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
             .background(bubbleColor)
             .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
 
-            if let sendState = message.sendState {
-                sendStateLabel(sendState)
+            if case .sendingFailed(let reason) = message.sendState {
+                sendFailedLabel(reason)
             } else if message.isEdited {
                 Text("edited")
                     .font(.caption2)
@@ -254,22 +254,13 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    private func sendStateLabel(_ state: TimelineMessage.SendState) -> some View {
+    private func sendFailedLabel(_ reason: String) -> some View {
         HStack(spacing: 4) {
-            switch state {
-            case .notSentYet:
-                Image(systemName: "clock")
-                Text("Sending…")
-            case .sendingFailed(let reason):
-                Image(systemName: "exclamationmark.circle")
-                Text(reason)
-            case .sent:
-                Image(systemName: "checkmark")
-                Text("Sent")
-            }
+            Image(systemName: "exclamationmark.circle")
+            Text(reason)
         }
         .font(.caption2)
-        .foregroundStyle(state.isFailed ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+        .foregroundStyle(.red)
         .padding(.horizontal, 12)
     }
 

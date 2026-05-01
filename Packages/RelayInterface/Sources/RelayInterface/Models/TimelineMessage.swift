@@ -28,11 +28,6 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         case sendingFailed(String)
         /// The message was successfully delivered to the server.
         case sent
-
-        /// Whether this state represents a failed send attempt.
-        nonisolated public var isFailed: Bool {
-            if case .sendingFailed = self { true } else { false }
-        }
     }
 
     /// The content type of a timeline message.
