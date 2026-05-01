@@ -507,7 +507,9 @@ final class TimelineTableViewController: NSViewController {
         )
 
         // Re-measure visible rows after SwiftUI hosting views settle,
-        // and scroll to the bottom on the first load.
+        // and scroll to the bottom on the first load or when the user is
+        // near the bottom and new messages arrive.
+        let hasNewlyAppended = !newlyAppendedMessageIDs.isEmpty
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let visible = self.tableView.rows(in: self.tableView.visibleRect)
@@ -519,6 +521,8 @@ final class TimelineTableViewController: NSViewController {
             }
             if !self.hasScrolledToBottom && !self.rows.isEmpty {
                 self.hasScrolledToBottom = true
+                self.scrollToBottom(animated: false)
+            } else if hasNewlyAppended && self.isNearBottom {
                 self.scrollToBottom(animated: false)
             }
         }

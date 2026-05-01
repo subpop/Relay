@@ -95,9 +95,8 @@ struct TimelineRowView: View, Equatable {
             .environment(\.swipeOffset, currentSwipeOffset)
             .offset(x: currentSwipeOffset)
             .opacity(shouldAnimate ? 0 : 1)
-            .offset(y: shouldAnimate && !reduceMotion ? 12 : 0)
             .animation(
-                isNewlyAppended ? .spring(duration: 0.35, bounce: 0.15) : nil,
+                isNewlyAppended ? .easeOut(duration: 0.2) : nil,
                 value: didAppear
             )
             .onAppear {
