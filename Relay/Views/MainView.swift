@@ -358,6 +358,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 Label("Close Directory", systemImage: "xmark")
             }
             .help("Close Directory")
+            .keyboardShortcut(.escape, modifiers: [])
         } else {
             Menu {
                 Button("Create Room…") {
