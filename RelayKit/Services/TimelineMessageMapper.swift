@@ -267,6 +267,13 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 }
             }
 
+            // Extract thread root event ID from MsgLikeContent (used by the SDK
+            // to propagate m.thread relations when replying to threaded messages).
+            var msgThreadRootEventID: String?
+            if case .msgLike(let ml) = event.content {
+                msgThreadRootEventID = ml.threadRoot
+            }
+
             let (displayName, avatarURL): (String?, String?) =
                 switch event.senderProfile {
                 case .ready(let name, _, let url):
@@ -307,7 +314,8 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 isHighlighted: isHighlighted,
                 replyDetail: msgReplyDetail,
                 isEdited: msgIsEdited,
-                sendState: Self.mapSendState(event.localSendState)
+                sendState: Self.mapSendState(event.localSendState),
+                threadRootEventID: msgThreadRootEventID
             ))
         }
 
@@ -516,6 +524,12 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             }
         }
 
+        // Extract thread root event ID from MsgLikeContent.
+        var msgThreadRootEventID: String?
+        if case .msgLike(let ml) = event.content {
+            msgThreadRootEventID = ml.threadRoot
+        }
+
         let (displayName, avatarURL): (String?, String?) =
             switch event.senderProfile {
             case .ready(let name, _, let url):
@@ -552,7 +566,8 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             isHighlighted: isHighlighted,
             replyDetail: msgReplyDetail,
             isEdited: msgIsEdited,
-            sendState: Self.mapSendState(event.localSendState)
+            sendState: Self.mapSendState(event.localSendState),
+            threadRootEventID: msgThreadRootEventID
         )
         return SingleItemResult(message: message, hasUnresolvedReply: hasUnresolvedReply)
     }

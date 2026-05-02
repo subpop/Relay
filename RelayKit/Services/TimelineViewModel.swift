@@ -136,12 +136,12 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 try await setupTimeline(focus: .event(
                     eventId: fullyReadEventId,
                     numContextEvents: 50,
-                    threadMode: .automatic(hideThreadedEvents: true)
+                    threadMode: .automatic(hideThreadedEvents: false)
                 ))
                 timelineFocus = .focusedOnEvent(fullyReadEventId)
                 hasReachedEnd = false
             } else {
-                try await setupTimeline(focus: .live(hideThreadedEvents: true))
+                try await setupTimeline(focus: .live(hideThreadedEvents: false))
                 timelineFocus = .live
                 hasReachedEnd = true
             }
@@ -206,7 +206,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             try await setupTimeline(focus: .event(
                 eventId: eventId,
                 numContextEvents: 50,
-                threadMode: .automatic(hideThreadedEvents: true)
+                threadMode: .automatic(hideThreadedEvents: false)
             ))
             timelineFocus = .focusedOnEvent(eventId)
             hasReachedEnd = false
@@ -215,7 +215,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             errorReporter.report(.messageLoadFailed(error.localizedDescription))
             // Attempt to recover by returning to live
             do {
-                try await setupTimeline(focus: .live(hideThreadedEvents: true))
+                try await setupTimeline(focus: .live(hideThreadedEvents: false))
                 timelineFocus = .live
             } catch {
                 logger.error("Failed to recover live timeline: \(error)")
@@ -238,7 +238,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         teardownTimeline()
 
         do {
-            try await setupTimeline(focus: .live(hideThreadedEvents: true))
+            try await setupTimeline(focus: .live(hideThreadedEvents: false))
             timelineFocus = .live
         } catch {
             logger.error("Failed to return to live timeline: \(error)")
@@ -532,7 +532,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         isSuspended = false
 
         do {
-            try await setupTimeline(focus: .live(hideThreadedEvents: true))
+            try await setupTimeline(focus: .live(hideThreadedEvents: false))
             timelineFocus = .live
             hasReachedEnd = true
             observeTypingNotifications()
@@ -588,15 +588,17 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         sdkTimeline = tl
         observeTimeline(tl)
 
-        // Back-pagination status subscriptions are only supported on live
-        // timelines. The SDK throws on focused (event-based) timelines, so
-        // skip the subscription in that case.
-        if case .live = focus {
+        // Subscribe to back-pagination status. This is supported on live
+        // timelines but may throw on event-focused timelines.
+        switch focus {
+        case .live:
             do {
                 try await observePaginationStatus(tl)
             } catch {
                 logger.error("Failed to subscribe to pagination status: \(error)")
             }
+        default:
+            break
         }
     }
 

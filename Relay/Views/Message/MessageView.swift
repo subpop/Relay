@@ -91,11 +91,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                     messageContent
                         .overlay(alignment: .topTrailing) {
                             if message.isHighlighted {
-                                Image(systemName: "at")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 16, height: 16)
-                                    .background(.red, in: Circle())
+                                highlightBadge
                                     .offset(x: 4, y: -4)
                             }
                         }
@@ -118,12 +114,6 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                                 EmojiPickerPopover { emoji in
                                     onToggleReaction?(emoji)
                                     showEmojiPicker = false
-                                }
-                            }
-                            .background(alignment: .leading) {
-                                if swipeOffset > 0 {
-                                    replyArrow
-                                        .offset(x: -swipeOffset)
                                 }
                             }
                     }
@@ -396,17 +386,15 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
 
 
 
-    // MARK: - Reply Arrow
+    // MARK: - Message Badges
 
-    private var replyArrow: some View {
-        let triggerThreshold: CGFloat = 80
-        let progress = min(swipeOffset / triggerThreshold, 1.0)
-
-        return Image(systemName: "arrowshape.turn.up.left.fill")
-            .font(.title)
-            .foregroundStyle(.secondary)
-            .scaleEffect(0.4 + 0.6 * progress)
-            .opacity(Double(progress))
+    /// A small badge indicating this message mentions the current user.
+    private var highlightBadge: some View {
+        Image(systemName: "at")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 16, height: 16)
+            .background(.red, in: Circle())
     }
 
     // MARK: - Bubble Color
@@ -534,7 +522,7 @@ struct MessageView: View { // swiftlint:disable:this type_body_length
                 timestamp: .now.addingTimeInterval(-20),
                 isOutgoing: true,
                 reactions: [],
-                replyDetail: nil,
+                replyDetail: nil
             ),
             currentUserID: "@me:matrix.org"
         )

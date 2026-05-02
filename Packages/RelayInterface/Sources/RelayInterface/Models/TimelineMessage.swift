@@ -278,6 +278,12 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     /// or error badge next to the message.
     public var sendState: SendState?
 
+    /// The event ID of the thread root, if this message belongs to a thread.
+    ///
+    /// Present on thread replies. Used by the SDK to propagate `m.thread`
+    /// relations when the user replies to a threaded message.
+    public var threadRootEventID: String?
+
     /// Creates a new ``TimelineMessage`` value.
     ///
     /// - Parameters:
@@ -298,6 +304,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     ///   - replyDetail: Reply context, if this is a reply.
     ///   - isEdited: Whether the message has been edited. Defaults to `false`.
     ///   - sendState: The delivery state for outgoing messages. Defaults to `nil`.
+    ///   - threadRootEventID: The thread root event ID, if this is a thread reply.
     nonisolated public init(
         id: String,
         eventID: String? = nil,
@@ -314,7 +321,8 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         isHighlighted: Bool = false,
         replyDetail: ReplyDetail? = nil,
         isEdited: Bool = false,
-        sendState: SendState? = nil
+        sendState: SendState? = nil,
+        threadRootEventID: String? = nil
     ) {
         self.id = id
         self.eventID = eventID ?? id
@@ -332,6 +340,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         self.replyDetail = replyDetail
         self.isEdited = isEdited
         self.sendState = sendState
+        self.threadRootEventID = threadRootEventID
     }
 
     /// The best available display name for the sender, falling back to the Matrix user ID.

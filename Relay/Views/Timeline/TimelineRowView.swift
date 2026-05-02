@@ -21,12 +21,22 @@ private struct SwipeOffsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
 
+private struct SwipeIsLockedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// The current horizontal swipe offset applied during a swipe-to-reply gesture.
     /// Child views can read this to render swipe-dependent UI (e.g. a reply arrow).
     var swipeOffset: CGFloat {
         get { self[SwipeOffsetKey.self] }
         set { self[SwipeOffsetKey.self] = newValue }
+    }
+
+    /// Whether the swipe action bar is locked open and awaiting a button tap.
+    var swipeIsLocked: Bool {
+        get { self[SwipeIsLockedKey.self] }
+        set { self[SwipeIsLockedKey.self] = newValue }
     }
 }
 
@@ -86,6 +96,12 @@ struct TimelineRowView: View, Equatable {
         return swipeState.offset
     }
 
+    /// Whether the action bar on this row is locked open.
+    private var isSwipeLocked: Bool {
+        guard let swipeState, swipeState.swipingMessageId == row.message.id else { return false }
+        return swipeState.isLocked
+    }
+
     /// Whether this row should animate in.
     private var shouldAnimate: Bool { isNewlyAppended && !didAppear }
 
@@ -93,6 +109,7 @@ struct TimelineRowView: View, Equatable {
         rowContent
             .padding(.horizontal, 16)
             .environment(\.swipeOffset, currentSwipeOffset)
+            .environment(\.swipeIsLocked, isSwipeLocked)
             .offset(x: currentSwipeOffset)
             .opacity(shouldAnimate ? 0 : 1)
             .animation(
@@ -104,6 +121,28 @@ struct TimelineRowView: View, Equatable {
                     didAppear = true
                 }
             }
+    }
+
+    // MARK: - Swipe Action Bar
+
+    /// Action bar with reply and thread buttons, slides in from the left
+    /// while the row slides right. Rendered as a background so it stays
+    /// stationary while the row content shifts.
+    private var swipeActionBar: some View {
+        // Scale the reply button when swiping past the lock threshold (100pt)
+        // to hint that a long swipe (140pt+) triggers reply directly.
+        let longSwipeProgress = max(0, min((currentSwipeOffset - 100) / 80, 1.0))
+        let replyScale = 1.0 + longSwipeProgress * 0.8
+
+        return Button("Reply", systemImage: "arrowshape.turn.up.left.fill") {
+            onReply(message)
+        }
+        .labelStyle(.iconOnly)
+        .scaleEffect(replyScale)
+        .font(.title3)
+        .foregroundStyle(longSwipeProgress > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        .buttonStyle(.plain)
+        .allowsHitTesting(isSwipeLocked)
     }
 
     @ViewBuilder
@@ -134,25 +173,35 @@ struct TimelineRowView: View, Equatable {
                     onHighlightDismissed()
                 }
         } else {
-            MessageView(
-                message: message,
-                isLastInGroup: info.isLastInGroup,
-                showSenderName: info.showSenderName,
-                onToggleReaction: { key in
-                    onToggleReaction(message.eventID, key)
-                },
-                onTapReply: { eventID in
-                    onTapReply(eventID)
-                },
-                onAvatarDoubleTap: {
-                    onAvatarDoubleTap(message)
-                },
-                onUserTap: { userId in
-                    onUserTap(userId)
-                },
-                onRoomTap: onRoomTap,
-                currentUserID: currentUserID
-            )
+            ZStack(alignment: .leading) {
+                // Action bar sits behind the message, revealed as the row slides right
+                if currentSwipeOffset > 0 {
+                    swipeActionBar
+                        .opacity(min(currentSwipeOffset / 60, 1.0))
+                        .offset(x: message.isOutgoing ? 88 : -64,
+                                y: message.isOutgoing ? 0 : 8)
+                }
+
+                MessageView(
+                    message: message,
+                    isLastInGroup: info.isLastInGroup,
+                    showSenderName: info.showSenderName,
+                    onToggleReaction: { key in
+                        onToggleReaction(message.eventID, key)
+                    },
+                    onTapReply: { eventID in
+                        onTapReply(eventID)
+                    },
+                    onAvatarDoubleTap: {
+                        onAvatarDoubleTap(message)
+                    },
+                    onUserTap: { userId in
+                        onUserTap(userId)
+                    },
+                    onRoomTap: onRoomTap,
+                    currentUserID: currentUserID
+                )
+            }
             .id(message.id)
             .help(message.formattedTime)
             .onAppear { onAppear(row) }

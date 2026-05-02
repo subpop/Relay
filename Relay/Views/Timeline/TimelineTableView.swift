@@ -29,6 +29,8 @@ final class TimelineSwipeState {
     var swipingMessageId: String?
     /// The current horizontal offset of the swipe gesture.
     var offset: CGFloat = 0
+    /// When `true`, the action bar is locked open and awaiting a button tap.
+    var isLocked = false
 }
 
 /// A proxy that holds a reference to the ``TimelineTableViewController``
@@ -77,6 +79,10 @@ final class BottomAnchoredTableView: NSTableView {
     var onSwipeDelta: ((Int, CGFloat) -> Void)?
     /// Called with the row index when a horizontal swipe gesture ends.
     var onSwipeEnd: ((Int) -> Void)?
+    /// Called when the user clicks on the table while the action bar is locked open.
+    var onDismissActionBar: (() -> Void)?
+    /// Whether the action bar is currently locked open (checked for left-swipe dismiss).
+    var isActionBarLocked: (() -> Bool)?
 
     private enum GestureAxis { case undecided, horizontal, vertical }
     private var gestureAxis: GestureAxis = .undecided
@@ -84,7 +90,7 @@ final class BottomAnchoredTableView: NSTableView {
     private var swipingRow: Int = -1
     private let axisLockThreshold: CGFloat = 4
     private let triggerThreshold: CGFloat = 40
-    private let maxOffset: CGFloat = 100
+    private let maxOffset: CGFloat = 220
 
     override func scrollWheel(with event: NSEvent) {
         switch event.phase {
@@ -106,10 +112,17 @@ final class BottomAnchoredTableView: NSTableView {
                 let absX = abs(event.scrollingDeltaX)
                 let absY = abs(event.scrollingDeltaY)
                 if absX + absY >= axisLockThreshold {
-                    if absX > absY && event.scrollingDeltaX > 0 {
+                    let locked = isActionBarLocked?() ?? false
+                    if absX > absY && (event.scrollingDeltaX > 0 || locked) {
                         gestureAxis = .horizontal
                         accumulatedDeltaX = max(0, event.scrollingDeltaX)
-                        onSwipeDelta?(swipingRow, clampedOffset(accumulatedDeltaX))
+                        if locked && event.scrollingDeltaX < 0 {
+                            // Swiping left while locked — dismiss.
+                            onDismissActionBar?()
+                            gestureAxis = .undecided
+                        } else {
+                            onSwipeDelta?(swipingRow, clampedOffset(accumulatedDeltaX))
+                        }
                     } else {
                         gestureAxis = .vertical
                         super.scrollWheel(with: event)
@@ -138,6 +151,11 @@ final class BottomAnchoredTableView: NSTableView {
         default:
             super.scrollWheel(with: event)
         }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onDismissActionBar?()
+        super.mouseDown(with: event)
     }
 
     private func clampedOffset(_ delta: CGFloat) -> CGFloat {
@@ -294,6 +312,13 @@ final class TimelineTableViewController: NSViewController {
         }
         tableView.onSwipeEnd = { [weak self] row in
             self?.handleSwipeEnd(row: row)
+        }
+        tableView.onDismissActionBar = { [weak self] in
+            guard let self, self.swipeState.isLocked else { return }
+            self.dismissSwipeActionBar()
+        }
+        tableView.isActionBarLocked = { [weak self] in
+            self?.swipeState.isLocked ?? false
         }
 
         scrollView.documentView = tableView
@@ -578,25 +603,45 @@ final class TimelineTableViewController: NSViewController {
 
     private func handleSwipeDelta(row: Int, offset: CGFloat) {
         guard row >= 0, row < rows.count else { return }
+        // If the action bar is locked and a new swipe starts, dismiss first.
+        if swipeState.isLocked {
+            swipeState.isLocked = false
+        }
         swipeState.swipingMessageId = rows[row].message.id
         swipeState.offset = offset
     }
 
     private func handleSwipeEnd(row: Int) {
         let triggerThreshold: CGFloat = 40
+        let lockOffset: CGFloat = 100
+        let longSwipeThreshold: CGFloat = 180
         let triggered = swipeState.offset >= triggerThreshold
 
-        // Animate the offset back to zero.
+        if triggered, row >= 0, row < rows.count, !rows[row].message.isSystemEvent {
+            if swipeState.offset >= longSwipeThreshold {
+                // Long swipe triggers reply directly.
+                dismissSwipeActionBar()
+                callbacks.onSwipeReply(rows[row])
+            } else {
+                // Short swipe locks the action bar open.
+                withAnimation(.snappy(duration: 0.25)) {
+                    swipeState.offset = lockOffset
+                    swipeState.isLocked = true
+                }
+            }
+        } else {
+            dismissSwipeActionBar()
+        }
+    }
+
+    /// Dismisses the swipe action bar with animation.
+    func dismissSwipeActionBar() {
         withAnimation(.snappy(duration: 0.25)) {
             swipeState.offset = 0
+            swipeState.isLocked = false
         }
-        // Clear the swiping ID after the animation settles.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.swipeState.swipingMessageId = nil
-        }
-
-        if triggered, row >= 0, row < rows.count, !rows[row].message.isSystemEvent {
-            callbacks.onSwipeReply(rows[row])
         }
     }
 
