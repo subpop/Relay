@@ -46,6 +46,7 @@ final class PreviewTimelineViewModel: TimelineViewModelProtocol {
     }
 
     func loadTimeline(focusedOnEventId fullyReadEventId: String? = nil) async {}
+    func loadThreadTimeline(rootEventId: String) async {}
     func loadMoreHistory() async {}
     func loadMoreFuture() async {}
     func focusOnEvent(eventId: String) async { timelineFocus = .focusedOnEvent(eventId) }

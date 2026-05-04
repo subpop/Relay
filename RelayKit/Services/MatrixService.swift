@@ -425,6 +425,15 @@ public final class MatrixService: MatrixServiceProtocol {
         return vm
     }
 
+    public func makeThreadTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? {
+        guard let room = room(id: roomId) else { return nil }
+        return TimelineViewModel(
+            room: room,
+            currentUserId: userId(),
+            errorReporter: errorReporter
+        )
+    }
+
     /// Suspends the timeline view model for a room to free background resources.
     ///
     /// The cached ``TimelineViewModel`` is kept so previously loaded messages are

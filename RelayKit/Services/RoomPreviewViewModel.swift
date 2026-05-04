@@ -219,6 +219,8 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
         messagesVersion &+= 1
     }
 
+    public func loadThreadTimeline(rootEventId: String) async {}
+
     public func loadMoreHistory() async {}
     public func loadMoreFuture() async {}
     public func focusOnEvent(eventId: String) async {}

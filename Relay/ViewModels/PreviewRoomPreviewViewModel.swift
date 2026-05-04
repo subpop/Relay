@@ -65,6 +65,7 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
         // Bump version so TimelineView rebuilds its cached rows from pre-populated messages.
         messagesVersion &+= 1
     }
+    func loadThreadTimeline(rootEventId: String) async {}
     func loadMoreHistory() async {}
     func loadMoreFuture() async {}
     func focusOnEvent(eventId: String) async {}

@@ -48,6 +48,9 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? {
         PreviewTimelineViewModel()
     }
+    func makeThreadTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? {
+        PreviewTimelineViewModel()
+    }
     func suspendTimeline(roomId: String) {}
     func resumeTimeline(roomId: String) async {}
     func joinRoom(idOrAlias: String) async throws {}

@@ -214,6 +214,15 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// - Returns: A ``TimelineViewModelProtocol`` instance, or `nil` if the room is not found.
     func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)?
 
+    /// Creates a new, non-cached view model scoped to a single thread in a room.
+    ///
+    /// The returned view model should be loaded with ``TimelineViewModelProtocol/loadThreadTimeline(rootEventId:)``
+    /// to create a thread-focused SDK timeline that only contains the thread root and its replies.
+    ///
+    /// - Parameter roomId: The Matrix room identifier.
+    /// - Returns: A ``TimelineViewModelProtocol`` instance, or `nil` if the room is not found.
+    func makeThreadTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)?
+
     /// Suspends the timeline view model for a room to free background resources.
     ///
     /// The cached view model is preserved so previously loaded messages remain
@@ -747,6 +756,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     func userId() -> String? { nil }
     func avatarThumbnail(mxcURL: String, size: CGFloat) async -> NSImage? { nil }
     func makeTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? { nil }
+    func makeThreadTimelineViewModel(roomId: String) -> (any TimelineViewModelProtocol)? { nil }
     func suspendTimeline(roomId: String) {}
     func resumeTimeline(roomId: String) async {}
     func joinRoom(idOrAlias: String) async throws {}

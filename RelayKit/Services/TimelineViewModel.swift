@@ -153,6 +153,35 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         }
     }
 
+    public func loadThreadTimeline(rootEventId: String) async {
+        guard sdkTimeline == nil else { return }
+
+        isLoading = true
+        do {
+            try await setupTimeline(focus: .thread(rootEventId: rootEventId))
+            timelineFocus = .live
+            hasReachedEnd = true
+
+            // Thread timelines don't deliver initial diffs automatically —
+            // we must paginate to fetch the thread content from the server.
+            guard let sdkTimeline else { return }
+            let hitStart = try await sdkTimeline.paginateBackwards(numEvents: 100)
+            hasReachedStart = hitStart
+
+            // Wait for the diff observer to process the paginated items,
+            // then rebuild messages and clear the loading flag.
+            if let diffStream = initialDiffsStream {
+                for await _ in diffStream { break }
+            }
+            await rebuildMessages()
+            isLoading = false
+        } catch {
+            logger.error("Failed to load thread timeline: \(error)")
+            errorReporter.report(.messageLoadFailed(error.localizedDescription))
+            isLoading = false
+        }
+    }
+
     public func loadMoreHistory() async {
         guard let sdkTimeline, !isLoadingMore, !hasReachedStart else { return }
         do {

@@ -70,6 +70,14 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     ///   instead of the live edge, allowing the user to catch up from their last read position.
     func loadTimeline(focusedOnEventId fullyReadEventId: String?) async
 
+    /// Loads a thread-scoped timeline showing only the thread root and its replies.
+    ///
+    /// Uses the SDK's `TimelineFocus.thread` to create a timeline that automatically
+    /// filters to the thread and attaches `m.thread` relations on sent messages.
+    ///
+    /// - Parameter rootEventId: The event ID of the thread root message.
+    func loadThreadTimeline(rootEventId: String) async
+
     /// Paginates backward to load older messages from the room history.
     func loadMoreHistory() async
 
