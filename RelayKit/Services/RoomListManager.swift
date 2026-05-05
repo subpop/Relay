@@ -718,8 +718,15 @@ private final class RoomEntry: Identifiable {
                 avatarUrl: avatarUrl,
                 prevAvatarUrl: prevAvatarUrl
             ))
-        case .state(_, let content):
-            return AttributedString(TimelineMessageMapper.stateEventDescription(content))
+        case .state(let stateKey, let content):
+            let (body, _) = TimelineMessageMapper.describeStateEvent(
+                content,
+                stateKey: stateKey,
+                senderDisplayName: nil,
+                senderId: ""
+            )
+            guard let body else { return nil }
+            return AttributedString(body)
         default: return nil
         }
         // swiftlint:enable identifier_name

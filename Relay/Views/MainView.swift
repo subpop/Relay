@@ -31,6 +31,8 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
     @Environment(AppActions.self) private var appActions
+    @Environment(\.callManager) private var callManager
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @State private var selectedSpaceId: String?
     @State private var leaveSpaceItem: LeaveSpaceItem?
@@ -46,6 +48,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @State private var isJoiningLinkedRoom = false
     @State private var inspectorSelectedProfile: UserProfile?
     @State private var inspectorInitialTab: InspectorTab?
+    @State private var isPreparingCall = false
 
     private func scrollToMessage(_ eventId: String) {
         showingPinnedMessages = false
@@ -297,11 +300,26 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
         
         if !appActions.showRoomDirectory && previewingInvite == nil {
+            if let selectedRoomId, currentRoom != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    startCallButton(roomId: selectedRoomId)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 showInspectorButton
             }
         }
 
+    }
+
+    private func startCallButton(roomId: String) -> some View {
+        Button {
+            startCall(roomId: roomId)
+        } label: {
+            Label("Start Call", systemImage: "phone.fill")
+        }
+        .help("Start Call")
+        .disabled(callManager.hasActiveCall)
     }
 
     private var toolbarTitleCapsule: some View {
@@ -390,6 +408,41 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
         .help(showingInspector ? "Hide Inspector" : "Show Inspector")
         .disabled(selectedRoomId == nil && selectedSpaceId == nil)
+    }
+
+    // MARK: - Call Handling
+
+    private func startCall(roomId: String) {
+        guard !callManager.hasActiveCall else { return }
+        callManager.isPreparingCredentials = true
+        callManager.callRoomId = roomId
+
+        Task {
+            guard let viewModel = await matrixService.makeCallViewModel(roomId: roomId) else {
+                callManager.isPreparingCredentials = false
+                callManager.callRoomId = nil
+                return
+            }
+
+            // Defer the observable state change + window open to the next
+            // run-loop iteration. Setting activeCallViewModel invalidates
+            // the CallWindowView body across window boundaries; if that
+            // fires during an active layout pass the recursive constraint
+            // update crash occurs.
+            let openWindowAction = openWindow
+            DispatchQueue.main.async {
+                callManager.activeCallViewModel = viewModel
+                openWindowAction(id: "call")
+            }
+
+            do {
+                let creds = try await matrixService.callCredentials(for: roomId)
+                try await viewModel.connect(url: creds.livekitURL, token: creds.token, sfuServiceURL: creds.sfuServiceURL)
+            } catch {
+                errorReporter.report(.callFailed(error.localizedDescription))
+            }
+            callManager.isPreparingCredentials = false
+        }
     }
 
     // MARK: - Deep Link Handling

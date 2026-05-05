@@ -502,6 +502,24 @@ public final class MatrixService: MatrixServiceProtocol {
         try await sdkRoom.leave()
     }
 
+    /// Power level overrides that allow any room member to send MatrixRTC call
+    /// membership and encryption key state events (matching Element Call's setup).
+    private static let callPowerLevels = PowerLevels(
+        usersDefault: nil,
+        eventsDefault: nil,
+        stateDefault: nil,
+        ban: nil,
+        kick: nil,
+        redact: nil,
+        invite: nil,
+        notifications: nil,
+        users: [:],
+        events: [
+            "org.matrix.msc3401.call.member": 0,
+            "io.element.call.encryption_keys": 0
+        ]
+    )
+
     public func createRoom(name: String, topic: String?, isPublic: Bool) async throws -> String {
         guard let client else { throw RelayError.notLoggedIn }
         let params = CreateRoomParameters(
@@ -510,7 +528,8 @@ public final class MatrixService: MatrixServiceProtocol {
             isEncrypted: !isPublic,
             isDirect: false,
             visibility: isPublic ? .public : .private,
-            preset: isPublic ? .publicChat : .privateChat
+            preset: isPublic ? .publicChat : .privateChat,
+            powerLevelContentOverride: Self.callPowerLevels
         )
         return try await client.createRoom(parameters: params)
     }
@@ -524,6 +543,7 @@ public final class MatrixService: MatrixServiceProtocol {
             isDirect: false,
             visibility: options.isPublic ? .public : .private,
             preset: options.isPublic ? .publicChat : .privateChat,
+            powerLevelContentOverride: Self.callPowerLevels,
             canonicalAlias: options.address,
             isSpace: options.isSpace
         )
@@ -545,7 +565,8 @@ public final class MatrixService: MatrixServiceProtocol {
             isDirect: true,
             visibility: .private,
             preset: .trustedPrivateChat,
-            invite: [userId]
+            invite: [userId],
+            powerLevelContentOverride: Self.callPowerLevels
         )
         return try await client.createRoom(parameters: params)
     }
@@ -1272,6 +1293,54 @@ public final class MatrixService: MatrixServiceProtocol {
             self?.isVerificationFlowActive = false
         }
         return viewModel
+    }
+
+    public func makeCallViewModel(roomId: String) async -> (any CallViewModelProtocol)? {
+        guard let client else { return nil }
+        do {
+            let session = try client.session()
+            let sdkRoom = room(id: roomId)
+            // Check if the Matrix room has encryption enabled to decide whether
+            // to use LiveKit-level E2EE for the call.
+            let isEncrypted: Bool
+            if let sdkRoom, let info = try? await sdkRoom.roomInfo() {
+                isEncrypted = info.encryptionState != .notEncrypted
+            } else {
+                isEncrypted = false
+            }
+            let context = CallViewModel.EncryptionContext(
+                homeserver: client.homeserver,
+                accessToken: session.accessToken,
+                userID: client.userID,
+                deviceID: client.deviceID,
+                roomID: roomId,
+                isRoomEncrypted: isEncrypted,
+                matrixRoom: sdkRoom
+            )
+            return CallViewModel(encryptionContext: context)
+        } catch {
+            logger.warning("Could not create encryption context, falling back to unencrypted call: \(error.localizedDescription)")
+            return CallViewModel()
+        }
+    }
+
+    public func callCredentials(for roomId: String) async throws -> (livekitURL: String, token: String, sfuServiceURL: String) {
+        guard let client else {
+            throw LiveKitCredentialError.serverError
+        }
+        let session = try client.session()
+        // Extract the server name from the user ID (e.g. "@user:fedora.im" → "fedora.im").
+        // .well-known must be queried on the server name domain, not the delegated homeserver.
+        let serverName = client.userID.split(separator: ":").dropFirst().joined(separator: ":")
+        let service = LiveKitCredentialService(
+            homeserver: client.homeserver,
+            accessToken: session.accessToken,
+            userID: client.userID,
+            deviceID: client.deviceID,
+            serverName: serverName
+        )
+        let result = try await service.credentials(for: roomId)
+        return (livekitURL: result.url, token: result.token, sfuServiceURL: result.sfuServiceURL)
     }
 
     public func declinePendingVerificationRequest() async {

@@ -12,6 +12,8 @@
 		3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */ = {isa = PBXBuildFile; productRef = 3BRI00042FC10004001F0EA1 /* RelayInterface */; };
 		3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; };
 		3BRK00022FC00002001F0EA1 /* RelayKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DF41154C2F82F7A30028241B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BLK00022FD10002001F0EA1 /* LiveKit */; };
+		DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = DFDAFCB12FA2C56400A27353 /* LiveKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -96,6 +98,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */,
 				3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */,
 				3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */,
 			);
@@ -105,6 +108,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DF41154C2F82F7A30028241B /* LiveKit in Frameworks */,
 				3BMRST012FB10001001F0EA1 /* MatrixRustSDK in Frameworks */,
 				3BRI00012FC10001001F0EA1 /* RelayInterface in Frameworks */,
 			);
@@ -121,6 +125,7 @@
 				3B4AFD8B2F638A35001F0EA1 /* Relay */,
 				3BRK00112FC00011001F0EA1 /* RelayKit */,
 				3B11E0892F9A3F600051F7B3 /* RelayTests */,
+				DFDAFCAE2FA2C4F700A27353 /* Frameworks */,
 				3B4AFD8A2F638A35001F0EA1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -133,6 +138,13 @@
 				3B11E0882F9A3F600051F7B3 /* RelayTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		DFDAFCAE2FA2C4F700A27353 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -192,6 +204,7 @@
 			name = Relay;
 			packageProductDependencies = (
 				3BRI00042FC10004001F0EA1 /* RelayInterface */,
+				DFDAFCB12FA2C56400A27353 /* LiveKit */,
 			);
 			productName = Relay;
 			productReference = 3B4AFD892F638A35001F0EA1 /* Relay.app */;
@@ -217,6 +230,7 @@
 			packageProductDependencies = (
 				3BMRST022FB10002001F0EA1 /* MatrixRustSDK */,
 				3BRI00022FC10002001F0EA1 /* RelayInterface */,
+				3BLK00022FD10002001F0EA1 /* LiveKit */,
 			);
 			productName = RelayKit;
 			productReference = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */;
@@ -256,6 +270,7 @@
 			packageReferences = (
 				3BRI00052FC10005001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayInterface" */,
 				3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */,
+				3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3B4AFD8A2F638A35001F0EA1 /* Products */;
@@ -528,10 +543,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Relay/Relay.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 12;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
@@ -558,6 +576,7 @@
 				MARKETING_VERSION = 0.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.Relay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -574,10 +593,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Relay/Relay.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 12;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
@@ -604,6 +626,7 @@
 				MARKETING_VERSION = 0.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.Relay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -730,6 +753,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 		3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/matrix-org/matrix-rust-components-swift";
@@ -741,6 +772,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		3BLK00022FD10002001F0EA1 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
+		};
 		3BMRST022FB10002001F0EA1 /* MatrixRustSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */;
@@ -753,6 +789,11 @@
 		3BRI00042FC10004001F0EA1 /* RelayInterface */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RelayInterface;
+		};
+		DFDAFCB12FA2C56400A27353 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

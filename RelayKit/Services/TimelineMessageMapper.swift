@@ -187,9 +187,20 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     prevAvatarUrl: prevAvatarUrl
                 )
                 msgKind = .profileChange
-            case .state(_, let content):
-                msgBody = Self.stateEventDescription(content)
-                msgKind = .stateEvent
+            case .state(let stateKey, let content):
+                let (body, kind) = Self.describeStateEvent(
+                    content,
+                    stateKey: stateKey,
+                    senderDisplayName: {
+                        if case .ready(let name, _, _) = event.senderProfile { return name }
+                        return nil
+                    }(),
+                    senderId: event.sender
+                )
+                // Skip noisy internal events (encryption key exchange).
+                guard let body else { continue }
+                msgBody = body
+                msgKind = kind
             default:
                 continue
             }
@@ -318,6 +329,11 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 threadRootEventID: msgThreadRootEventID
             ))
         }
+
+        // Deduplicate consecutive call events from the same sender.
+        // When a user ends a call, the removal state event (empty content)
+        // appears as a second "started a call" — filter those out.
+        result = Self.deduplicateCallEvents(result)
 
         return MappingResult(messages: result, unresolvedReplyEventIds: pendingReplyFetchIds)
     }
@@ -448,9 +464,23 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 prevAvatarUrl: prevAvatarUrl
             )
             msgKind = .profileChange
-        case .state(_, let content):
-            msgBody = Self.stateEventDescription(content)
-            msgKind = .stateEvent
+        case .state(let stateKey, let content):
+            // Use describeStateEvent so call membership events render as
+            // "X started a call" with .callEvent kind, and so the noisy
+            // io.element.call.encryption_keys events are filtered out —
+            // matching the bulk-mapping and rebuild paths.
+            let (body, kind) = Self.describeStateEvent(
+                content,
+                stateKey: stateKey,
+                senderDisplayName: {
+                    if case .ready(let name, _, _) = event.senderProfile { return name }
+                    return nil
+                }(),
+                senderId: event.sender
+            )
+            guard let body else { return nil }
+            msgBody = body
+            msgKind = kind
         default:
             return nil
         }
@@ -773,9 +803,19 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 prevAvatarUrl: prevAvatarUrl
             )
             msgKind = .profileChange
-        case .state(_, let content):
-            msgBody = Self.stateEventDescription(content)
-            msgKind = .stateEvent
+        case .state(let stateKey, let content):
+            let (body, kind) = Self.describeStateEvent(
+                content,
+                stateKey: stateKey,
+                senderDisplayName: {
+                    if case .ready(let name, _, _) = event.senderProfile { return name }
+                    return nil
+                }(),
+                senderId: event.sender
+            )
+            guard let body else { return nil }
+            msgBody = body
+            msgKind = kind
         default:
             return nil
         }
@@ -852,6 +892,28 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
         }
     }
 
+    // MARK: - Call Event Deduplication
+
+    /// Removes duplicate consecutive call events from the same sender.
+    ///
+    /// When a user ends a call, the MatrixRTC leave event (`{}` content) appears
+    /// in the timeline as a second "started a call" message from the same sender.
+    /// This filters out those duplicates, keeping only the first occurrence in each
+    /// consecutive run.
+    private static func deduplicateCallEvents(_ messages: [TimelineMessage]) -> [TimelineMessage] {
+        var result: [TimelineMessage] = []
+        for message in messages {
+            if message.kind == .callEvent,
+               let last = result.last,
+               last.kind == .callEvent,
+               last.senderID == message.senderID {
+                continue
+            }
+            result.append(message)
+        }
+        return result
+    }
+
     // MARK: - System Event Descriptions
 
     // swiftlint:disable cyclomatic_complexity
@@ -925,6 +987,33 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
 
         let name = displayName ?? prevDisplayName ?? "A user"
         return "\(name) updated their profile"
+    }
+
+    /// Routes a state event to the appropriate description and message kind.
+    ///
+    /// Returns `nil` body for events that should be hidden (e.g. encryption key exchange).
+    nonisolated static func describeStateEvent(
+        _ state: OtherState,
+        stateKey: String,
+        senderDisplayName: String?,
+        senderId: String
+    ) -> (body: String?, kind: TimelineMessage.Kind) {
+        if case .custom(let type) = state {
+            switch type {
+            case "org.matrix.msc3401.call.member":
+                let name = senderDisplayName ?? senderId
+                // Empty state key or one starting with "_" indicates join/leave.
+                // A non-empty content means joining; removal sends empty content
+                // which the SDK may or may not surface — treat presence of the event as a join.
+                return ("\(name) started a call", .callEvent)
+            case "io.element.call.encryption_keys":
+                // Internal key exchange — don't show in timeline.
+                return (nil, .stateEvent)
+            default:
+                return (stateEventDescription(state), .stateEvent)
+            }
+        }
+        return (stateEventDescription(state), .stateEvent)
     }
 
     // swiftlint:disable cyclomatic_complexity
