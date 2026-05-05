@@ -79,6 +79,7 @@ struct RelayApp: App {
         .commands {
             FileMenuCommands(appActions: appActions)
             EditLastMessageCommand()
+            FindRoomCommand(appActions: appActions)
             SidebarCommands()
             CommandGroup(before: .appTermination) {
                 Button("Clear Cache…") {
@@ -243,6 +244,7 @@ final class AppActions {
     var showCreateSpace = false
     var showJoinRoom = false
     var showRoomDirectory = false
+    var focusSearch = false
 }
 
 // MARK: - File Menu Commands
@@ -297,6 +299,27 @@ struct EditLastMessageCommand: Commands {
             }
             .keyboardShortcut("e", modifiers: .command)
             .disabled(editLastMessage == nil)
+        }
+    }
+}
+
+// MARK: - Find Room Command
+
+/// Adds a "Find Room…" item (⌘K) to the Edit menu.
+///
+/// When pressed, the command sets ``AppActions/focusSearch`` to `true`.
+/// ``RoomListView`` observes this flag and moves keyboard focus to the
+/// sidebar search field.
+struct FindRoomCommand: Commands {
+    let appActions: AppActions
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Find Rooms…") {
+                appActions.focusSearch = true
+            }
+            .keyboardShortcut("k", modifiers: .command)
         }
     }
 }

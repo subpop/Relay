@@ -22,6 +22,7 @@ import SwiftUI
 struct RoomListView: View {
     @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
+    @Environment(AppActions.self) private var appActions
     @Binding var selectedRoomId: String?
     @Binding var searchText: String
     @Binding var selectedSpaceId: String?
@@ -34,6 +35,7 @@ struct RoomListView: View {
     @Binding var previewingInvite: RoomSummary?
     @State private var inviteToDecline: RoomSummary?
     @State private var showDeclineConfirmation = false
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         // Compute filtered results once per body evaluation to avoid
@@ -88,7 +90,15 @@ struct RoomListView: View {
         .animation(.default, value: pinned.map(\.id))
         .animation(.default, value: unpinned.map(\.id))
         .animation(.default, value: invites.map(\.id))
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search rooms")
+        .focusSection()
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Find Rooms…")
+        .searchFocused($isSearchFocused)
+        .onChange(of: appActions.focusSearch) { _, shouldFocus in
+            if shouldFocus {
+                appActions.focusSearch = false
+                isSearchFocused = true
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 sortMenu
