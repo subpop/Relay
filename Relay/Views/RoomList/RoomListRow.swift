@@ -146,7 +146,6 @@ extension AttributedString {
         
         for range in linkRanges {
             result[range].link = nil
-            result[range].foregroundColor = .accentColor
         }
         
         return result
