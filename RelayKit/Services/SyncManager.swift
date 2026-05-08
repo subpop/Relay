@@ -52,16 +52,42 @@ final class SyncManager {
     /// sync service without tearing down existing room state.
     var onSyncServiceRestarted: ((SyncService) async throws -> Void)?
 
+    /// Called when a saved session was restored offline and connectivity has
+    /// returned. ``MatrixService`` sets this to retry the full
+    /// `restoreSession` + `startSync` pipeline. Until that succeeds the
+    /// app stays in an "Offline" state, but the user is treated as
+    /// logged-in with cached data.
+    var onPendingOnlineRestore: (() async -> Void)?
+
     private let networkMonitor: NetworkMonitor
 
     private var client: (any ClientProxyProtocol)?
     private var syncStateHandle: TaskHandle?
     private var stateObservationTask: Task<Void, Never>?
     private var networkObservationTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
 
     /// Whether the sync service has completed its initial startup.
     /// Used to distinguish the first `startSync` call from network-triggered restarts.
     private var hasCompletedInitialSync = false
+
+    /// True between ``enterPendingOnlineRestore()`` and the first successful
+    /// `startSync`. While true, the network observer treats reconnects as
+    /// "retry the deferred restore" rather than "rebuild the sync service".
+    private var isPendingOnlineRestore = false
+
+    // MARK: - Reconnect backoff (truncated binary exponential)
+    //
+    // Same shape as Ethernet CSMA/CD's collision backoff: after the *n*th
+    // consecutive failure, sleep a uniformly random number of slots in
+    // [0, 2^n − 1] before retrying. `maxBackoffExponent` caps the window so
+    // the wait saturates instead of growing without bound. A successful
+    // sync resets `reconnectAttempt` to 0. Randomization avoids a
+    // thundering herd of clients all retrying in lockstep after a shared
+    // outage.
+    private var reconnectAttempt: Int = 0
+    private let baseSlotSeconds: Double = 1
+    private let maxBackoffExponent: Int = 6
 
     init(networkMonitor: NetworkMonitor) {
         self.networkMonitor = networkMonitor
@@ -77,7 +103,7 @@ final class SyncManager {
     /// - Parameter client: The authenticated client proxy.
     /// - Throws: If sync fails to start or is cancelled.
     func startSync(client: any ClientProxyProtocol) async throws {
-        guard syncState == .idle else { return }
+        guard syncState == .idle || isPendingOnlineRestore else { return }
 
         self.client = client
         syncState = .syncing
@@ -88,8 +114,26 @@ final class SyncManager {
         // Wait for the first .running state (up to 15 seconds)
         await waitForFirstSync()
         hasCompletedInitialSync = true
+        isPendingOnlineRestore = false
+        reconnectAttempt = 0
 
         // Begin observing network changes for offline/online transitions
+        startNetworkObservation()
+    }
+
+    /// Marks the sync layer as "logged in but not yet able to talk to the
+    /// homeserver" — used when ``AuthenticationService`` returned
+    /// `.offlineWithSavedSession`. Sets ``syncState`` to `.offline`,
+    /// triggering the existing offline banner, and starts watching
+    /// ``NetworkMonitor`` so we can retry the full
+    /// `restoreSession` + `startSync` pipeline once connectivity returns.
+    func enterPendingOnlineRestore() {
+        isPendingOnlineRestore = true
+        syncState = .offline
+        // Start the network monitor so we get a callback when connectivity
+        // comes back. Safe to call repeatedly — it no-ops if already
+        // running.
+        networkMonitor.start()
         startNetworkObservation()
     }
 
@@ -101,6 +145,8 @@ final class SyncManager {
         networkObservationTask = nil
         stateObservationTask?.cancel()
         stateObservationTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
         syncStateHandle = nil
 
         if let syncService {
@@ -109,7 +155,10 @@ final class SyncManager {
         syncService = nil
         client = nil
         hasCompletedInitialSync = false
+        isPendingOnlineRestore = false
+        reconnectAttempt = 0
         onSyncServiceRestarted = nil
+        onPendingOnlineRestore = nil
         syncState = .idle
     }
 
@@ -166,7 +215,14 @@ final class SyncManager {
                 case .terminated:
                     self.syncState = .error("The sync service was terminated.")
                 case .error:
-                    self.syncState = .error("The sync service encountered an error.")
+                    // The SDK doesn't expose a typed underlying error here
+                    // (the listener only delivers the variant). Treat it
+                    // as offline-shaped: drop to `.offline` and schedule a
+                    // backoff retry. If it really is a terminal error,
+                    // every retry will hit the same wall but the user
+                    // sees a banner instead of a hard-stuck sync.
+                    self.syncState = .offline
+                    self.scheduleReconnect()
                 }
             }
         }
@@ -195,6 +251,11 @@ final class SyncManager {
 
                 if !isConnected {
                     await self.handleOffline()
+                } else if self.isPendingOnlineRestore {
+                    // We have a saved session but never managed to build a
+                    // client. Ask MatrixService to retry the full restore.
+                    logger.info("Network restored — retrying deferred session restore")
+                    await self.onPendingOnlineRestore?()
                 } else if self.syncState == .offline {
                     await self.handleOnline()
                 }
@@ -209,6 +270,11 @@ final class SyncManager {
     /// messages while there is no network path. Queued messages remain in the
     /// local store and are flushed when ``handleOnline()`` re-enables them.
     private func handleOffline() async {
+        // Cancel any pending reconnect — the network observer is now
+        // authoritative for when we come back online.
+        reconnectTask?.cancel()
+        reconnectTask = nil
+
         guard syncState == .running || syncState == .syncing else { return }
 
         logger.info("Network lost — stopping sync service")
@@ -259,8 +325,34 @@ final class SyncManager {
         } catch is CancellationError {
             // Shutdown in progress — don't overwrite state
         } catch {
-            logger.error("Failed to restart sync after connectivity restored: \(error)")
-            syncState = .error("Failed to restart sync: \(error.localizedDescription)")
+            if NetworkErrorClassifier.isOfflineShaped(error) {
+                logger.info("Reconnect attempt failed (homeserver still unreachable): \(error.localizedDescription)")
+                syncState = .offline
+                scheduleReconnect()
+            } else {
+                logger.error("Failed to restart sync after connectivity restored: \(error)")
+                syncState = .error("Failed to restart sync: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Schedules a retry of ``handleOnline()`` using truncated binary
+    /// exponential backoff. Picks a random delay in
+    /// `[0, 2^n − 1] × baseSlotSeconds` where `n = min(reconnectAttempt,
+    /// maxBackoffExponent)`. A fresh `NetworkMonitor` offline event
+    /// supersedes the pending retry via ``handleOffline()``.
+    private func scheduleReconnect() {
+        reconnectTask?.cancel()
+        let attempt = min(reconnectAttempt, maxBackoffExponent)
+        let upperBound = max(1, 1 << attempt) // at attempt=0 → 1 slot
+        let slots = Int.random(in: 0..<upperBound)
+        let delay = Double(slots) * baseSlotSeconds
+        reconnectAttempt += 1
+        logger.info("Scheduling sync reconnect attempt #\(self.reconnectAttempt) in \(delay)s")
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            await self.handleOnline()
         }
     }
 

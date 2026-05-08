@@ -34,6 +34,28 @@ nonisolated struct StoredSession: Codable, Sendable {
     var oidcData: String?
 }
 
+/// Outcome of an attempt to restore a previously saved session.
+///
+/// Distinguishes "no keychain session at all" (→ login screen) from
+/// "session exists but we couldn't reach the homeserver" (→ restore
+/// the user into a cache-only experience and retry once connectivity
+/// returns).
+enum RestoreOutcome {
+    /// No saved session in the keychain. Caller should show login.
+    case noSavedSession
+    /// Session restored successfully and is ready for sync.
+    case restored(ClientProxy, userId: String)
+    /// A session is saved but the homeserver couldn't be reached
+    /// (no network, well-known discovery failed, connection timed out).
+    /// Caller should treat the user as logged-in but with sync stuck
+    /// offline, and retry the full restore when connectivity returns.
+    case offlineWithSavedSession(userId: String, homeserverUrl: String)
+    /// A session is saved but restore failed for a non-network reason
+    /// (auth invalidated, schema mismatch, etc.). Caller should show
+    /// an error.
+    case failed(Error)
+}
+
 /// Handles Matrix authentication: password login, OAuth/OIDC, session restore, and logout.
 ///
 /// ``AuthenticationService`` encapsulates all authentication-related logic, including
@@ -47,6 +69,12 @@ nonisolated struct StoredSession: Codable, Sendable {
 /// the service to AppKit or AuthenticationServices.
 @MainActor
 final class AuthenticationService {
+
+    private let networkMonitor: NetworkMonitor
+
+    init(networkMonitor: NetworkMonitor) {
+        self.networkMonitor = networkMonitor
+    }
 
     // MARK: - Data Paths
 
@@ -117,13 +145,26 @@ final class AuthenticationService {
 
     /// Attempts to restore a previously saved session from the keychain.
     ///
-    /// - Returns: A tuple of the authenticated ``ClientProxy`` and user ID, or `nil` if no
-    ///   valid session was found.
-    func restoreSession() async -> (ClientProxy, String)? {
+    /// Distinguishes "no saved session" from "homeserver couldn't be
+    /// reached" so the caller (``MatrixService``) can choose between
+    /// going to the login screen and entering an offline-restored
+    /// cache-only state. See ``RestoreOutcome``.
+    func restoreSession() async -> RestoreOutcome {
         guard let data = KeychainService.load(),
               let stored = try? JSONDecoder().decode(StoredSession.self, from: data)
         else {
-            return nil
+            return .noSavedSession
+        }
+
+        // If the radio is off, don't even try `buildClient()` — well-known
+        // discovery would just fail. Skip straight to offline-restore so
+        // the user sees their cached data instead of the login screen.
+        guard networkMonitor.isConnected else {
+            logger.info("Restoring session offline (network monitor reports disconnected) for \(stored.userId)")
+            return .offlineWithSavedSession(
+                userId: stored.userId,
+                homeserverUrl: stored.homeserverUrl
+            )
         }
 
         do {
@@ -148,10 +189,17 @@ final class AuthenticationService {
 
             logger.debug("Session restored successfully for \(stored.userId)")
             let clientProxy = try ClientProxy(client: client)
-            return (clientProxy, stored.userId)
+            return .restored(clientProxy, userId: stored.userId)
         } catch {
+            if NetworkErrorClassifier.isOfflineShaped(error) {
+                logger.info("Session restore deferred — homeserver unreachable: \(error.localizedDescription)")
+                return .offlineWithSavedSession(
+                    userId: stored.userId,
+                    homeserverUrl: stored.homeserverUrl
+                )
+            }
             logger.error("Session restore failed: \(error)")
-            return nil
+            return .failed(error)
         }
     }
 

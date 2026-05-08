@@ -156,6 +156,15 @@ public protocol MatrixServiceProtocol: AnyObject, Observable {
     /// "rooms loaded but the list is empty."
     var hasLoadedRooms: Bool { get }
 
+    /// Whether the device currently has any viable network path
+    /// (Wi-Fi, ethernet, or cellular). Reflects `NWPathMonitor` state.
+    ///
+    /// Used together with ``syncState`` to disambiguate the offline
+    /// banner: `.offline` + `isNetworkConnected == false` means the
+    /// radio is off; `.offline` + `isNetworkConnected == true` means
+    /// the homeserver itself is unreachable.
+    var isNetworkConnected: Bool { get }
+
     /// Attempts to restore a previously saved session from the keychain.
     func restoreSession() async
 
@@ -738,6 +747,7 @@ private final class PlaceholderMatrixService: MatrixServiceProtocol {
     var spaces: [RoomSummary] = []
     var isSyncing: Bool { false }
     var hasLoadedRooms: Bool = false
+    var isNetworkConnected: Bool = true
     var isSessionVerified: Bool = false
     var hasCheckedVerificationState: Bool = false
     var pendingVerificationRequest: IncomingVerificationRequest?

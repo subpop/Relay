@@ -42,6 +42,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
     public var isSyncing: Bool { syncState == .syncing || syncState == .running }
     public var hasLoadedRooms: Bool { roomListManager.hasLoadedRooms }
+    public var isNetworkConnected: Bool { networkMonitor.isConnected }
 
     public private(set) var isSessionVerified: Bool = false
     public private(set) var hasCheckedVerificationState: Bool = false
@@ -77,8 +78,8 @@ public final class MatrixService: MatrixServiceProtocol {
 
     // MARK: - Sub-Services
 
-    private let auth = AuthenticationService()
     private let networkMonitor = NetworkMonitor()
+    private let auth: AuthenticationService
     private let syncManager: SyncManager
     private let roomListManager = RoomListManager()
     private let spaceListManager = SpaceListManager()
@@ -88,17 +89,69 @@ public final class MatrixService: MatrixServiceProtocol {
     /// Creates a new ``MatrixService``. Call ``restoreSession()`` after initialization to
     /// attempt automatic sign-in from a previously saved keychain session.
     public init() {
+        auth = AuthenticationService(networkMonitor: networkMonitor)
         syncManager = SyncManager(networkMonitor: networkMonitor)
     }
 
     // MARK: - Session Restore
 
     public func restoreSession() async {
-        if let (restoredClient, userId) = await auth.restoreSession() {
+        // Start the network monitor early so `AuthenticationService` can
+        // see the current connectivity state and so the SyncManager can
+        // wake us up when the network returns after an offline restore.
+        networkMonitor.start()
+
+        switch await auth.restoreSession() {
+        case .noSavedSession:
+            authState = .loggedOut
+
+        case .restored(let restoredClient, let userId):
             client = restoredClient
             await restoredClient.loadProfile()
             authState = .loggedIn(userId: userId)
-        } else {
+
+        case .offlineWithSavedSession(let userId, _):
+            // We have a saved session but couldn't reach the homeserver.
+            // Treat the user as logged-in so they see their cached rooms,
+            // and ask SyncManager to retry the full restore once
+            // connectivity comes back.
+            authState = .loggedIn(userId: userId)
+            syncManager.onPendingOnlineRestore = { [weak self] in
+                await self?.retryPendingOnlineRestore()
+            }
+            syncManager.enterPendingOnlineRestore()
+
+        case .failed(let error):
+            authState = .error(error.localizedDescription)
+        }
+    }
+
+    /// Called by ``SyncManager`` when it detects a network reconnect while
+    /// we're still in the offline-restored state. Re-runs
+    /// ``AuthenticationService/restoreSession()`` and, on success, hands
+    /// the freshly built ``ClientProxy`` to the sync pipeline.
+    private func retryPendingOnlineRestore() async {
+        switch await auth.restoreSession() {
+        case .restored(let restoredClient, let userId):
+            client = restoredClient
+            await restoredClient.loadProfile()
+            authState = .loggedIn(userId: userId)
+            // Tear down the placeholder pending-restore handler before
+            // performSync wires up the real onSyncServiceRestarted hook.
+            syncManager.onPendingOnlineRestore = nil
+            await performSync()
+
+        case .offlineWithSavedSession:
+            // Still can't reach the homeserver — stay offline. The
+            // network monitor will fire again when connectivity flips,
+            // and SyncManager will call us back.
+            break
+
+        case .failed(let error):
+            authState = .error(error.localizedDescription)
+
+        case .noSavedSession:
+            // Keychain went away under us mid-restore. Bounce to login.
             authState = .loggedOut
         }
     }

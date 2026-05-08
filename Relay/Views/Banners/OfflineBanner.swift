@@ -32,6 +32,43 @@ struct OfflineBanner: View {
         bannerWidth < Self.compactThreshold
     }
 
+    /// When the radio is off (`NWPathMonitor` reports no path) we say
+    /// "Network Offline" and use the wifi-slash glyph. When the radio
+    /// is up but the homeserver isn't responding we say "Server
+    /// Offline" with a server-shaped glyph. Both share the same banner
+    /// chrome and the same orange tint — only the copy/icon differs.
+    private var isNetworkOffline: Bool {
+        !matrixService.isNetworkConnected
+    }
+
+    private var titleText: String {
+        isNetworkOffline ? "Network Offline" : "Server Unreachable"
+    }
+
+    /// Status icon. For "Network Offline" we use the standard
+    /// `wifi.slash` SF Symbol. For "Server Offline" SF Symbols doesn't
+    /// ship a slashed-server glyph, so we pair `xserve` with a
+    /// caution-triangle badge — same pattern as
+    /// ``foo.badge.exclamationmark`` symbols Apple uses elsewhere.
+    @ViewBuilder
+    private func statusIcon(size: CGFloat) -> some View {
+        if isNetworkOffline {
+            Image(systemName: "wifi.slash")
+                .font(.system(size: size))
+                .foregroundStyle(.secondary)
+        } else {
+            Image(systemName: "xserve")
+                .font(.system(size: size))
+                .foregroundStyle(.secondary)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: size * 0.55))
+                        .foregroundStyle(.orange)
+                        .offset(x: size * 0.22, y: size * 0.18)
+                }
+        }
+    }
+
     var body: some View {
         if matrixService.syncState == .offline {
             Group {
@@ -64,12 +101,10 @@ struct OfflineBanner: View {
 
     private var regularContent: some View {
         HStack(spacing: 8) {
-            Image(systemName: "wifi.slash")
-                .foregroundStyle(.secondary)
-                .font(.body)
+            statusIcon(size: 17)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Offline")
+                Text(titleText)
                     .font(.subheadline)
                     .fontWeight(.semibold)
             }
@@ -80,11 +115,9 @@ struct OfflineBanner: View {
 
     private var compactContent: some View {
         VStack(spacing: 6) {
-            Image(systemName: "wifi.slash")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 24))
+            statusIcon(size: 24)
 
-            Text("Offline")
+            Text(titleText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -93,7 +126,7 @@ struct OfflineBanner: View {
 
 // MARK: - Previews
 
-#Preview("Offline") {
+#Preview("Network Offline") {
     VStack {
         Spacer()
         OfflineBanner()
@@ -101,12 +134,13 @@ struct OfflineBanner: View {
     .environment(\.matrixService, {
         let service = PreviewMatrixService()
         service.syncState = .offline
+        service.isNetworkConnected = false
         return service
     }())
     .frame(width: 280, height: 200)
 }
 
-#Preview("Offline (Compact)") {
+#Preview("Server Unreachable") {
     VStack {
         Spacer()
         OfflineBanner()
@@ -114,6 +148,21 @@ struct OfflineBanner: View {
     .environment(\.matrixService, {
         let service = PreviewMatrixService()
         service.syncState = .offline
+        service.isNetworkConnected = true
+        return service
+    }())
+    .frame(width: 280, height: 200)
+}
+
+#Preview("Network Offline (Compact)") {
+    VStack {
+        Spacer()
+        OfflineBanner()
+    }
+    .environment(\.matrixService, {
+        let service = PreviewMatrixService()
+        service.syncState = .offline
+        service.isNetworkConnected = false
         return service
     }())
     .frame(width: 116, height: 200)

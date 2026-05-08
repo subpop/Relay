@@ -28,6 +28,7 @@ final class PreviewMatrixService: MatrixServiceProtocol {
     var spaces: [RoomSummary] = PreviewMatrixService.sampleSpaces
     var isSyncing: Bool { false }
     var hasLoadedRooms: Bool = true
+    var isNetworkConnected: Bool = true
     var isSessionVerified: Bool = true
     var hasCheckedVerificationState: Bool = true
     var pendingVerificationRequest: IncomingVerificationRequest?
