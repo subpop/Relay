@@ -106,6 +106,20 @@ struct ComposeTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: ComposeScrollView, context: Context) {
         context.coordinator.parent = self
 
+        // Re-establish the mention insertion handler when the backing
+        // ComposeViewModel has been replaced (e.g. by the draft store).
+        // makeNSView only runs once, so the handler must be re-set here
+        // whenever it is nil. Deferred to avoid modifying state during
+        // a view update.
+        if insertMentionHandler == nil {
+            let coordinator = context.coordinator
+            Task { @MainActor in
+                self.insertMentionHandler = { [weak coordinator] userId, displayName in
+                    coordinator?.insertMention(userId: userId, displayName: displayName)
+                }
+            }
+        }
+
         guard let textView = scrollView.linkedTextView else { return }
         guard !context.coordinator.didPushTextChange else {
             context.coordinator.didPushTextChange = false
