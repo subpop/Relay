@@ -468,10 +468,17 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             do {
                 let creds = try await matrixService.callCredentials(for: roomId)
                 try await viewModel.connect(url: creds.livekitURL, token: creds.token, sfuServiceURL: creds.sfuServiceURL)
+                callManager.isPreparingCredentials = false
             } catch {
+                // Surface the failure and fully tear down the call so the
+                // toolbar call button (disabled while `hasActiveCall`) is
+                // re-enabled. Without this the failed view model stays set
+                // and the button is stuck disabled until the app restarts —
+                // the `.failed` overlay's Dismiss is the only other path and
+                // its window is easily missed behind the main window.
                 errorReporter.report(.callFailed(error.localizedDescription))
+                await callManager.endCall()
             }
-            callManager.isPreparingCredentials = false
         }
     }
 
