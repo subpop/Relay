@@ -195,6 +195,16 @@ struct LiveKitCredentialService {
                   !serviceURL.isEmpty
             else { continue }
 
+            // Never converge on our OWN membership. We're about to publish a
+            // fresh one, and a leftover entry from a previous session (not
+            // yet expired/tombstoned) can be the *oldest* — which would make
+            // us pick our own homeserver's SFU, momentarily share it with a
+            // peer who converged there, then split the call the instant our
+            // fresh membership flips the oldest_membership winner to the
+            // peer's SFU. `oldest_membership` must be computed over the
+            // other participants.
+            if (event["sender"] as? String) == userID { continue }
+
             // Drop expired memberships. Default `expires` is 4h
             // (14400000ms). `created_ts` falls back to event-level
             // `origin_server_ts` so very old non-tombstoned events still

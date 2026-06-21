@@ -475,9 +475,30 @@ public final class CallViewModel: CallViewModelProtocol {
             state = .connected
             connectingPhase = nil
             videoTrackRevision += 1
+
+            // Enumerate participants already in the room. LiveKit's
+            // `participantDidConnect` only fires for peers who join AFTER
+            // us; when we join an in-progress call the existing peers are
+            // already in `room.remoteParticipants`, so without this sync
+            // the UI would sit on "waiting for participants" and never show
+            // them. (When we're the first to join this is a no-op and
+            // later joiners arrive via the delegate.)
+            syncParticipants(trackChanged: true)
+            // Existing peers won't fire `participantDidConnect`, so push our
+            // key to them explicitly — mirrors the redistribute we'd
+            // otherwise do on their join.
+            if isE2eeEnabled {
+                for participant in room.remoteParticipants.values {
+                    if let identity = participant.identity?.stringValue {
+                        redistributeKey(to: identity)
+                    }
+                }
+            }
+
             activityLog?.log(
                 category: .call, severity: .info, source: "CallViewModel",
                 summary: "Connected to call",
+                detail: "Existing remote participants: \(room.remoteParticipants.count).",
                 roomId: roomID
             )
         } catch {
