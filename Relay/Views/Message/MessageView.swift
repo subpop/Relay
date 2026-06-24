@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import OSLog
 import RelayInterface
 import SwiftUI
+
+private let logger = Logger(subsystem: "Relay", category: "MessageView.Translate")
 
 /// Renders a single chat message row with avatar, sender name, bubble content,
 /// reply context, reactions, and emoji picker. This is the full "chrome" wrapper
@@ -21,7 +24,7 @@ import SwiftUI
 ///
 /// For contexts that only need the bubble content without interactive chrome
 /// (e.g. pinned messages, search results), use ``MessageBubbleContent`` directly.
-struct MessageView: View {
+struct MessageView: View { // swiftlint:disable:this type_body_length
     /// The timeline message to render.
     let message: TimelineMessage
 
@@ -46,6 +49,12 @@ struct MessageView: View {
         return message.isOutgoing == replyIsOutgoing
     }
 
+    /// Per-message translation state. When `.translated`, the rendered
+    /// body and parsed Markdown/HTML come from the translation; in all
+    /// other states the original message body is used. The view also
+    /// shows a translate-glyph badge when `.translated` or `.loading`.
+    var translation: MessageTranslationState = .idle
+
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
     @Environment(\.timelineActions) private var actions
     @Environment(\.swipeOffset) private var swipeOffset
@@ -55,7 +64,7 @@ struct MessageView: View {
     /// Whether reaction badges overlap the top edge, requiring extra top
     /// padding to avoid clipping.
     private var hasTopOverlay: Bool {
-        !message.reactions.isEmpty
+        !message.reactions.isEmpty || showsTranslationBadge
     }
 
     var body: some View {
@@ -129,6 +138,7 @@ struct MessageView: View {
     private var messageBubble: some View {
         MessageBubbleContent(
             message: message,
+            translation: translation,
             onPresentReactionPicker: {
                 presentReactionPickerForBubble()
             }
@@ -152,6 +162,14 @@ struct MessageView: View {
                     x: -4,
                     y: -11
                 )
+            }
+        }
+        // Translation glyph on the corner opposite the reaction badges so
+        // the two never collide.
+        .overlay(alignment: message.isOutgoing ? .topTrailing : .topLeading) {
+            if showsTranslationBadge {
+                translationBadge
+                    .offset(x: message.isOutgoing ? 6 : -6, y: -11)
             }
         }
         .padding(.top, hasTopOverlay ? 11 : 0)
@@ -192,6 +210,37 @@ struct MessageView: View {
         .allowsHitTesting(swipeIsLocked)
     }
 
+    // MARK: - Translation Badge
+
+    /// Whether the corner badge should be shown for translation state.
+    /// Only `.translated` and `.loading` get a badge; `.idle` and
+    /// `.failed` are visually invisible (failures surface as a toast).
+    private var showsTranslationBadge: Bool {
+        switch translation {
+        case .translated, .loading: true
+        case .idle, .failed: false
+        }
+    }
+
+    /// Translation badge — small `translate` glyph over a tinted disc.
+    /// Loading state swaps the glyph for a spinner so the user sees
+    /// progress.
+    @ViewBuilder
+    private var translationBadge: some View {
+        switch translation {
+        case .loading:
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 16, height: 16)
+                .background(.tint, in: Circle())
+        default:
+            Image(systemName: "translate")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 16, height: 16)
+                .background(.tint, in: Circle())
+        }
+    }
 }
 
 // MARK: - Previews

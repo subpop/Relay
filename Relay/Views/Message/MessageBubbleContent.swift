@@ -28,6 +28,12 @@ struct MessageBubbleContent: View {
     /// The timeline message to render.
     let message: TimelineMessage
 
+    /// Per-message translation state. When `.translated`, the bubble body
+    /// renders the translated plain text instead of the original; all other
+    /// states render the original body. Defaults to `.idle` so non-timeline
+    /// callers (pinned messages, search results) are unaffected.
+    var translation: MessageTranslationState = .idle
+
     /// Called to present the emoji reaction picker from within rich text context menus.
     var onPresentReactionPicker: (() -> Void)?
 
@@ -240,6 +246,14 @@ struct MessageBubbleContent: View {
     /// The parsed message body as an `NSAttributedString`. Prefers `formatted_body`
     /// (HTML) when available, falling back to inline Markdown parsing of `body`.
     private var parsedBody: NSAttributedString {
+        // When translated, render the translated plain text. The source HTML
+        // is intentionally discarded — Apple's Translation framework returns
+        // plain `String`, so we re-parse it as Markdown for inline styling.
+        if case .translated(let text, _) = translation {
+            return Self.markdownCache.value(forKey: text) {
+                NSAttributedString(matrixMarkdown: text)
+            } ?? NSAttributedString(string: text)
+        }
         if let html = message.formattedBody {
             let cached = Self.htmlCache.value(forKey: html) {
                 NSAttributedString(matrixHTML: html)

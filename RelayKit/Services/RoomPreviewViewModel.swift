@@ -233,4 +233,18 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
     public func redact(messageId: String, reason: String?) async {}
     public func pin(eventId: String) async {}
     public func unpin(eventId: String) async {}
+
+    // Translation is meaningless on a pre-join room preview — the
+    // timeline is empty / synthetic. Stub the protocol surface.
+    public var translationsVersion: UInt { 0 }
+    public var pendingTranslationQueueVersion: UInt { 0 }
+    public func translationState(for messageId: String) -> MessageTranslationState { .idle }
+    public func canTranslateMessage(_ messageId: String) -> Bool { false }
+    public func translateMessage(_ messageId: String) async {}
+    public func clearTranslation(_ messageId: String) {}
+    @MainActor public func claimNextTranslation() -> PendingTranslationRequest? { nil }
+    @MainActor public func runTranslation(
+        for request: PendingTranslationRequest,
+        translate: @MainActor @escaping (String) async throws -> String
+    ) async {}
 }

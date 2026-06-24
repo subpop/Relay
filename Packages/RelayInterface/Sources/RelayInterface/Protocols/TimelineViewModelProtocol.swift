@@ -172,4 +172,88 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     ///
     /// - Parameter eventId: The Matrix event ID of the message to unpin.
     func unpin(eventId: String) async
+
+    // MARK: - Translation
+
+    /// A monotonically increasing counter that is bumped whenever any
+    /// per-message translation state changes. SwiftUI views read this in
+    /// their bodies to participate in observation; the underlying state
+    /// dictionary is intentionally not observed (high-churn, would blow
+    /// up the registrar).
+    var translationsVersion: UInt { get }
+
+    /// The current translation state for a given message, or `.idle` if
+    /// the user hasn't requested a translation yet.
+    func translationState(for messageId: String) -> MessageTranslationState
+
+    /// Detects the message's dominant language and reports whether it's
+    /// already in the user's "readable" set (system preferred languages
+    /// + enabled keyboard input sources). Used by the context menu to
+    /// hide the Translate item when there's nothing to do.
+    func canTranslateMessage(_ messageId: String) -> Bool
+
+    /// Translates the message identified by `messageId` to the user's
+    /// locale, on-device, via Apple's Translation framework. Updates
+    /// ``translationState(for:)`` and bumps ``translationsVersion`` on
+    /// every state transition.
+    func translateMessage(_ messageId: String) async
+
+    /// Drops any cached translation for `messageId`, returning the row
+    /// to its original-language presentation.
+    func clearTranslation(_ messageId: String)
+
+    /// Bumped whenever the pending-translation queue changes (a new
+    /// request was enqueued, or a slot claimed one). Translation slots
+    /// in `TimelineView` observe this to know when to try pulling more
+    /// work from the queue.
+    var pendingTranslationQueueVersion: UInt { get }
+
+    /// Atomically pops the next queued translation request, if any. Must
+    /// be called on the main actor. Translation slots in `TimelineView`
+    /// call this when they become idle to claim the next pending unit
+    /// of work; because the call is `@MainActor`-bound, two slots cannot
+    /// race for the same request.
+    @MainActor func claimNextTranslation() -> PendingTranslationRequest?
+
+    /// Runs a translation against a specific previously-claimed request.
+    /// Updates ``translationState(for:)`` on completion (or failure) and
+    /// bumps ``translationsVersion``.
+    ///
+    /// - Parameters:
+    ///   - request: The request previously returned from
+    ///     ``claimNextTranslation()``.
+    ///   - translate: Closure that performs the actual translation using
+    ///     the SwiftUI-provided `TranslationSession`. Defined as a
+    ///     closure so this protocol doesn't need to import the
+    ///     Translation framework.
+    @MainActor func runTranslation(
+        for request: PendingTranslationRequest,
+        translate: @MainActor @escaping (String) async throws -> String
+    ) async
+}
+
+/// Description of an in-flight translation request the timeline wants
+/// performed. Consumed by `TimelineView`'s `.translationTask` modifier.
+public struct PendingTranslationRequest: Sendable, Equatable {
+    public let messageId: String
+    public let sourceLanguageTag: String
+    public let targetLanguageTag: String
+    public init(messageId: String, sourceLanguageTag: String, targetLanguageTag: String) {
+        self.messageId = messageId
+        self.sourceLanguageTag = sourceLanguageTag
+        self.targetLanguageTag = targetLanguageTag
+    }
+}
+
+/// Per-message translation state surfaced by ``TimelineViewModelProtocol``.
+public enum MessageTranslationState: Sendable, Equatable {
+    /// No translation has been requested.
+    case idle
+    /// A translation is in flight (either model download or analysis).
+    case loading
+    /// The message has been translated.
+    case translated(text: String, sourceLanguageTag: String)
+    /// The last translation attempt failed; the body falls back to the
+    /// original. Stored so the UI can offer a retry.
+    case failed(reason: String)
 }

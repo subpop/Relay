@@ -51,16 +51,24 @@ struct MessageRow: Identifiable, Equatable {
     let message: TimelineMessage
     let info: MessageGroupInfo
     let isPaginationTrigger: Bool
+    /// Per-message translation state baked into the row so that the
+    /// table-view diff (`MessageRow == MessageRow`) catches translation
+    /// changes and reloads just the affected row. Without this, a
+    /// translation completing wouldn't differ in the row's payload and
+    /// `NSTableView`'s `reloadData(forRowIndexes:)` short-circuit would
+    /// skip the visible row.
+    let translation: MessageTranslationState
 
     /// When non-nil, this row represents a collapsed group of consecutive
     /// system events. The ``message`` field holds the first event in the
     /// run (used for ID stability and date header computation).
     let collapsedSystemEvents: [TimelineMessage]?
 
-    init(message: TimelineMessage, info: MessageGroupInfo, isPaginationTrigger: Bool, collapsedSystemEvents: [TimelineMessage]? = nil) {
+    init(message: TimelineMessage, info: MessageGroupInfo, isPaginationTrigger: Bool, translation: MessageTranslationState = .idle, collapsedSystemEvents: [TimelineMessage]? = nil) {
         self.message = message
         self.info = info
         self.isPaginationTrigger = isPaginationTrigger
+        self.translation = translation
         self.collapsedSystemEvents = collapsedSystemEvents
     }
 
@@ -70,6 +78,7 @@ struct MessageRow: Identifiable, Equatable {
         lhs.message == rhs.message
             && lhs.info == rhs.info
             && lhs.isPaginationTrigger == rhs.isPaginationTrigger
+            && lhs.translation == rhs.translation
             && lhs.collapsedSystemEvents == rhs.collapsedSystemEvents
     }
 }
@@ -92,7 +101,8 @@ enum MessageRowBuilder {
     /// runs so that each collapsed group stays within a single date section.
     static func buildRows(
         for messages: [TimelineMessage],
-        hasReachedStart: Bool
+        hasReachedStart: Bool,
+        translationState: (String) -> MessageTranslationState = { _ in .idle }
     ) -> [MessageRow] {
         guard !messages.isEmpty else { return [] }
         let calendar = Calendar.current
@@ -164,7 +174,8 @@ enum MessageRowBuilder {
             result.append(MessageRow(
                 message: message,
                 info: info,
-                isPaginationTrigger: false
+                isPaginationTrigger: false,
+                translation: translationState(message.id)
             ))
         }
 

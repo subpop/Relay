@@ -58,6 +58,18 @@ struct TimelineRowView: View, Equatable {
 
     /// Called when this row appears on screen (for read receipt advancement).
     var onAppear: (MessageRow) -> Void
+    /// Returns the current per-message translation state. Closure-typed so
+    /// the row doesn't need a reference to the whole timeline view model.
+    var translationStateProvider: (String) -> MessageTranslationState = { _ in .idle }
+    /// Returns whether the Translate item should appear in the context
+    /// menu for this message — false for non-text kinds, very short
+    /// bodies, or text whose detected language is in the user's
+    /// readable set.
+    var canTranslateProvider: (String) -> Bool = { _ in false }
+    /// Bumped by the view model whenever any translation state changes;
+    /// reading it in `body` participates in observation so the row
+    /// re-renders on state transitions.
+    var translationsVersion: UInt = 0
 
     /// The horizontal swipe offset for this row, or 0 when not swiped.
     /// Pre-computed by the parent renderer from the shared swipe state so
@@ -90,6 +102,8 @@ struct TimelineRowView: View, Equatable {
         lhs.row.message == rhs.row.message
             && lhs.row.info == rhs.row.info
             && lhs.row.isPaginationTrigger == rhs.row.isPaginationTrigger
+            && lhs.row.translation == rhs.row.translation
+            && lhs.translationsVersion == rhs.translationsVersion
             && lhs.isNewlyAppended == rhs.isNewlyAppended
             && lhs.swipeOffset == rhs.swipeOffset
             && lhs.swipeIsLocked == rhs.swipeIsLocked
@@ -164,10 +178,17 @@ struct TimelineRowView: View, Equatable {
                 message: message,
                 isLastInGroup: info.isLastInGroup,
                 showSenderName: info.showSenderName,
-                replyIsAdjacentAbove: info.replyIsAdjacentAbove
+                replyIsAdjacentAbove: info.replyIsAdjacentAbove,
+                // Translation state is baked into `row.translation` by the
+                // row builder, so reading it directly keeps the row the
+                // single source of truth when the table reloads it after a
+                // translation lands.
+                translation: row.translation
             )
             .id(message.id)
-            .help(message.formattedTime)
+            // When translated, hover tooltip surfaces the original body
+            // (more useful than the timestamp on a translated row).
+            .help(row.translation.hoverHelpText(originalBody: message.body, fallback: message.formattedTime))
             .onAppear { onAppear(row) }
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named("timeline"))
@@ -196,6 +217,40 @@ struct TimelineRowView: View, Equatable {
     private var contextMenu: some View {
         ForEach(TimelineMessageContextMenu.entries(for: message, permissions: actions.permissions).enumerated(), id: \.offset) { _, entry in
             contextMenuEntry(entry)
+        }
+        translationMenuEntry
+    }
+
+    /// Translation toggle, appended once at the end of the row's context
+    /// menu. Hidden for non-translatable messages (already-readable
+    /// language, non-text kinds, very short text). The state determines
+    /// the label: idle/failed → "Translate", loading → disabled
+    /// "Translating…", translated → "Show Original".
+    @ViewBuilder
+    private var translationMenuEntry: some View {
+        switch row.translation {
+        case .idle, .failed:
+            if canTranslateProvider(message.id) {
+                Divider()
+                Button {
+                    actions.contextAction(.translate(message))
+                } label: {
+                    Label("Translate Message", systemImage: "translate")
+                }
+            }
+        case .loading:
+            Divider()
+            Button { } label: {
+                Label("Translating…", systemImage: "translate")
+            }
+            .disabled(true)
+        case .translated:
+            Divider()
+            Button {
+                actions.contextAction(.showOriginal(message))
+            } label: {
+                Label("Show Original", systemImage: "translate")
+            }
         }
     }
 
@@ -281,11 +336,23 @@ func dateSectionLabel(for date: Date) -> String {
     }
 }
 
+extension MessageTranslationState {
+    /// Hover tooltip text. When translated we show the original body so
+    /// users can compare; otherwise we fall back to the message's
+    /// formatted timestamp like normal.
+    func hoverHelpText(originalBody: String, fallback: String) -> String {
+        if case .translated = self {
+            return originalBody
+        }
+        return fallback
+    }
+}
+
 // MARK: - Previews
 
 private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .default) -> some View {
     TimelineRowView(
-        row: .init(message: message, info: info, isPaginationTrigger: false),
+        row: .init(message: message, info: info, isPaginationTrigger: false, translation: .idle),
         isNewlyAppended: false,
         isHighlighted: false,
         isUnreadDivider: false,

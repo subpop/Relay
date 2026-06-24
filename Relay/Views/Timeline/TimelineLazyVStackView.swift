@@ -141,6 +141,8 @@ struct TimelineLazyVStackView: View {
                         isUnreadDivider: isUnreadDivider(for: row),
                         showURLPreviews: showURLPreviews,
                         onAppear: { _ in },
+                        canTranslateProvider: { viewModel.canTranslateMessage($0) },
+                        translationsVersion: viewModel.translationsVersion,
                         swipeOffset: swipeState.swipingMessageId == row.id ? swipeState.offset : 0,
                         swipeIsLocked: swipeState.swipingMessageId == row.id && swipeState.isLocked
                     )

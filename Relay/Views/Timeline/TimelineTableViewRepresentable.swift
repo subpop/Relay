@@ -85,6 +85,8 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
                     isUnreadDivider: showUnreadMarker && row.message.id == firstUnreadMessageId,
                     showURLPreviews: showURLPreviews,
                     onAppear: onAppear,
+                    canTranslateProvider: { viewModel.canTranslateMessage($0) },
+                    translationsVersion: viewModel.translationsVersion,
                     swipeOffset: swipeOffset,
                     swipeIsLocked: swipeIsLocked,
                     injectedActions: actions

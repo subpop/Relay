@@ -60,6 +60,19 @@ final class PreviewTimelineViewModel: TimelineViewModelProtocol {
     func pin(eventId: String) async {}
     func unpin(eventId: String) async {}
 
+    // MARK: - Translation (stubs)
+    var translationsVersion: UInt = 0
+    var pendingTranslationQueueVersion: UInt = 0
+    func translationState(for messageId: String) -> MessageTranslationState { .idle }
+    func canTranslateMessage(_ messageId: String) -> Bool { false }
+    func translateMessage(_ messageId: String) async {}
+    func clearTranslation(_ messageId: String) {}
+    @MainActor func claimNextTranslation() -> PendingTranslationRequest? { nil }
+    @MainActor func runTranslation(
+        for request: PendingTranslationRequest,
+        translate: @MainActor @escaping (String) async throws -> String
+    ) async {}
+
     nonisolated static let sampleMessages: [TimelineMessage] = [
         .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
               body: "Hey, has anyone tried the **new build**?",

@@ -17,6 +17,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
+import NaturalLanguage
 import RelayInterface
 import UniformTypeIdentifiers
 import os
@@ -39,6 +40,14 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     public var firstUnreadMessageId: String?
     public private(set) var typingUsers: [TypingUser] = []
     public private(set) var timelineFocus: TimelineFocusState = .live
+    public private(set) var translationsVersion: UInt = 0
+    public private(set) var pendingTranslationQueueVersion: UInt = 0
+    /// FIFO queue of translation requests waiting for a free slot. Drained
+    /// by ``claimNextTranslation()``; size of pool lives in `TimelineView`.
+    private var pendingTranslationQueue: [PendingTranslationRequest] = []
+    /// MessageIds currently being translated by some slot. Used to dedup
+    /// "translate again while it's still running".
+    private var inFlightTranslations: Set<String> = []
 
     private let room: Room
     private let roomId: String
@@ -94,6 +103,17 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     @ObservationIgnored private var timelineHandle: TaskHandle?
     @ObservationIgnored private var paginationHandle: TaskHandle?
     @ObservationIgnored private var typingHandle: TaskHandle?
+
+    // MARK: - Translation
+
+    /// Per-message translation state. `@ObservationIgnored` because the
+    /// dictionary churns on every result and observation-tracking it
+    /// would re-evaluate every body of every visible row on each tick.
+    /// `translationsVersion` is the observed signal SwiftUI listens to.
+    @ObservationIgnored
+    private var translationStates: [String: MessageTranslationState] = [:]
+    @ObservationIgnored
+    private lazy var translator = MessageTranslator()
 
     /// Creates a new view model for the given room.
     ///
@@ -1353,4 +1373,112 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             }
         }
     }
+
+    // MARK: - Translation
+
+    public func translationState(for messageId: String) -> MessageTranslationState {
+        translationStates[messageId] ?? .idle
+    }
+
+    /// Whether the Translate affordance should be shown for this message.
+    /// Permissive on purpose — surfaces the action for any plain-text
+    /// kind with non-empty body. We deliberately skip language pre-
+    /// detection here: NLLanguageRecognizer mis-classifies short
+    /// messages with common loanwords often enough that gating the UI
+    /// on it leaves users wondering why the button vanished. If the
+    /// detected language turns out to match the user's readable set,
+    /// `translateMessage(_:)` short-circuits with `.alreadyReadable`
+    /// and silently keeps state at `.idle`.
+    public func canTranslateMessage(_ messageId: String) -> Bool {
+        guard let message = messageCache[messageId] else { return false }
+        switch message.kind {
+        case .text, .emote, .notice:
+            break
+        default:
+            return false
+        }
+        return !message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public func translateMessage(_ messageId: String) async {
+        guard let body = messageCache[messageId]?.body, !body.isEmpty else { return }
+
+        // Dedup: if this message is already queued or actively running,
+        // ignore. (User clicked Translate twice on the same row.)
+        if inFlightTranslations.contains(messageId)
+            || pendingTranslationQueue.contains(where: { $0.messageId == messageId })
+        {
+            return
+        }
+
+        let detectedSource: Locale.Language
+        do {
+            detectedSource = try translator.detectSourceLanguage(in: body)
+        } catch is MessageTranslator.DetectionError {
+            // .alreadyReadable / .undetectable / .empty all mean "no
+            // user-visible translation needed". Don't badge the row.
+            translationStates.removeValue(forKey: messageId)
+            translationsVersion &+= 1
+            return
+        } catch {
+            translationStates[messageId] = .failed(reason: error.localizedDescription)
+            translationsVersion &+= 1
+            return
+        }
+
+        // Mark loading and enqueue. The SwiftUI translation slots in
+        // `TimelineView` watch `pendingTranslationQueueVersion` and
+        // call `claimNextTranslation()` when they have free capacity.
+        translationStates[messageId] = .loading
+        let request = PendingTranslationRequest(
+            messageId: messageId,
+            sourceLanguageTag: detectedSource.minimalIdentifier,
+            targetLanguageTag: translator.targetLanguage.minimalIdentifier
+        )
+        pendingTranslationQueue.append(request)
+        pendingTranslationQueueVersion &+= 1
+        translationsVersion &+= 1
+    }
+
+    @MainActor public func claimNextTranslation() -> PendingTranslationRequest? {
+        guard !pendingTranslationQueue.isEmpty else { return nil }
+        let request = pendingTranslationQueue.removeFirst()
+        inFlightTranslations.insert(request.messageId)
+        pendingTranslationQueueVersion &+= 1
+        return request
+    }
+
+    @MainActor public func runTranslation(
+        for request: PendingTranslationRequest,
+        translate: @MainActor @escaping (String) async throws -> String
+    ) async {
+        defer {
+            inFlightTranslations.remove(request.messageId)
+            translationsVersion &+= 1
+        }
+        guard let body = messageCache[request.messageId]?.body else {
+            translationStates.removeValue(forKey: request.messageId)
+            return
+        }
+
+        do {
+            let translated = try await translate(body)
+            translationStates[request.messageId] = .translated(
+                text: translated,
+                sourceLanguageTag: request.sourceLanguageTag
+            )
+        } catch {
+            translationStates[request.messageId] = .failed(reason: error.localizedDescription)
+            timelineLogger.warning("Translation failed for \(request.sourceLanguageTag, privacy: .public)→\(request.targetLanguageTag, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    public func clearTranslation(_ messageId: String) {
+        guard translationStates.removeValue(forKey: messageId) != nil else { return }
+        translationsVersion &+= 1
+    }
 }
+
+/// Logger for translation flow — separate from the file-level logger
+/// so the diagnostic surface is easy to filter in Console.
+private let timelineLogger = Logger(subsystem: "RelayKit", category: "Timeline.Translation")

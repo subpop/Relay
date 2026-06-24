@@ -65,4 +65,9 @@ enum TimelineRowContextAction {
     case togglePin(String)
     case edit(TimelineMessage)
     case delete(TimelineMessage)
+    /// Run an on-device translation of the message into the user's locale.
+    case translate(TimelineMessage)
+    /// Drop a previously-applied translation, returning the row to the
+    /// original-language body.
+    case showOriginal(TimelineMessage)
 }
