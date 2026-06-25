@@ -750,11 +750,15 @@ public final class CallWidgetBridge: @unchecked Sendable {
             }
             let identitiesJoined = participantIdentities.joined(separator: ", ")
             let fp = SHA256.hash(data: keyData).prefix(8).map { String(format: "%02x", $0) }.joined()
-            let failureNote = setFailures.isEmpty ? "" : " setRawKey failures: \(setFailures.joined(separator: "; "))."
+            // Snapshot the mutable accumulator into immutable lets before the
+            // @Sendable Task captures it — Swift 6 rejects capturing a `var`
+            // that was mutated in the enclosing scope.
+            let hadFailures = !setFailures.isEmpty
+            let failureNote = hadFailures ? " setRawKey failures: \(setFailures.joined(separator: "; "))." : ""
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.activityLog?.log(
-                    category: .call, severity: setFailures.isEmpty ? .debug : .warning, source: "CallWidgetBridge",
+                    category: .call, severity: hadFailures ? .warning : .debug, source: "CallWidgetBridge",
                     summary: "Received E2EE key from \(sender)",
                     detail: "Routed to LiveKit participantIds: [\(identitiesJoined)]. Sender: \(sender), device: \(deviceId), member: \(memberId), index: \(index), sha256[0..8]: \(fp).\(failureNote)",
                     roomId: self.roomId
