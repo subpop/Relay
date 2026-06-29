@@ -27,6 +27,7 @@ final class PreviewCallViewModel: CallViewModelProtocol {
     var participants: [CallParticipant] = []
     var isLocalCameraEnabled: Bool = false
     var isLocalMicrophoneEnabled: Bool = false
+    var isLocalScreenShareEnabled: Bool = false
     var localParticipantID: String? = nil
     var videoTrackRevision: UInt = 0
     var connectingPhase: String? = nil
@@ -61,6 +62,7 @@ final class PreviewCallViewModel: CallViewModelProtocol {
         participants = []
         isLocalCameraEnabled = false
         isLocalMicrophoneEnabled = false
+        isLocalScreenShareEnabled = false
         localParticipantID = nil
     }
 
@@ -70,6 +72,12 @@ final class PreviewCallViewModel: CallViewModelProtocol {
 
     func toggleMicrophone() async throws {
         isLocalMicrophoneEnabled.toggle()
+    }
+
+    func toggleScreenShare() async throws {
+        // Previews don't touch ScreenCaptureKit; just flip the flag so the
+        // control-bar button reflects state.
+        isLocalScreenShareEnabled.toggle()
     }
 
     func makeVideoView(for participantID: String) -> AnyView? { nil }

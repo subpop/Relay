@@ -33,6 +33,7 @@ public final class CallViewModel: CallViewModelProtocol {
     public private(set) var participants: [CallParticipant] = []
     public private(set) var isLocalCameraEnabled: Bool = false
     public private(set) var isLocalMicrophoneEnabled: Bool = false
+    public private(set) var isLocalScreenShareEnabled: Bool = false
     public private(set) var localParticipantID: String?
     /// Human-readable label for the current step inside `.connecting`.
     /// Updated as the connect path moves through credential exchange,
@@ -61,6 +62,18 @@ public final class CallViewModel: CallViewModelProtocol {
     /// "more Update Constraints in Window passes than there are views".
     @ObservationIgnored
     private var videoViewCache: [String: (trackObjectID: ObjectIdentifier, view: AnyView)] = [:]
+
+    // MARK: - Screen-share state
+
+    /// Drives the native `SCContentSharingPicker` + `SCStream` capture
+    /// pipeline. Non-nil only while a share is being set up or is active.
+    @ObservationIgnored
+    private var screenShareController: ScreenShareController?
+
+    /// The currently-active local screen-share publication, tracked so the
+    /// stop paths can unpublish it without scanning.
+    @ObservationIgnored
+    private var localScreenSharePublication: LocalTrackPublication?
 
     // MARK: - E2EE State
     //
@@ -538,6 +551,11 @@ public final class CallViewModel: CallViewModelProtocol {
         participants = []
         isLocalCameraEnabled = false
         isLocalMicrophoneEnabled = false
+        isLocalScreenShareEnabled = false
+        let screenController = screenShareController
+        Task { await screenController?.stop() }
+        screenShareController = nil
+        localScreenSharePublication = nil
         localParticipantID = nil
         videoViewCache.removeAll()
         localEncryptionKey = nil
@@ -642,13 +660,147 @@ public final class CallViewModel: CallViewModelProtocol {
         isLocalMicrophoneEnabled = enabled
     }
 
+    // MARK: - Screen share
+
+    public func toggleScreenShare() async throws {
+        if isLocalScreenShareEnabled {
+            await stopScreenShare(reason: "user toggle")
+            return
+        }
+        // Spin up the native picker. Capture begins (and the track gets
+        // published) only after the user chooses a source, via the
+        // controller callbacks wired below.
+        let controller = ScreenShareController(captureAppAudio: true)
+        controller.onTrackReady = { [weak self] track in
+            Task { await self?.publishScreenShareTrack(track) }
+        }
+        controller.onCancelled = { [weak self] in
+            self?.teardownScreenShareController()
+            self?.activityLog?.log(
+                category: .call, severity: .debug, source: "CallViewModel",
+                summary: "Screen-share picker dismissed without selection",
+                roomId: self?.roomID
+            )
+        }
+        controller.onStoppedExternally = { [weak self] reason in
+            Task { await self?.handleExternalScreenShareStop(reason: reason) }
+        }
+        controller.onError = { [weak self] error in
+            self?.teardownScreenShareController()
+            self?.isLocalScreenShareEnabled = false
+            self?.activityLog?.log(
+                category: .call, severity: .error, source: "CallViewModel",
+                summary: "Screen share failed to start",
+                detail: "macOS may have denied Screen Recording permission. Grant access in System Settings \u{203A} Privacy & Security \u{203A} Screen & System Audio Recording. Error: \(error.localizedDescription)",
+                roomId: self?.roomID
+            )
+        }
+        screenShareController = controller
+        controller.presentPicker()
+        activityLog?.log(
+            category: .call, severity: .debug, source: "CallViewModel",
+            summary: "Presented system screen-share picker",
+            roomId: roomID
+        )
+    }
+
+    /// Publishes the screen-share track produced by the controller once
+    /// the user has chosen a source.
+    private func publishScreenShareTrack(_ track: LocalVideoTrack) async {
+        do {
+            let publication = try await room.localParticipant.publish(videoTrack: track)
+            localScreenSharePublication = publication
+            isLocalScreenShareEnabled = true
+            videoTrackRevision += 1
+            activityLog?.log(
+                category: .call, severity: .info, source: "CallViewModel",
+                summary: "Started screen share",
+                detail: "Publication sid: \(publication.sid.stringValue). appAudio: true.",
+                roomId: roomID
+            )
+        } catch {
+            await screenShareController?.stop()
+            teardownScreenShareController()
+            isLocalScreenShareEnabled = false
+            localScreenSharePublication = nil
+            activityLog?.log(
+                category: .call, severity: .error, source: "CallViewModel",
+                summary: "Failed to publish screen-share track",
+                detail: error.localizedDescription,
+                roomId: roomID
+            )
+        }
+    }
+
+    /// Stops an active screen share initiated from within Relay (the user
+    /// tapped the toggle): tears down the capture stream and unpublishes.
+    private func stopScreenShare(reason: String) async {
+        await screenShareController?.stop()
+        teardownScreenShareController()
+        if let publication = localScreenSharePublication {
+            try? await room.localParticipant.unpublish(publication: publication)
+        }
+        let wasEnabled = isLocalScreenShareEnabled
+        localScreenSharePublication = nil
+        isLocalScreenShareEnabled = false
+        if let localID = localParticipantID {
+            videoViewCache.removeValue(forKey: "\(localID)::screen")
+        }
+        videoTrackRevision += 1
+        if wasEnabled {
+            activityLog?.log(
+                category: .call, severity: .info, source: "CallViewModel",
+                summary: "Stopped screen share",
+                detail: "Reason: \(reason).",
+                roomId: roomID
+            )
+        }
+    }
+
+    /// Handles the share ending from outside Relay — the user clicked
+    /// "Stop Sharing" in the macOS menu bar, or the `SCStream` failed. The
+    /// controller has already torn its stream down; we just unpublish.
+    private func handleExternalScreenShareStop(reason: String) async {
+        teardownScreenShareController()
+        if let publication = localScreenSharePublication {
+            try? await room.localParticipant.unpublish(publication: publication)
+        }
+        let wasEnabled = isLocalScreenShareEnabled
+        localScreenSharePublication = nil
+        isLocalScreenShareEnabled = false
+        if let localID = localParticipantID {
+            videoViewCache.removeValue(forKey: "\(localID)::screen")
+        }
+        videoTrackRevision += 1
+        if wasEnabled {
+            activityLog?.log(
+                category: .call, severity: .info, source: "CallViewModel",
+                summary: "Stopped screen share",
+                detail: "Reason: \(reason).",
+                roomId: roomID
+            )
+        }
+    }
+
+    private func teardownScreenShareController() {
+        screenShareController = nil
+    }
+
     public func videoAspectRatio(for participantID: String) -> CGFloat? {
-        let isLocal = room.localParticipant.identity?.stringValue == participantID
+        let (resolvedID, wantsScreenShare) = decomposeParticipantID(participantID)
+        let isLocal = room.localParticipant.identity?.stringValue == resolvedID
         let participant: Participant? = isLocal
             ? room.localParticipant
-            : room.remoteParticipants.values.first { $0.identity?.stringValue == participantID }
+            : room.remoteParticipants.values.first { $0.identity?.stringValue == resolvedID }
 
-        guard let publication = participant?.videoTracks.first,
+        let publication: TrackPublication?
+        if wantsScreenShare {
+            publication = participant?.videoTracks.first { $0.source == .screenShareVideo }
+        } else {
+            publication = participant?.videoTracks.first { $0.source != .screenShareVideo }
+                ?? participant?.videoTracks.first
+        }
+        guard let publication,
               !publication.isMuted,
               let track = publication.track as? VideoTrack else {
             return nil
@@ -660,13 +812,35 @@ public final class CallViewModel: CallViewModelProtocol {
         return CGFloat(dim.width) / CGFloat(dim.height)
     }
 
+    /// Splits a possibly-suffixed participant ID back into the underlying
+    /// LiveKit identity + a flag for which track surface the view wants.
+    /// `<base>::screen` → `(<base>, true)`, otherwise `(participantID, false)`.
+    private func decomposeParticipantID(_ participantID: String) -> (resolved: String, wantsScreenShare: Bool) {
+        let suffix = "::screen"
+        if participantID.hasSuffix(suffix) {
+            return (String(participantID.dropLast(suffix.count)), true)
+        }
+        return (participantID, false)
+    }
+
     public func makeVideoView(for participantID: String) -> AnyView? {
-        let isLocal = room.localParticipant.identity?.stringValue == participantID
+        // `::screen` suffix → resolve to the screen-share publication on the
+        // underlying participant rather than the first video track (which
+        // is the camera).
+        let (resolvedID, wantsScreenShare) = decomposeParticipantID(participantID)
+        let isLocal = room.localParticipant.identity?.stringValue == resolvedID
         let participant: Participant? = isLocal
             ? room.localParticipant
-            : room.remoteParticipants.values.first { $0.identity?.stringValue == participantID }
+            : room.remoteParticipants.values.first { $0.identity?.stringValue == resolvedID }
 
-        guard let publication = participant?.videoTracks.first,
+        let publication: TrackPublication?
+        if wantsScreenShare {
+            publication = participant?.videoTracks.first { $0.source == .screenShareVideo }
+        } else {
+            publication = participant?.videoTracks.first { $0.source != .screenShareVideo }
+                ?? participant?.videoTracks.first
+        }
+        guard let publication,
               !publication.isMuted,
               let track = publication.track as? VideoTrack
         else {
@@ -687,10 +861,13 @@ public final class CallViewModel: CallViewModelProtocol {
             return cached.view
         }
 
+        // A screen share is never mirrored — the user expects to see their
+        // shared screen as the peers see it, not flipped.
+        let mirror: VideoView.MirrorMode = (isLocal && !wantsScreenShare) ? .mirror : .off
         let view = AnyView(
             SwiftUIVideoView(track,
                              layoutMode: .fill,
-                             mirrorMode: isLocal ? .mirror : .off)
+                             mirrorMode: mirror)
         )
         videoViewCache[participantID] = (trackObjectID: trackID, view: view)
         return view
@@ -847,14 +1024,35 @@ public final class CallViewModel: CallViewModelProtocol {
     fileprivate func syncParticipants(trackChanged: Bool = false) {
         if trackChanged { videoTrackRevision += 1 }
 
-        let newParticipants = room.remoteParticipants.values.map { participant in
-            CallParticipant(
-                id: participant.identity?.stringValue ?? participant.sid?.stringValue ?? UUID().uuidString,
-                displayName: participant.name,
-                isCameraEnabled: participant.isCameraEnabled(),
-                isMicrophoneEnabled: participant.isMicrophoneEnabled(),
-                isSpeaking: participant.isSpeaking
+        var newParticipants: [CallParticipant] = []
+        for participant in room.remoteParticipants.values {
+            let baseID = participant.identity?.stringValue ?? participant.sid?.stringValue ?? UUID().uuidString
+            newParticipants.append(
+                CallParticipant(
+                    id: baseID,
+                    displayName: participant.name,
+                    isCameraEnabled: participant.isCameraEnabled(),
+                    isMicrophoneEnabled: participant.isMicrophoneEnabled(),
+                    isSpeaking: participant.isSpeaking
+                )
             )
+            // Synthesise a second tile for a remote screen-share. The
+            // suffixed id flows through the grid layout untouched; the
+            // video factory below resolves it back to the underlying
+            // LiveKit participant + screen-share publication.
+            if participant.isScreenShareEnabled() {
+                let baseName = participant.name ?? baseID
+                newParticipants.append(
+                    CallParticipant(
+                        id: "\(baseID)::screen",
+                        displayName: "\(baseName) (screen)",
+                        isCameraEnabled: true,
+                        isMicrophoneEnabled: false,
+                        isSpeaking: false,
+                        isScreenShareEnabled: true
+                    )
+                )
+            }
         }
 
         // Prune video view cache for participants who have left.
@@ -1184,6 +1382,9 @@ public final class CallViewModel: CallViewModelProtocol {
         }
 
         func room(_ room: LiveKit.Room, participant: LocalParticipant, didUnpublishTrack publication: LocalTrackPublication) {
+            // Screen-share stop (menu-bar or toggle) is driven by the
+            // ScreenShareController's SCStream callbacks, which unpublish
+            // and reset state. Here we just refresh the video revision.
             Task { @MainActor [weak viewModel] in
                 viewModel?.videoTrackRevision += 1
             }

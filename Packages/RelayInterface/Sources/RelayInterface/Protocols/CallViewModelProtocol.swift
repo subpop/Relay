@@ -41,19 +41,27 @@ public struct CallParticipant: Identifiable, Sendable, Equatable {
     public let isMicrophoneEnabled: Bool
     /// Whether the participant is currently speaking.
     public let isSpeaking: Bool
+    /// Whether this snapshot represents a screen-share track rather than a
+    /// camera. Synthesized by the view model: a remote participant who
+    /// publishes a screen-share gets a second `CallParticipant` entry whose
+    /// `id` is suffixed with `"::screen"` and whose `isScreenShareEnabled`
+    /// is `true`. The view treats these like any other tile.
+    public let isScreenShareEnabled: Bool
 
     public init(
         id: String,
         displayName: String?,
         isCameraEnabled: Bool,
         isMicrophoneEnabled: Bool,
-        isSpeaking: Bool
+        isSpeaking: Bool,
+        isScreenShareEnabled: Bool = false
     ) {
         self.id = id
         self.displayName = displayName
         self.isCameraEnabled = isCameraEnabled
         self.isMicrophoneEnabled = isMicrophoneEnabled
         self.isSpeaking = isSpeaking
+        self.isScreenShareEnabled = isScreenShareEnabled
     }
 }
 
@@ -79,6 +87,9 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
 
     /// Whether the local user's microphone is active.
     var isLocalMicrophoneEnabled: Bool { get }
+
+    /// Whether the local user is currently publishing a screen-share track.
+    var isLocalScreenShareEnabled: Bool { get }
 
     /// The identity of the local participant, set after connection.
     var localParticipantID: String? { get }
@@ -110,6 +121,17 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
 
     /// Toggles the local microphone on or off.
     func toggleMicrophone() async throws
+
+    /// Starts the share-screen flow when off, or stops it when on.
+    ///
+    /// When starting, this presents the native macOS screen-share picker
+    /// (`SCContentSharingPicker`). Once the user chooses a display or
+    /// window, the captured frames are published as a LiveKit track. When
+    /// stopping, the published screen-share track is unpublished
+    /// immediately. The user can also stop the share from the macOS
+    /// menu-bar control, which the view model observes and reflects in
+    /// ``isLocalScreenShareEnabled``.
+    func toggleScreenShare() async throws
 
     /// Returns a SwiftUI view that renders the video track of the given participant,
     /// or `nil` if the participant has no active video track or is not found.

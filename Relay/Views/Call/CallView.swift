@@ -303,6 +303,15 @@ struct CallView: View {
                 Task { try? await viewModel.toggleCamera() }
             }
 
+            // Share screen toggle
+            controlButton(
+                icon: viewModel.isLocalScreenShareEnabled ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle",
+                isActive: viewModel.isLocalScreenShareEnabled,
+                help: viewModel.isLocalScreenShareEnabled ? "Stop Sharing" : "Share Screen"
+            ) {
+                Task { try? await viewModel.toggleScreenShare() }
+            }
+
             // End call
             Button {
                 // Disconnect — the .disconnected case in `body` calls
