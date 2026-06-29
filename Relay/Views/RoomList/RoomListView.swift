@@ -58,6 +58,9 @@ struct RoomListView: View {
                             Button("Decline", systemImage: "xmark", role: .destructive) {
                                 confirmDecline(invite)
                             }
+                            Button("Accept", systemImage: "checkmark") {
+                                acceptInvite(invite)
+                            }
                         }
                     }
                 } header: {

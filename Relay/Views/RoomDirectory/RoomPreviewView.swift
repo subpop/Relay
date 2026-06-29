@@ -135,13 +135,6 @@ struct RoomPreviewView: View {
             }
 
             Spacer()
-
-            if let onDecline {
-                Button("Decline", role: .destructive) {
-                    onDecline()
-                }
-                .controlSize(.small)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -246,7 +239,14 @@ struct RoomPreviewView: View {
                  : "Join this room to participate")
                 .foregroundStyle(.secondary)
             Spacer()
-            Button(inviterName != nil ? "Accept & Join" : "Join Room") {
+            if let onDecline {
+                Button("Decline", role: .destructive) {
+                    onDecline()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
+            Button("Accept" ) {
                 onJoin()
             }
             .buttonStyle(.borderedProminent)

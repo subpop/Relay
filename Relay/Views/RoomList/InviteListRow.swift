@@ -102,13 +102,6 @@ struct InviteListRow: View {
             if isAccepting {
                 ProgressView()
                     .controlSize(.small)
-            } else {
-                Button("Join") {
-                    isAccepting = true
-                    onAccept()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
         }
         .padding(.vertical, 8)
