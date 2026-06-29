@@ -48,6 +48,8 @@ struct MessageBubbleContent: View {
             videoContent
         } else if message.kind == .audio, message.mediaInfo != nil {
             audioContent
+        } else if message.kind == .file, message.mediaInfo != nil {
+            fileContent
         } else if message.kind == .emote {
             emoteContent
         } else if message.isSpecialType {
@@ -138,6 +140,19 @@ struct MessageBubbleContent: View {
     private var audioContent: some View {
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
             AudioMessageView(message: message)
+                .clipShape(BubbleStyle.shape)
+
+            if case .sendingFailed(let reason) = message.sendState {
+                sendFailedLabel(reason)
+            }
+        }
+    }
+
+    // MARK: - File Content
+
+    private var fileContent: some View {
+        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
+            FileMessageView(message: message)
                 .clipShape(BubbleStyle.shape)
 
             if case .sendingFailed(let reason) = message.sendState {
@@ -378,6 +393,11 @@ struct MessageBubbleContent: View {
             message: TimelineMessage(
                 id: "7", senderID: "@me:matrix.org",
                 body: "report.pdf", timestamp: .now, isOutgoing: true, kind: .file,
+                mediaInfo: .init(
+                    mxcURL: "mxc://matrix.org/file2",
+                    filename: "report.pdf", mimetype: "application/pdf",
+                    size: 1_250_000
+                ),
                 sendState: .sendingFailed("Invalid file type: application/pdf")
             )
         )
@@ -407,7 +427,12 @@ struct MessageBubbleContent: View {
             message: TimelineMessage(
                 id: "3", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
                 body: "report.pdf",
-                timestamp: .now, isOutgoing: false, kind: .file
+                timestamp: .now, isOutgoing: false, kind: .file,
+                mediaInfo: .init(
+                    mxcURL: "mxc://matrix.org/file1",
+                    filename: "report.pdf", mimetype: "application/pdf",
+                    size: 1_250_000
+                )
             )
         )
     }

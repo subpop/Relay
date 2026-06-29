@@ -213,6 +213,12 @@ struct TimelineRowView: View, Equatable {
             } label: {
                 Label("Copy Message", systemImage: "doc.on.doc")
             }
+        case .saveMedia:
+            Button {
+                actions.contextAction(.saveMedia(message))
+            } label: {
+                Label("Save as\u{2026}", systemImage: "square.and.arrow.down")
+            }
         case .addReaction:
             Button {
                 actions.presentReactionPicker(message.eventID, lastBubbleFrame, message.isOutgoing)

@@ -19,8 +19,8 @@ import UniformTypeIdentifiers
 
 /// Shared helpers for downloading media content to disk for preview and save operations.
 ///
-/// Used by ``ImageMessageView``, ``VideoMessageView``, and ``AudioMessageView``
-/// to avoid duplicating the download-write-present logic.
+/// Used by ``ImageMessageView``, ``VideoMessageView``, ``AudioMessageView``,
+/// and ``FileMessageView`` to avoid duplicating the download-write-present logic.
 enum MediaFileHelper {
 
     /// Returns a unique temporary file URL for the given media info.

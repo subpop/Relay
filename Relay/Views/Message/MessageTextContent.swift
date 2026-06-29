@@ -158,6 +158,12 @@ final class MessageTextContent: NSTextView {
                     at: insertIndex
                 )
                 insertIndex += 1
+            case .saveMedia:
+                baseMenu.insertItem(
+                    menuItem(title: "Save as…", symbol: "square.and.arrow.down", action: #selector(contextSaveMedia)),
+                    at: insertIndex
+                )
+                insertIndex += 1
             case .addReaction:
                 guard onPresentReactionPicker != nil else { continue }
                 baseMenu.insertItem(
@@ -215,6 +221,11 @@ final class MessageTextContent: NSTextView {
     @objc private func contextCopyMessage() {
         guard let message = contextMessage else { return }
         onMessageContextAction?(.copy(message.body))
+    }
+
+    @objc private func contextSaveMedia() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.saveMedia(message))
     }
 
     @objc private func contextAddReaction() {

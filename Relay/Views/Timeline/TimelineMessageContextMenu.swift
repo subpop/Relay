@@ -18,6 +18,7 @@ import RelayInterface
 enum TimelineMessageContextMenuEntry: Equatable {
     case reply
     case copyMessage
+    case saveMedia
     case addReaction
     case togglePin
     case edit
@@ -39,6 +40,9 @@ enum TimelineMessageContextMenu {
         let canSend = permissions?.canSendMessages ?? true
 
         var result: [TimelineMessageContextMenuEntry] = [.copyMessage]
+        if message.mediaInfo != nil {
+            result.append(.saveMedia)
+        }
         if canSend {
             result.insert(.reply, at: 0)
             result.append(.addReaction)
@@ -62,6 +66,7 @@ enum TimelineMessageContextMenu {
 enum TimelineRowContextAction {
     case reply(TimelineMessage)
     case copy(String)
+    case saveMedia(TimelineMessage)
     case togglePin(String)
     case edit(TimelineMessage)
     case delete(TimelineMessage)

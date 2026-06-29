@@ -860,8 +860,44 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             compose.replyingTo = nil
             compose.editingMessage = message
             compose.text = message.body
+        case .saveMedia(let message):
+            guard let mediaInfo = message.mediaInfo else { break }
+            Task {
+                do {
+                    try await MediaFileHelper.saveToFile(
+                        mediaInfo: mediaInfo, matrixService: matrixService,
+                        contentTypes: Self.contentTypes(for: message)
+                    )
+                } catch {
+                    errorReporter.report(.mediaSaveFailed(
+                        filename: mediaInfo.filename,
+                        reason: error.localizedDescription
+                    ))
+                }
+            }
         case .delete(let message):
             messageToDelete = message
+        }
+    }
+
+    /// Resolves allowed UTTypes for saving a media message to disk.
+    private static func contentTypes(for message: TimelineMessage) -> [UTType] {
+        switch message.kind {
+        case .image:
+            return [.image]
+        case .video:
+            return [.movie, .video, .mpeg4Movie, .quickTimeMovie]
+        case .audio:
+            return [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
+        default:
+            if let mime = message.mediaInfo?.mimetype, let type = UTType(mimeType: mime) {
+                return [type]
+            }
+            let ext = ((message.mediaInfo?.filename ?? "") as NSString).pathExtension
+            if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
+                return [type]
+            }
+            return [.data]
         }
     }
 
