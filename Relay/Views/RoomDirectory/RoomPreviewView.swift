@@ -52,25 +52,29 @@ struct RoomPreviewView: View {
     @State private var viewModel: (any RoomPreviewViewModelProtocol)?
 
     var body: some View {
-        VStack(spacing: 0) {
-            if showsHeader {
-                previewHeader
-                Divider()
+        previewContent
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    if showsHeader {
+                        previewHeader
+                    }
+                    if inviterName != nil {
+                        inviteBanner
+                        Divider()
+                    }
+                }
+                .background(.ultraThinMaterial)
             }
-            if inviterName != nil {
-                inviteBanner
-                Divider()
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                joinBar
+                    .background(.clear)
             }
-            previewContent
-            Divider()
-            joinBar
-        }
-        .onAppear {
-            if viewModel == nil {
-                viewModel = matrixService.makeRoomPreviewViewModel(roomId: room.roomId)
-                Task { await viewModel?.loadPreview() }
+            .onAppear {
+                if viewModel == nil {
+                    viewModel = matrixService.makeRoomPreviewViewModel(roomId: room.roomId)
+                    Task { await viewModel?.loadPreview() }
+                }
             }
-        }
     }
 
     // MARK: - Header
@@ -138,7 +142,6 @@ struct RoomPreviewView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.fill.quaternary)
     }
 
     // MARK: - Content
@@ -232,25 +235,21 @@ struct RoomPreviewView: View {
 
     private var joinBar: some View {
         HStack {
-            Image(systemName: "bubble.left.and.text.bubble.right")
-                .foregroundStyle(.secondary)
-            Text(inviterName != nil
-                 ? "Accept invitation to participate"
-                 : "Join this room to participate")
-                .foregroundStyle(.secondary)
-            Spacer()
             if let onDecline {
                 Button("Decline", role: .destructive) {
                     onDecline()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
+                .controlSize(.large)
+                .clipShape(Capsule())
             }
-            Button("Accept" ) {
+            Button(inviterName != nil ? "Accept": "Join") {
                 onJoin()
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
+            .controlSize(.large)
+            .clipShape(Capsule())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
