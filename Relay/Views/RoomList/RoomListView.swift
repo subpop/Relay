@@ -32,7 +32,6 @@ struct RoomListView: View {
     @State private var roomToLeave: RoomSummary?
     @State private var showLeaveConfirmation = false
     @State private var verificationItem: VerificationItem?
-    @Binding var previewingInvite: RoomSummary?
     @State private var inviteToDecline: RoomSummary?
     @State private var showDeclineConfirmation = false
 
@@ -52,9 +51,9 @@ struct RoomListView: View {
                         InviteListRow(
                             room: invite,
                             onAccept: { acceptInvite(invite) },
-                            onDecline: { confirmDecline(invite) },
-                            onTap: { previewingInvite = invite }
+                            onDecline: { confirmDecline(invite) }
                         )
+                        .tag(invite.id)
                         .swipeActions(edge: .trailing) {
                             Button("Decline", systemImage: "xmark", role: .destructive) {
                                 confirmDecline(invite)
@@ -400,11 +399,9 @@ extension RoomListView {
 #Preview("Room Rows") {
     @Previewable @State var sel: String?
     @Previewable @State var space: String?
-    @Previewable @State var invite: RoomSummary?
     RoomListView(
         selectedRoomId: $sel,
-        selectedSpaceId: $space,
-        previewingInvite: $invite
+        selectedSpaceId: $space
     )
     .environment(\.matrixService, PreviewMatrixService())
     .environment(AppActions())
@@ -414,8 +411,7 @@ extension RoomListView {
 #Preview("Empty State") {
     RoomListView(
         selectedRoomId: .constant(nil),
-        selectedSpaceId: .constant(nil),
-        previewingInvite: .constant(nil)
+        selectedSpaceId: .constant(nil)
     )
     .environment(AppActions())
     .frame(width: 300, height: 400)

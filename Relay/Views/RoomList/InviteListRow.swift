@@ -24,7 +24,6 @@ struct InviteListRow: View {
     let room: RoomSummary
     let onAccept: () -> Void
     let onDecline: () -> Void
-    let onTap: () -> Void
 
     @State private var isAccepting = false
     @Environment(\.hasSpaceRail) private var hasSpaceRail
@@ -54,71 +53,65 @@ struct InviteListRow: View {
     }
 
     private var compactBody: some View {
-        Button(action: onTap) {
-            AvatarView(name: room.name, mxcURL: room.avatarURL, size: 60)
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "envelope.fill")
-                        .font(.system(size: 7))
-                        .foregroundStyle(.white)
-                        .frame(width: 14, height: 14)
-                        .background(.accent, in: .circle)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-        }
-        .buttonStyle(.plain)
-        .help(room.name)
+        AvatarView(name: room.name, mxcURL: room.avatarURL, size: 60)
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(.white)
+                    .frame(width: 14, height: 14)
+                    .background(.accent, in: .circle)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .help(room.name)
     }
 
     private var fullBody: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
-                AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
+        HStack(spacing: 10) {
+            AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 4) {
-                        if room.isSpace {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(room.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                    }
-
-                    if let inviterName = room.inviterName {
-                        Text("Invited by **\(inviterName)**")
-                            .font(.subheadline)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    if room.isSpace {
+                        Image(systemName: "square.stack.3d.up")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Text("Pending invitation")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
                     }
+                    Text(room.name)
+                        .font(.headline)
+                        .lineLimit(1)
                 }
-                .padding(4)
-                .transition(.opacity)
 
-                Spacer()
-
-                if isAccepting {
-                    ProgressView()
-                        .controlSize(.small)
+                if let inviterName = room.inviterName {
+                    Text("Invited by **\(inviterName)**")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 } else {
-                    Button("Join") {
-                        isAccepting = true
-                        onAccept()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    Text("Pending invitation")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(4)
+            .transition(.opacity)
+
+            Spacer()
+
+            if isAccepting {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button("Join") {
+                    isAccepting = true
+                    onAccept()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 8)
     }
 }
 
@@ -133,8 +126,7 @@ struct InviteListRow: View {
             inviterName: "Alice"
         ),
         onAccept: {},
-        onDecline: {},
-        onTap: {}
+        onDecline: {}
     )
     .frame(width: 300)
 }
@@ -147,8 +139,7 @@ struct InviteListRow: View {
             membership: .invited
         ),
         onAccept: {},
-        onDecline: {},
-        onTap: {}
+        onDecline: {}
     )
     .frame(width: 300)
 }
@@ -163,8 +154,7 @@ struct InviteListRow: View {
             inviterName: "Bob"
         ),
         onAccept: {},
-        onDecline: {},
-        onTap: {}
+        onDecline: {}
     )
     .frame(width: 300)
 }
@@ -178,8 +168,7 @@ struct InviteListRow: View {
                 inviterName: "Alice"
             ),
             onAccept: {},
-            onDecline: {},
-            onTap: {}
+            onDecline: {}
         )
 
         InviteListRow(
@@ -191,8 +180,7 @@ struct InviteListRow: View {
                 inviterName: "Bob"
             ),
             onAccept: {},
-            onDecline: {},
-            onTap: {}
+            onDecline: {}
         )
     }
     .frame(width: 200)

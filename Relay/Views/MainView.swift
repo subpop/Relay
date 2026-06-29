@@ -43,7 +43,6 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     @State private var focusedMessageId: String?
     @State private var incomingVerificationItem: VerificationItem?
     @State private var previewingLinkedRoom: DirectoryRoom?
-    @State private var previewingInvite: RoomSummary?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var isJoiningLinkedRoom = false
     @State private var inspectorSelectedProfile: UserProfile?
@@ -250,8 +249,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             } else {
                 RoomListView(
                     selectedRoomId: $selectedRoomId,
-                    selectedSpaceId: $selectedSpaceId,
-                    previewingInvite: $previewingInvite
+                    selectedSpaceId: $selectedSpaceId
                 )
             }
         }
@@ -267,38 +265,30 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 
     @ViewBuilder
     private var detailContent: some View {
-        if let previewingInvite, previewingInvite.isSpace {
+        if let selectedRoomId, let summary = currentRoom, summary.isInvited, summary.isSpace {
             SpaceInvitePreview(
-                invite: previewingInvite,
-                onAccept: { acceptInviteFromPreview(previewingInvite) },
-                onDecline: {
-                    let invite = previewingInvite
-                    self.previewingInvite = nil
-                    declineInviteFromPreview(invite)
-                }
+                invite: summary,
+                onAccept: { acceptInvite(summary) },
+                onDecline: { declineInvite(summary) }
             )
-        } else if let previewingInvite {
+        } else if let selectedRoomId, let summary = currentRoom, summary.isInvited {
             RoomPreviewView(
                 room: DirectoryRoom(
-                    roomId: previewingInvite.id,
-                    name: previewingInvite.name,
-                    topic: previewingInvite.topic,
-                    alias: previewingInvite.canonicalAlias,
-                    avatarURL: previewingInvite.avatarURL
+                    roomId: summary.id,
+                    name: summary.name,
+                    topic: summary.topic,
+                    alias: summary.canonicalAlias,
+                    avatarURL: summary.avatarURL
                 ),
-                onJoin: { acceptInviteFromPreview(previewingInvite) },
-                onClose: { self.previewingInvite = nil },
-                inviterName: previewingInvite.inviterName,
-                inviterAvatarURL: previewingInvite.inviterAvatarURL,
-                onDecline: {
-                    let invite = previewingInvite
-                    self.previewingInvite = nil
-                    declineInviteFromPreview(invite)
-                },
+                onJoin: { acceptInvite(summary) },
+                onClose: { self.selectedRoomId = nil },
+                inviterName: summary.inviterName,
+                inviterAvatarURL: summary.inviterAvatarURL,
+                onDecline: { declineInvite(summary) },
                 showsHeader: false
             )
         } else if let selectedRoomId,
-                  let summary = matrixService.rooms.first(where: { $0.id == selectedRoomId }),
+                  let summary = currentRoom, !summary.isInvited,
                   let viewModel = matrixService.makeTimelineViewModel(roomId: selectedRoomId) {
             TimelineView(
                 roomId: selectedRoomId,
@@ -354,15 +344,15 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 
     @ToolbarContentBuilder
     private var windowToolbarContent: some ToolbarContent {
-        if let previewingInvite {
+        if let selectedRoomId, let room = currentRoom, room.isInvited {
             ToolbarItem(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left") {
-                    self.previewingInvite = nil
+                    self.selectedRoomId = nil
                 }
                 .help("Back to Room List")
             }
             ToolbarItem(placement: .secondaryAction) {
-                inviteToolbarCapsule(for: previewingInvite)
+                inviteToolbarCapsule(for: room)
             }
         } else if let selectedRoomId, currentRoom != nil {
             ToolbarItem(placement: .secondaryAction) {
@@ -563,22 +553,22 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 
     // MARK: - Invite Actions
 
-    /// Accepts an invitation from the inline preview and navigates to the room.
-    private func acceptInviteFromPreview(_ invite: RoomSummary) {
+    /// Accepts an invitation and keeps the room selected so the detail
+    /// transitions from the invite preview to the timeline once the
+    /// membership changes to `.joined`.
+    private func acceptInvite(_ invite: RoomSummary) {
         Task {
             do {
                 try await matrixService.acceptInvite(roomId: invite.id)
-                try? await Task.sleep(for: .milliseconds(500))
-                previewingInvite = nil
-                selectedRoomId = invite.id
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
             }
         }
     }
 
-    /// Declines an invitation from the inline preview.
-    private func declineInviteFromPreview(_ invite: RoomSummary) {
+    /// Declines an invitation and deselects the room.
+    private func declineInvite(_ invite: RoomSummary) {
+        selectedRoomId = nil
         Task {
             do {
                 try await matrixService.declineInvite(roomId: invite.id)
