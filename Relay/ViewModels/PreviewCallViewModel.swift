@@ -74,4 +74,11 @@ final class PreviewCallViewModel: CallViewModelProtocol {
 
     func makeVideoView(for participantID: String) -> AnyView? { nil }
     func videoAspectRatio(for participantID: String) -> CGFloat? { 16.0 / 9.0 }
+
+    var isCaptionsEnabled: Bool = false
+    var captions: [String: String] = [:]
+    func setCaptionsEnabled(_ enabled: Bool) async {
+        isCaptionsEnabled = enabled
+        if !enabled { captions.removeAll() }
+    }
 }

@@ -15,6 +15,124 @@
 import RelayInterface
 import SwiftUI
 
+// MARK: - Caption Helpers
+
+/// Word-aware wrapping for closed-caption text. Greedy fills lines up to
+/// `lineLength` characters, breaking only on whitespace; if a single word
+/// exceeds `lineLength` it hard-breaks (rare for English speech, common
+/// for URLs). Keeps only the last `maxLines` lines so the most recent
+/// words always survive.
+///
+/// Defaults follow Netflix's Timed Text Style Guide for English subtitles:
+/// **42 characters per line, max 2 lines visible**. Source:
+/// <https://partnerhelp.netflixstudios.com/hc/en-us/articles/360051554394>
+fileprivate func wrapForCaptions(_ text: String, lineLength: Int = 42, maxLines: Int = 2) -> String {
+    let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+    guard !words.isEmpty else { return "" }
+
+    var lines: [String] = []
+    var current = ""
+
+    func push(_ line: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { lines.append(trimmed) }
+    }
+
+    for word in words {
+        // Hard-break a word that's individually longer than the line.
+        if word.count > lineLength {
+            if !current.isEmpty { push(current); current = "" }
+            var remaining = Substring(word)
+            while remaining.count > lineLength {
+                push(String(remaining.prefix(lineLength)))
+                remaining = remaining.dropFirst(lineLength)
+            }
+            current = String(remaining)
+            continue
+        }
+
+        let candidate = current.isEmpty ? word : current + " " + word
+        if candidate.count > lineLength {
+            push(current)
+            current = word
+        } else {
+            current = candidate
+        }
+    }
+    push(current)
+
+    if lines.count > maxLines {
+        lines = Array(lines.suffix(maxLines))
+    }
+    return lines.joined(separator: "\n")
+}
+
+/// CC-styled caption rectangle used by both the 1:1 layout and the group
+/// `ParticipantTile`. White on near-opaque black with a hairline edge and
+/// a tight glyph shadow — readable against any video frame.
+///
+/// Renders each visible line as a separate `Text` view in a VStack:
+///
+/// - Stable (committed) lines are identified by their content. They use
+///   asymmetric move-edge transitions so older lines slide off the top
+///   and new lines slide in from the bottom.
+/// - The bottom (in-progress) line uses a constant id `captionCurrentLine`
+///   so its character-level revisions are recognised as content changes
+///   on the same view rather than an insert/remove pair.
+/// - `clipShape` cuts the move animations to the rounded background so
+///   they look like content scrolling inside the caption box.
+///
+/// The box hugs its widest visible line — a `frame(maxWidth: 540)` caps
+/// the upper bound but the rect shrinks for shorter content because no
+/// child claims `.infinity` width.
+fileprivate func captionStrip(_ text: String) -> some View {
+    let allLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    // Netflix style: max 2 visible lines. Older content rolls off the top.
+    let visibleLines = Array(allLines.suffix(2))
+    let stableLines = Array(visibleLines.dropLast())
+    let currentLine = visibleLines.last
+
+    // No transitions, no animations — captions roll up by simply
+    // updating in place. Any fade or move on a fast-changing live caption
+    // reads as visual noise; instant updates are calmer.
+    return VStack(spacing: 2) {
+        ForEach(stableLines, id: \.self) { line in
+            captionLineText(line)
+        }
+        if let currentLine, !currentLine.isEmpty {
+            captionLineText(currentLine)
+                .id("captionCurrentLine")
+        }
+    }
+    .transaction { $0.animation = nil }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(
+        Color.black.opacity(0.85),
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+    )
+    .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+    )
+    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .frame(maxWidth: 540)
+    .fixedSize(horizontal: false, vertical: true)
+}
+
+/// One styled caption line. `.lineLimit(1)` is safe because
+/// `wrapForCaptions` already breaks long text on word boundaries; this
+/// also lets the VStack hug its widest line for a snug box width.
+@ViewBuilder
+fileprivate func captionLineText(_ text: String) -> some View {
+    Text(text)
+        .font(.system(.title3, design: .default, weight: .semibold))
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.center)
+        .lineLimit(1)
+        .shadow(color: .black.opacity(0.9), radius: 1)
+}
+
 /// Renders a LiveKit audio/video call with a FaceTime-inspired design.
 ///
 /// The call opens in its own borderless window (`.windowStyle(.plain)`).
@@ -118,6 +236,21 @@ struct CallView: View {
                 VStack {
                     participantNameBar
                     Spacer()
+                }
+
+                // Captions for the primary remote, pinned above the control
+                // bar so they don't crowd the PiP. Same CC styling as tiles.
+                if let firstRemote = viewModel.participants.first,
+                   let raw = viewModel.captions[firstRemote.id]?
+                       .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !raw.isEmpty {
+                    VStack {
+                        Spacer()
+                        captionStrip(wrapForCaptions(raw))
+                            .padding(.bottom, 92)
+                    }
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
                 }
             }
 
@@ -301,6 +434,16 @@ struct CallView: View {
                 help: viewModel.isLocalCameraEnabled ? "Camera Off" : "Camera On"
             ) {
                 Task { try? await viewModel.toggleCamera() }
+            }
+
+            // Live captions toggle (on-device speech-to-text via SpeechAnalyzer)
+            controlButton(
+                icon: viewModel.isCaptionsEnabled ? "captions.bubble.fill" : "captions.bubble",
+                isActive: viewModel.isCaptionsEnabled,
+                help: viewModel.isCaptionsEnabled ? "Hide Captions" : "Show Captions"
+            ) {
+                let next = !viewModel.isCaptionsEnabled
+                Task { await viewModel.setCaptionsEnabled(next) }
             }
 
             // End call
@@ -603,6 +746,20 @@ private struct ParticipantTile: View {
 
             nameLabel
                 .padding(10)
+
+            // Live caption strip — only shown when captions are enabled and
+            // this participant has recent transcribed text. Sits above the
+            // name pill, centered horizontally. Uses the same shared
+            // CC-styled helper as the 1:1 layout.
+            if let raw = viewModel.captions[participant.id]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !raw.isEmpty {
+                captionStrip(wrapForCaptions(raw))
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 44)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity)
+            }
         }
         // Tile sizes itself to the source video aspect, centered in the
         // grid cell. Surrounding cell area is transparent so the

@@ -124,4 +124,21 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
     ///
     /// - Parameter participantID: The ``CallParticipant/id`` of the participant.
     func videoAspectRatio(for participantID: String) -> CGFloat?
+
+    /// Whether on-device live captions are currently enabled for remote
+    /// participants. When `true`, each subscribed remote audio track is
+    /// piped into Apple's `SpeechAnalyzer` and the latest transcription is
+    /// surfaced via ``captions``.
+    var isCaptionsEnabled: Bool { get }
+
+    /// Latest caption text for each remote participant whose audio is being
+    /// transcribed, keyed by ``CallParticipant/id``. Empty when captions are
+    /// disabled or no remote has spoken yet. Final captions clear after a
+    /// short fade window so the UI doesn't show stale text.
+    var captions: [String: String] { get }
+
+    /// Toggles live captions on or off. Off → on attaches a transcriber to
+    /// each currently-subscribed remote audio track (and to any subscribed
+    /// later); on → off tears them all down and clears ``captions``.
+    func setCaptionsEnabled(_ enabled: Bool) async
 }

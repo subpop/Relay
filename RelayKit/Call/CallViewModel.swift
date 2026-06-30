@@ -104,6 +104,89 @@ public final class CallViewModel: CallViewModelProtocol {
     /// Element Call's matrix-js-sdk `MatrixRTCSession` does the equivalent.
     @ObservationIgnored
     private var heartbeatTask: Task<Void, Never>?
+
+    // MARK: - Live Captions
+
+    public private(set) var isCaptionsEnabled: Bool = false
+    public private(set) var captions: [String: String] = [:]
+
+    /// Active caption transcribers keyed by participant identity. Created
+    /// lazily when captions are turned on or a remote audio track is
+    /// subscribed; torn down when captions are turned off, the participant
+    /// leaves, or the call ends.
+    @ObservationIgnored
+    private var captionTranscribers: [String: CaptionTranscriber] = [:]
+    /// The track sid each active transcriber is attached to, keyed by
+    /// participant identity. Lets attach/detach distinguish "same live track"
+    /// (a redundant attach) from "a different track for a reused identity"
+    /// (a leave→rejoin), so identity reuse is handled correctly regardless of
+    /// the order LiveKit delivers subscribe vs. unsubscribe/disconnect events.
+    @ObservationIgnored
+    private var captionTrackSids: [String: Track.Sid] = [:]
+
+    /// Per-participant rolling caption state. `history` accumulates
+    /// finalized utterances joined by spaces; `volatile` holds the
+    /// in-progress utterance the speaker is currently saying. The
+    /// display string is `history + " " + volatile`. New finals append
+    /// to history and clear volatile.
+    private struct CaptionState {
+        var history: String = ""
+        var volatile: String = ""
+
+        var displayText: String {
+            switch (history.isEmpty, volatile.isEmpty) {
+            case (true, true): return ""
+            case (true, false): return volatile
+            case (false, true): return history
+            case (false, false): return history + " " + volatile
+            }
+        }
+    }
+    @ObservationIgnored
+    private var captionStates: [String: CaptionState] = [:]
+
+    /// Per-participant idle fade timers. Reset on every caption update;
+    /// fires only when no new text has arrived for ``captionIdleFadeDelay``,
+    /// so long sentences stay on screen as they're being spoken AND for a
+    /// reasonable read-time after the speaker stops.
+    @ObservationIgnored
+    private var captionFadeTasks: [String: Task<Void, Never>] = [:]
+
+    /// Per-participant volatile-update debounce timers. Volatile partials
+    /// from `SpeechTranscriber` arrive every ~50–100 ms while a remote is
+    /// speaking, and many of them revise the just-shown text. Coalescing
+    /// rapid revisions into a single visual update inside a small window
+    /// trades a fraction of a second of latency for far less visible
+    /// "jumping" of in-progress text. Final results bypass this and apply
+    /// immediately — they're authoritative.
+    @ObservationIgnored
+    private var captionVolatileDebounceTasks: [String: Task<Void, Never>] = [:]
+    /// How long to wait before applying the latest volatile partial.
+    /// 180 ms is short enough that the displayed text never feels stale
+    /// to the speaker but long enough to absorb the typical rate of
+    /// recognizer revisions.
+    private static let captionVolatileDebounceDelay: Duration = .milliseconds(180)
+
+    /// Reading-rate target for the idle caption fade. Netflix's English
+    /// guideline is 17 characters per second for adult viewers; we round
+    /// to 17 and add a small buffer so the last word doesn't disappear
+    /// the instant the reader catches up. Used to size the fade delay
+    /// adaptively so a long sentence stays on screen long enough to
+    /// read while a single short word doesn't linger.
+    private static let captionReadCharsPerSecond: Double = 17
+    /// Floor for the idle fade — Netflix's minimum subtitle duration is
+    /// 5⁄6 of a second (833 ms). Anything shorter is too quick to perceive.
+    private static let captionMinHoldSeconds: Double = 5.0 / 6.0
+    /// Ceiling for the idle fade — Netflix's maximum subtitle duration is
+    /// 7 seconds. Beyond this the user has read the line and the screen
+    /// should clear, even if the buffer is unusually long.
+    private static let captionMaxHoldSeconds: Double = 7.0
+    /// Cap on the history string per participant — beyond this we drop
+    /// from the head, keeping only the most recent text. Sized for the
+    /// 42-char × 2-line Netflix wrap (84 chars visible) plus a buffer
+    /// so a recent-but-just-scrolled-off line is still in memory if a
+    /// volatile revision needs it.
+    private static let captionHistoryMaxChars: Int = 168
     /// Interval at which the call-member event is re-sent. Our `expires`
     /// field is 4 hours; refreshing every 30 minutes keeps a generous
     /// safety margin against missed sends.
@@ -549,6 +632,11 @@ public final class CallViewModel: CallViewModelProtocol {
         heartbeatTask?.cancel()
         heartbeatTask = nil
 
+        // Stop all captions before LiveKit unsubscribes the audio tracks
+        // from under us — the renderers must be removed first.
+        await stopAllCaptionTranscribers()
+        isCaptionsEnabled = false
+
         // Tear down the widget bridge synchronously so its tasks can't race
         // with subsequent connects.
         widgetBridge?.shutdown()
@@ -640,6 +728,229 @@ public final class CallViewModel: CallViewModelProtocol {
         let enabled = !isLocalMicrophoneEnabled
         try await room.localParticipant.setMicrophone(enabled: enabled)
         isLocalMicrophoneEnabled = enabled
+    }
+
+    // MARK: - Captions
+
+    public func setCaptionsEnabled(_ enabled: Bool) async {
+        guard enabled != isCaptionsEnabled else { return }
+        isCaptionsEnabled = enabled
+
+        if enabled {
+            // Attach to every currently-subscribed remote audio track. New
+            // tracks subscribed after this point are picked up via the
+            // didSubscribeTrack delegate callback.
+            for participant in room.remoteParticipants.values {
+                guard let identity = participant.identity?.stringValue else { continue }
+                for publication in participant.audioTracks {
+                    guard let track = publication.track as? RemoteAudioTrack else { continue }
+                    await attachCaptionTranscriber(to: track, identity: identity, trackSid: publication.sid)
+                }
+            }
+        } else {
+            await stopAllCaptionTranscribers()
+        }
+    }
+
+    /// Creates a `CaptionTranscriber` for `identity`, attaches it to `track`,
+    /// and starts the analyzer in the background.
+    ///
+    /// If a transcriber already exists for this identity: when it's bound to
+    /// the *same* track this is a redundant attach and is a no-op; when it's
+    /// bound to a *different* track — a leave→rejoin that reuses the identity —
+    /// the stale one is torn down first so the rejoined participant gets a
+    /// fresh, running transcriber. Without this, the rejoin would hit the old
+    /// early-return and get no captions.
+    private func attachCaptionTranscriber(to track: RemoteAudioTrack, identity: String, trackSid: Track.Sid) async {
+        if captionTranscribers[identity] != nil {
+            if captionTrackSids[identity] == trackSid { return }
+            await detachCaptionTranscriber(identity: identity)
+        }
+        let transcriber = CaptionTranscriber(
+            participantId: identity,
+            onUpdate: { [weak self] text, isFinal in
+                Task { @MainActor [weak self] in
+                    self?.applyCaption(participantId: identity, text: text, isFinal: isFinal)
+                }
+            },
+            onLog: { [weak self] severity, summary, detail in
+                Task { @MainActor [weak self] in
+                    self?.activityLog?.log(
+                        category: .call, severity: severity, source: "CaptionTranscriber",
+                        summary: summary, detail: detail, roomId: self?.roomID
+                    )
+                }
+            }
+        )
+        captionTranscribers[identity] = transcriber
+        captionTrackSids[identity] = trackSid
+        track.add(audioRenderer: transcriber)
+        Task {
+            do {
+                try await transcriber.start()
+            } catch {
+                activityLog?.log(
+                    category: .call, severity: .warning, source: "CallViewModel",
+                    summary: "Caption transcriber start failed",
+                    detail: "Identity: \(identity). Error: \(error.localizedDescription)",
+                    roomId: roomID
+                )
+            }
+        }
+    }
+
+    /// Detaches and stops the transcriber (if any) for `identity` from every
+    /// remote audio track that participant is publishing. Removes any cached
+    /// caption text and cancels the fade timer.
+    ///
+    /// When `ifTrackSid` is supplied, the detach only happens if the active
+    /// transcriber is bound to that track — so a late unsubscribe for an old
+    /// track can't tear down a transcriber that already belongs to a newer
+    /// track (a reused identity after a rejoin).
+    private func detachCaptionTranscriber(identity: String, ifTrackSid: Track.Sid? = nil) async {
+        if let ifTrackSid, captionTrackSids[identity] != ifTrackSid { return }
+        guard let transcriber = captionTranscribers.removeValue(forKey: identity) else { return }
+        captionTrackSids.removeValue(forKey: identity)
+        for participant in room.remoteParticipants.values where participant.identity?.stringValue == identity {
+            for publication in participant.audioTracks {
+                if let track = publication.track as? RemoteAudioTrack {
+                    track.remove(audioRenderer: transcriber)
+                }
+            }
+        }
+        await transcriber.stop()
+        captionFadeTasks.removeValue(forKey: identity)?.cancel()
+        captionVolatileDebounceTasks.removeValue(forKey: identity)?.cancel()
+        captionStates.removeValue(forKey: identity)
+        captions.removeValue(forKey: identity)
+    }
+
+    /// Tears down every active transcriber. Used by the captions toggle and
+    /// by `disconnect()`.
+    private func stopAllCaptionTranscribers() async {
+        let identities = Array(captionTranscribers.keys)
+        for identity in identities {
+            await detachCaptionTranscriber(identity: identity)
+        }
+        captionTrackSids.removeAll()
+        captions.removeAll()
+        captionStates.removeAll()
+        for task in captionFadeTasks.values { task.cancel() }
+        captionFadeTasks.removeAll()
+        for task in captionVolatileDebounceTasks.values { task.cancel() }
+        captionVolatileDebounceTasks.removeAll()
+    }
+
+    /// Tears down the transcriber for `identity` only if that participant is no
+    /// longer in the room. Used by `participantDidDisconnect` so a leave→rejoin
+    /// that reuses the identity doesn't tear down the freshly-attached
+    /// transcriber for the new session.
+    private func detachCaptionTranscriberIfGone(identity: String) async {
+        let stillPresent = room.remoteParticipants.values.contains {
+            $0.identity?.stringValue == identity
+        }
+        guard !stillPresent else { return }
+        await detachCaptionTranscriber(identity: identity)
+    }
+
+    /// Pushes a transcription update into the observable `captions` map. For
+    /// volatile (non-final) results the text is updated continuously; for
+    /// final results we additionally schedule a fade-out so a stale caption
+    /// doesn't linger after the speaker stops.
+    /// Entry point from `CaptionTranscriber`'s result stream. Debounces
+    /// volatile updates so the displayed text revises at most once per
+    /// debounce window; finals supersede pending volatiles and apply
+    /// immediately.
+    @MainActor
+    private func applyCaption(participantId: String, text: String, isFinal: Bool) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Any new event supersedes a pending debounced volatile.
+        captionVolatileDebounceTasks.removeValue(forKey: participantId)?.cancel()
+
+        if isFinal {
+            commitCaption(participantId: participantId, text: trimmed, isFinal: true)
+            return
+        }
+
+        // Volatile — schedule a debounced commit. Subsequent volatile
+        // updates within the window cancel and replace this one, so the
+        // UI only sees the *latest* partial after the recognizer has
+        // settled for at least the debounce delay.
+        let delay = Self.captionVolatileDebounceDelay
+        let task = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.captionVolatileDebounceTasks.removeValue(forKey: participantId)
+                self.commitCaption(participantId: participantId, text: trimmed, isFinal: false)
+            }
+        }
+        captionVolatileDebounceTasks[participantId] = task
+    }
+
+    /// Applies a caption update to the rolling buffer + observable state.
+    /// Called either directly (for finals) or via the debounce timer (for
+    /// volatiles). Same logic that used to live inline in `applyCaption`.
+    @MainActor
+    private func commitCaption(participantId: String, text: String, isFinal: Bool) {
+        let trimmed = text
+
+        // Speech content stays out of the log — record only the metadata so we
+        // can verify the audio→speech pipeline without leaking captions.
+        activityLog?.log(
+            category: .call, severity: .debug, source: "CallViewModel",
+            summary: "Caption update",
+            detail: "Identity: \(participantId), isFinal: \(isFinal), chars: \(trimmed.count)",
+            roomId: roomID
+        )
+
+        // Rolling-buffer model:
+        // - Volatile result → replace `volatile`. The same utterance keeps
+        //   being revised in place as the speaker continues.
+        // - Final result → append to `history` (with a space separator)
+        //   and clear `volatile` to make room for the next utterance.
+        // - Cap history from the head so it can't grow unbounded.
+        var state = captionStates[participantId] ?? CaptionState()
+        if isFinal {
+            if state.history.isEmpty {
+                state.history = trimmed
+            } else {
+                state.history += " " + trimmed
+            }
+            if state.history.count > Self.captionHistoryMaxChars {
+                state.history = String(state.history.suffix(Self.captionHistoryMaxChars))
+            }
+            state.volatile = ""
+        } else {
+            state.volatile = trimmed
+        }
+        captionStates[participantId] = state
+        captions[participantId] = state.displayText
+
+        // Idle-based fade with Netflix-style reading-rate scaling. Reset
+        // on every update (volatile OR final). The hold time after the
+        // speaker stops scales with how much text is on screen — a single
+        // short word clears in ~1s, a packed 2-line block stays for ~5s,
+        // and we never go below 5⁄6s or above 7s.
+        captionFadeTasks[participantId]?.cancel()
+        let displayChars = Double(state.displayText.count)
+        let readSeconds = displayChars / Self.captionReadCharsPerSecond
+        let holdSeconds = min(Self.captionMaxHoldSeconds,
+                              max(Self.captionMinHoldSeconds, readSeconds))
+        let delay = Duration.seconds(holdSeconds)
+        captionFadeTasks[participantId] = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.captions.removeValue(forKey: participantId)
+                self.captionStates.removeValue(forKey: participantId)
+                self.captionFadeTasks.removeValue(forKey: participantId)
+            }
+        }
     }
 
     public func videoAspectRatio(for participantID: String) -> CGFloat? {
@@ -1038,6 +1349,12 @@ public final class CallViewModel: CallViewModelProtocol {
                     roomId: viewModel.roomID
                 )
                 viewModel.syncParticipants(trackChanged: true)
+                // Wire captions onto any new remote audio if captions are on.
+                if viewModel.isCaptionsEnabled,
+                   let identity = participant.identity?.stringValue,
+                   let track = publication.track as? RemoteAudioTrack {
+                    await viewModel.attachCaptionTranscriber(to: track, identity: identity, trackSid: publication.sid)
+                }
             }
         }
 
@@ -1069,6 +1386,13 @@ public final class CallViewModel: CallViewModelProtocol {
                     detail: "Identity: \(identityStr)",
                     roomId: viewModel.roomID
                 )
+                // Tear down captions in case didUnsubscribeTrack didn't fire
+                // for this participant's audio on disconnect — but only if the
+                // participant is actually gone, so a quick leave→rejoin that
+                // reuses the identity doesn't kill the new session's captions.
+                if let identity = participant.identity?.stringValue {
+                    await viewModel.detachCaptionTranscriberIfGone(identity: identity)
+                }
                 viewModel.syncParticipants(trackChanged: true)
             }
         }
@@ -1179,9 +1503,16 @@ public final class CallViewModel: CallViewModelProtocol {
 
         func room(_ room: LiveKit.Room, participant: RemoteParticipant, didUnsubscribeTrack publication: RemoteTrackPublication) {
             Task { @MainActor [weak viewModel] in
-                viewModel?.syncParticipants(trackChanged: true)
+                guard let viewModel else { return }
+                viewModel.syncParticipants(trackChanged: true)
+                // Tear down captions for this specific audio track if it had any.
+                if let identity = participant.identity?.stringValue,
+                   publication.kind == .audio {
+                    await viewModel.detachCaptionTranscriber(identity: identity, ifTrackSid: publication.sid)
+                }
             }
         }
+
 
         func room(_ room: LiveKit.Room, participant: LocalParticipant, didUnpublishTrack publication: LocalTrackPublication) {
             Task { @MainActor [weak viewModel] in
