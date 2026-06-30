@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AVFoundation
 import Foundation
 import LiveKit
 import RelayInterface
@@ -43,6 +44,12 @@ public final class CallViewModel: CallViewModelProtocol {
     /// re-evaluate `videoContent(for:)` and pick up new or removed tracks.
     public private(set) var videoTrackRevision: UInt = 0
 
+    /// Camera inputs available to the system, for the in-call picker.
+    public private(set) var availableCameras: [CameraDevice] = []
+    /// The `uniqueID` of the camera currently in use, or `nil` before one is
+    /// resolved.
+    public private(set) var selectedCameraID: String?
+
     @ObservationIgnored
     private let room = LiveKit.Room()
     @ObservationIgnored
@@ -61,6 +68,17 @@ public final class CallViewModel: CallViewModelProtocol {
     /// "more Update Constraints in Window passes than there are views".
     @ObservationIgnored
     private var videoViewCache: [String: (trackObjectID: ObjectIdentifier, view: AnyView)] = [:]
+
+    // MARK: - Camera selection
+
+    /// Maps `CameraDevice.id` (`AVCaptureDevice.uniqueID`) back to the SDK
+    /// device so `selectCamera` can resolve a picked entry. `AVCaptureDevice`
+    /// never leaves RelayKit.
+    @ObservationIgnored
+    private var cameraDevicesByID: [String: AVCaptureDevice] = [:]
+    /// UserDefaults key for the last-used camera, preferred on the next call.
+    @ObservationIgnored
+    private let selectedCameraDefaultsKey = "selectedCameraUniqueID"
 
     // MARK: - E2EE State
     //
@@ -550,8 +568,18 @@ public final class CallViewModel: CallViewModelProtocol {
             // Key is now installed locally and (best-effort) distributed to
             // any existing call participants. Safe to publish media.
             connectingPhase = "Starting camera & microphone…"
+            await refreshCameras()
+            // Prefer the last-used camera if it's still present; otherwise let
+            // LiveKit pick the system default.
+            if let saved = UserDefaults.standard.string(forKey: selectedCameraDefaultsKey),
+               cameraDevicesByID[saved] != nil {
+                selectedCameraID = saved
+            }
             try await room.localParticipant.setMicrophone(enabled: true)
-            try await room.localParticipant.setCamera(enabled: true)
+            try await room.localParticipant.setCamera(enabled: true, captureOptions: selectedCameraCaptureOptions())
+            // Reflect whichever device actually started so the picker checkmark
+            // is correct even when we defaulted.
+            if selectedCameraID == nil { selectedCameraID = currentCameraDeviceID() }
 
             isLocalCameraEnabled = true
             isLocalMicrophoneEnabled = true
@@ -716,12 +744,86 @@ public final class CallViewModel: CallViewModelProtocol {
 
     public func toggleCamera() async throws {
         let enabled = !isLocalCameraEnabled
-        try await room.localParticipant.setCamera(enabled: enabled)
+        try await room.localParticipant.setCamera(
+            enabled: enabled,
+            captureOptions: enabled ? selectedCameraCaptureOptions() : nil
+        )
         isLocalCameraEnabled = enabled
+        if enabled, selectedCameraID == nil { selectedCameraID = currentCameraDeviceID() }
         if let localID = localParticipantID {
             videoViewCache.removeValue(forKey: localID)
         }
         videoTrackRevision += 1
+    }
+
+    public func refreshCameras() async {
+        let devices = (try? await CameraCapturer.captureDevices()) ?? []
+        var byID: [String: AVCaptureDevice] = [:]
+        var list: [CameraDevice] = []
+        for device in devices {
+            byID[device.uniqueID] = device
+            list.append(CameraDevice(
+                id: device.uniqueID,
+                name: device.localizedName,
+                kind: Self.cameraKind(for: device)
+            ))
+        }
+        cameraDevicesByID = byID
+        availableCameras = list
+    }
+
+    public func selectCamera(_ device: CameraDevice) async throws {
+        guard let avDevice = cameraDevicesByID[device.id] else { return }
+        selectedCameraID = device.id
+        UserDefaults.standard.set(device.id, forKey: selectedCameraDefaultsKey)
+        // Switch the device on the capturer whenever one exists — even when the
+        // camera is muted/off, LiveKit keeps the capturer around, so we must
+        // retarget it now rather than relying on a later setCamera(enabled:)
+        // (which unmutes the existing track and would keep the old device,
+        // leaving the self-view out of sync with the menu). If no capturer
+        // exists (track fully unpublished), the stored selection is applied on
+        // the next enable via selectedCameraCaptureOptions().
+        if let publication = room.localParticipant.localVideoTracks.first(where: { $0.source == .camera }),
+           let track = publication.track as? LocalVideoTrack,
+           let capturer = track.capturer as? CameraCapturer {
+            let newOptions = capturer.options.copyWith(device: .value(avDevice as AVCaptureDevice?))
+            _ = try await capturer.set(options: newOptions)
+            if let localID = localParticipantID {
+                videoViewCache.removeValue(forKey: localID)
+            }
+            videoTrackRevision += 1
+        }
+        activityLog?.log(
+            category: .call, severity: .info, source: "CallViewModel",
+            summary: "Camera input selected",
+            detail: "Camera: \(device.name) [\(device.kind)]",
+            roomId: roomID
+        )
+    }
+
+    /// Capture options pinned to the selected device, or `nil` to let LiveKit
+    /// use the system default.
+    private func selectedCameraCaptureOptions() -> CameraCaptureOptions? {
+        guard let id = selectedCameraID, let device = cameraDevicesByID[id] else { return nil }
+        return CameraCaptureOptions(device: device)
+    }
+
+    /// The `uniqueID` of the camera the local video track is currently
+    /// capturing from, if any.
+    private func currentCameraDeviceID() -> String? {
+        guard let publication = room.localParticipant.localVideoTracks.first(where: { $0.source == .camera }),
+              let track = publication.track as? LocalVideoTrack,
+              let capturer = track.capturer as? CameraCapturer else { return nil }
+        return capturer.device?.uniqueID
+    }
+
+    private static func cameraKind(for device: AVCaptureDevice) -> CameraDevice.Kind {
+        switch device.deviceType {
+        case .builtInWideAngleCamera: return .builtIn
+        case .continuityCamera: return .continuity
+        case .external: return .external
+        default: return .unknown
+        }
     }
 
     public func toggleMicrophone() async throws {

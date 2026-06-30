@@ -30,6 +30,11 @@ final class PreviewCallViewModel: CallViewModelProtocol {
     var localParticipantID: String? = nil
     var videoTrackRevision: UInt = 0
     var connectingPhase: String? = nil
+    var availableCameras: [CameraDevice] = [
+        CameraDevice(id: "builtin", name: "FaceTime HD Camera", kind: .builtIn),
+        CameraDevice(id: "iphone", name: "iPhone (Continuity)", kind: .continuity)
+    ]
+    var selectedCameraID: String? = "builtin"
 
     func connect(url: String, token: String, sfuServiceURL: String) async throws {
         state = .connecting
@@ -70,6 +75,12 @@ final class PreviewCallViewModel: CallViewModelProtocol {
 
     func toggleMicrophone() async throws {
         isLocalMicrophoneEnabled.toggle()
+    }
+
+    func refreshCameras() async {}
+
+    func selectCamera(_ device: CameraDevice) async throws {
+        selectedCameraID = device.id
     }
 
     func makeVideoView(for participantID: String) -> AnyView? { nil }

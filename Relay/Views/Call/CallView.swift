@@ -427,13 +427,18 @@ struct CallView: View {
                 Task { try? await viewModel.toggleMicrophone() }
             }
 
-            // Camera toggle
-            controlButton(
-                icon: viewModel.isLocalCameraEnabled ? "video.fill" : "video.slash.fill",
-                isActive: viewModel.isLocalCameraEnabled,
-                help: viewModel.isLocalCameraEnabled ? "Camera Off" : "Camera On"
-            ) {
-                Task { try? await viewModel.toggleCamera() }
+            // Camera: split control (toggle + source menu) when more than one
+            // camera is available, otherwise a plain toggle.
+            if viewModel.availableCameras.count > 1 {
+                cameraSplitControl
+            } else {
+                controlButton(
+                    icon: viewModel.isLocalCameraEnabled ? "video.fill" : "video.slash.fill",
+                    isActive: viewModel.isLocalCameraEnabled,
+                    help: viewModel.isLocalCameraEnabled ? "Camera Off" : "Camera On"
+                ) {
+                    Task { try? await viewModel.toggleCamera() }
+                }
             }
 
             // Live captions toggle (on-device speech-to-text via SpeechAnalyzer)
@@ -464,6 +469,77 @@ struct CallView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    /// A split control: the camera on/off toggle on the left and a disclosure
+    /// caret on the right that opens the camera-source menu — one capsule,
+    /// sharing the on/off tint. Used when more than one camera is available.
+    /// The menu refreshes the device list each time it opens so a camera
+    /// connected mid-call (e.g. an iPhone via Continuity) shows up.
+    private var cameraSplitControl: some View {
+        HStack(spacing: 0) {
+            Button {
+                Task { try? await viewModel.toggleCamera() }
+            } label: {
+                Image(systemName: viewModel.isLocalCameraEnabled ? "video.fill" : "video.slash.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.isLocalCameraEnabled ? "Camera Off" : "Camera On")
+
+            Rectangle()
+                .fill(Color.white.opacity(0.25))
+                .frame(width: 1, height: 22)
+
+            Menu {
+                Picker("Camera", selection: cameraSelectionBinding) {
+                    ForEach(viewModel.availableCameras) { camera in
+                        Label(camera.name, systemImage: Self.cameraIcon(for: camera.kind))
+                            .tag(camera.id as String?)
+                    }
+                }
+                .pickerStyle(.inline)
+                .onAppear { Task { await viewModel.refreshCameras() } }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Camera Source")
+        }
+        .background(
+            viewModel.isLocalCameraEnabled ? Color.white.opacity(0.15) : Color.red.opacity(0.8),
+            in: Capsule()
+        )
+    }
+
+    /// Bridges the picker's selected id to `selectCamera`.
+    private var cameraSelectionBinding: Binding<String?> {
+        Binding(
+            get: { viewModel.selectedCameraID },
+            set: { newID in
+                guard let newID,
+                      let camera = viewModel.availableCameras.first(where: { $0.id == newID })
+                else { return }
+                Task { try? await viewModel.selectCamera(camera) }
+            }
+        )
+    }
+
+    private static func cameraIcon(for kind: CameraDevice.Kind) -> String {
+        switch kind {
+        case .continuity: return "iphone"
+        case .external: return "web.camera"
+        case .builtIn, .unknown: return "camera"
+        }
     }
 
     @ViewBuilder

@@ -57,6 +57,29 @@ public struct CallParticipant: Identifiable, Sendable, Equatable {
     }
 }
 
+/// A selectable camera input known to the system (built-in, external/USB, or
+/// an iPhone via Continuity Camera).
+///
+/// Intentionally a plain value type so the call UI can list and pick cameras
+/// without depending on AVFoundation or LiveKit — `CallViewModel` maps these
+/// to/from `AVCaptureDevice` by ``id`` inside RelayKit.
+public struct CameraDevice: Identifiable, Sendable, Equatable {
+    /// The system's stable `AVCaptureDevice.uniqueID`.
+    public let id: String
+    /// Human-readable name for the menu (the device's `localizedName`).
+    public let name: String
+    /// Coarse category, used only to pick an icon in the picker.
+    public let kind: Kind
+
+    public enum Kind: Sendable, Equatable { case builtIn, external, continuity, unknown }
+
+    public init(id: String, name: String, kind: Kind) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+    }
+}
+
 /// The view model protocol for a LiveKit-backed audio/video call in a Matrix room.
 ///
 /// ``CallViewModelProtocol`` defines the observable state and actions needed by ``CallView``
@@ -107,6 +130,22 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
 
     /// Toggles the local camera on or off.
     func toggleCamera() async throws
+
+    /// Camera inputs currently available to the system, for the picker.
+    /// Refreshed via ``refreshCameras()``.
+    var availableCameras: [CameraDevice] { get }
+
+    /// The `id` of the camera currently in use, or `nil` before one is chosen.
+    var selectedCameraID: String? { get }
+
+    /// Re-enumerates the system's cameras into ``availableCameras``. Cheap to
+    /// call when opening the picker (covers a Continuity Camera connecting
+    /// mid-call).
+    func refreshCameras() async
+
+    /// Switches the local camera input to `device`. Applies live when the
+    /// camera is on; otherwise it's remembered and used on the next enable.
+    func selectCamera(_ device: CameraDevice) async throws
 
     /// Toggles the local microphone on or off.
     func toggleMicrophone() async throws
