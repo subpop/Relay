@@ -50,6 +50,11 @@ public final class CallViewModel: CallViewModelProtocol {
     /// resolved.
     public private(set) var selectedCameraID: String?
 
+    /// Microphone inputs available to the system, for the in-call picker.
+    public private(set) var availableAudioInputs: [AudioInputDevice] = []
+    /// The deviceId of the audio input currently in use.
+    public private(set) var selectedAudioInputID: String?
+
     @ObservationIgnored
     private let room = LiveKit.Room()
     @ObservationIgnored
@@ -79,6 +84,15 @@ public final class CallViewModel: CallViewModelProtocol {
     /// UserDefaults key for the last-used camera, preferred on the next call.
     @ObservationIgnored
     private let selectedCameraDefaultsKey = "selectedCameraUniqueID"
+
+    /// Maps `AudioInputDevice.id` (deviceId) to the SDK audio device so
+    /// `selectAudioInput` can resolve a picked entry. Audio input selection is
+    /// process-global via `AudioManager.shared`, not per-call.
+    @ObservationIgnored
+    private var audioInputsByID: [String: AudioDevice] = [:]
+    /// UserDefaults key for the last-used microphone, preferred on the next call.
+    @ObservationIgnored
+    private let selectedAudioInputDefaultsKey = "selectedAudioInputDeviceID"
 
     // MARK: - E2EE State
     //
@@ -575,6 +589,13 @@ public final class CallViewModel: CallViewModelProtocol {
                cameraDevicesByID[saved] != nil {
                 selectedCameraID = saved
             }
+            await refreshAudioInputs()
+            // Prefer the last-used microphone if it's still present.
+            if let savedAudio = UserDefaults.standard.string(forKey: selectedAudioInputDefaultsKey),
+               let device = audioInputsByID[savedAudio] {
+                AudioManager.shared.inputDevice = device
+                selectedAudioInputID = savedAudio
+            }
             try await room.localParticipant.setMicrophone(enabled: true)
             try await room.localParticipant.setCamera(enabled: true, captureOptions: selectedCameraCaptureOptions())
             // Reflect whichever device actually started so the picker checkmark
@@ -824,6 +845,58 @@ public final class CallViewModel: CallViewModelProtocol {
         case .external: return .external
         default: return .unknown
         }
+    }
+
+    public func refreshAudioInputs() async {
+        let devices = AudioManager.shared.inputDevices
+        var byID: [String: AudioDevice] = [:]
+        var list: [AudioInputDevice] = []
+        var indexByName: [String: Int] = [:]
+        for device in devices {
+            byID[device.deviceId] = device
+            if let idx = indexByName[device.name] {
+                // Bluetooth inputs like AirPods register several CoreAudio
+                // device objects under one name. Collapse them to a single
+                // entry (matching System Settings); prefer the default
+                // object's id as the representative so selecting it routes
+                // correctly.
+                if device.isDefault {
+                    list[idx] = AudioInputDevice(id: device.deviceId, name: device.name)
+                }
+            } else {
+                indexByName[device.name] = list.count
+                list.append(AudioInputDevice(id: device.deviceId, name: device.name))
+            }
+        }
+        audioInputsByID = byID
+        availableAudioInputs = list
+        // Reflect the active device as its deduped (by-name) representative so
+        // the checkmark matches a list entry even when the live id was one of
+        // the collapsed duplicates.
+        let currentName = AudioManager.shared.inputDevice.name
+        selectedAudioInputID = list.first(where: { $0.name == currentName })?.id
+    }
+
+    public func selectAudioInput(_ device: AudioInputDevice) async throws {
+        // Update the UI immediately, then do the actual switch off the main
+        // actor: LiveKit's AudioManager retargets the audio device module
+        // synchronously, which on Bluetooth rebuilds the whole engine and can
+        // block for seconds. Only the deviceId (Sendable) crosses the
+        // boundary — AudioDevice is a non-Sendable class.
+        selectedAudioInputID = device.id
+        UserDefaults.standard.set(device.id, forKey: selectedAudioInputDefaultsKey)
+        let deviceId = device.id
+        await Task.detached(priority: .userInitiated) {
+            guard let avDevice = AudioManager.shared.inputDevices
+                .first(where: { $0.deviceId == deviceId }) else { return }
+            AudioManager.shared.inputDevice = avDevice
+        }.value
+        activityLog?.log(
+            category: .call, severity: .info, source: "CallViewModel",
+            summary: "Audio input selected",
+            detail: "Microphone: \(device.name)",
+            roomId: roomID
+        )
     }
 
     public func toggleMicrophone() async throws {

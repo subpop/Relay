@@ -35,6 +35,11 @@ final class PreviewCallViewModel: CallViewModelProtocol {
         CameraDevice(id: "iphone", name: "iPhone (Continuity)", kind: .continuity)
     ]
     var selectedCameraID: String? = "builtin"
+    var availableAudioInputs: [AudioInputDevice] = [
+        AudioInputDevice(id: "builtin-mic", name: "MacBook Pro Microphone"),
+        AudioInputDevice(id: "usb-mic", name: "USB Audio Interface")
+    ]
+    var selectedAudioInputID: String? = "builtin-mic"
 
     func connect(url: String, token: String, sfuServiceURL: String) async throws {
         state = .connecting
@@ -81,6 +86,12 @@ final class PreviewCallViewModel: CallViewModelProtocol {
 
     func selectCamera(_ device: CameraDevice) async throws {
         selectedCameraID = device.id
+    }
+
+    func refreshAudioInputs() async {}
+
+    func selectAudioInput(_ device: AudioInputDevice) async throws {
+        selectedAudioInputID = device.id
     }
 
     func makeVideoView(for participantID: String) -> AnyView? { nil }

@@ -80,6 +80,23 @@ public struct CameraDevice: Identifiable, Sendable, Equatable {
     }
 }
 
+/// A selectable audio input (microphone) known to the system.
+///
+/// Like ``CameraDevice``, a plain value type so the call UI can list and pick
+/// inputs without depending on the audio SDK; `CallViewModel` maps these
+/// to/from the LiveKit audio device by ``id``.
+public struct AudioInputDevice: Identifiable, Sendable, Equatable {
+    /// The system audio device id (LiveKit `AudioDevice.deviceId`).
+    public let id: String
+    /// Human-readable name for the menu.
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 /// The view model protocol for a LiveKit-backed audio/video call in a Matrix room.
 ///
 /// ``CallViewModelProtocol`` defines the observable state and actions needed by ``CallView``
@@ -146,6 +163,19 @@ public protocol CallViewModelProtocol: AnyObject, Observable {
     /// Switches the local camera input to `device`. Applies live when the
     /// camera is on; otherwise it's remembered and used on the next enable.
     func selectCamera(_ device: CameraDevice) async throws
+
+    /// Microphone inputs currently available to the system, for the picker.
+    var availableAudioInputs: [AudioInputDevice] { get }
+
+    /// The `id` of the audio input currently in use, or `nil` before one is
+    /// resolved.
+    var selectedAudioInputID: String? { get }
+
+    /// Re-enumerates the system's audio inputs into ``availableAudioInputs``.
+    func refreshAudioInputs() async
+
+    /// Switches the active microphone input to `device`.
+    func selectAudioInput(_ device: AudioInputDevice) async throws
 
     /// Toggles the local microphone on or off.
     func toggleMicrophone() async throws

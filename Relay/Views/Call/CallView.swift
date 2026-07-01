@@ -418,13 +418,18 @@ struct CallView: View {
     @ViewBuilder
     private var controlBar: some View {
         HStack(spacing: 20) {
-            // Microphone toggle
-            controlButton(
-                icon: viewModel.isLocalMicrophoneEnabled ? "mic.fill" : "mic.slash.fill",
-                isActive: viewModel.isLocalMicrophoneEnabled,
-                help: viewModel.isLocalMicrophoneEnabled ? "Mute" : "Unmute"
-            ) {
-                Task { try? await viewModel.toggleMicrophone() }
+            // Microphone: split control (toggle + source menu) when more than
+            // one input is available, otherwise a plain toggle.
+            if viewModel.availableAudioInputs.count > 1 {
+                micSplitControl
+            } else {
+                controlButton(
+                    icon: viewModel.isLocalMicrophoneEnabled ? "mic.fill" : "mic.slash.fill",
+                    isActive: viewModel.isLocalMicrophoneEnabled,
+                    help: viewModel.isLocalMicrophoneEnabled ? "Mute" : "Unmute"
+                ) {
+                    Task { try? await viewModel.toggleMicrophone() }
+                }
             }
 
             // Camera: split control (toggle + source menu) when more than one
@@ -540,6 +545,65 @@ struct CallView: View {
         case .external: return "web.camera"
         case .builtIn, .unknown: return "camera"
         }
+    }
+
+    /// Mic equivalent of ``cameraSplitControl``: the mute toggle plus a
+    /// disclosure menu of audio inputs. Used when more than one input exists.
+    private var micSplitControl: some View {
+        HStack(spacing: 0) {
+            Button {
+                Task { try? await viewModel.toggleMicrophone() }
+            } label: {
+                Image(systemName: viewModel.isLocalMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.isLocalMicrophoneEnabled ? "Mute" : "Unmute")
+
+            Rectangle()
+                .fill(Color.white.opacity(0.25))
+                .frame(width: 1, height: 22)
+
+            Menu {
+                Picker("Microphone", selection: audioInputSelectionBinding) {
+                    ForEach(viewModel.availableAudioInputs) { input in
+                        Label(input.name, systemImage: "mic")
+                            .tag(input.id as String?)
+                    }
+                }
+                .pickerStyle(.inline)
+                .onAppear { Task { await viewModel.refreshAudioInputs() } }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Microphone Source")
+        }
+        .background(
+            viewModel.isLocalMicrophoneEnabled ? Color.white.opacity(0.15) : Color.red.opacity(0.8),
+            in: Capsule()
+        )
+    }
+
+    private var audioInputSelectionBinding: Binding<String?> {
+        Binding(
+            get: { viewModel.selectedAudioInputID },
+            set: { newID in
+                guard let newID,
+                      let input = viewModel.availableAudioInputs.first(where: { $0.id == newID })
+                else { return }
+                Task { try? await viewModel.selectAudioInput(input) }
+            }
+        )
     }
 
     @ViewBuilder
