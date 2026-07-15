@@ -328,10 +328,10 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 }
                 isNearBottom = false
             } else if timelineUseLazyVStack, focusEventId == nil {
-                // defaultScrollAnchor(.bottom) handles the initial layout,
-                // but async data arrival needs an explicit nudge.
-                try? await Task.sleep(for: .milliseconds(50))
-                scrollToBottom(animated: false)
+                // Let the onChange(of: messagesVersion) handler perform
+                // the scroll reactively once fresh diffs arrive, instead
+                // of racing layout with a fixed delay.
+                pendingScrollToBottom = true
             }
 
             // After loading, scroll to the focused event and briefly highlight it
@@ -470,18 +470,24 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .onChange(of: viewModel.messagesVersion) {
                 let previousLastID = cachedMessageRows.last?.id
                 rebuildCachedRows()
-
-                // Scroll-to-bottom: check if the last message changed
-                // *after* rebuilding rows so the target row already
-                // exists in the renderer's data source.
                 let newLastID = cachedMessageRows.last?.id
-                if newLastID != previousLastID {
+
+                // A pending scroll-to-bottom (set during .task after a
+                // room switch) is consumed unconditionally on the first
+                // messagesVersion bump so the viewport lands at the
+                // latest content as soon as diffs arrive.
+                if pendingScrollToBottom {
+                    pendingScrollToBottom = false
+                    scrollToBottom()
+                } else if newLastID != previousLastID {
                     if viewModel.timelineFocus == .live, !viewModel.isLoadingMore {
-                        if isNearBottom || pendingScrollToBottom {
-                            pendingScrollToBottom = false
+                        if isNearBottom {
                             scrollToBottom()
                         }
                     }
+                }
+
+                if newLastID != previousLastID {
                     markAsReadIfNeeded()
                 }
             }
