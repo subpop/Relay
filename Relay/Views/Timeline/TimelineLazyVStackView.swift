@@ -241,6 +241,11 @@ struct TimelineLazyVStackView: View {
         .onAppear {
             installSwipeMonitor()
             swipeHandler.rows = rows
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                initialLoadComplete = true
+                visibilityTrackingEnabled = true
+            }
         }
         .onDisappear { swipeHandler.stopMonitoring() }
         .onChange(of: rows.count) {
