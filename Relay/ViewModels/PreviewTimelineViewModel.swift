@@ -45,7 +45,7 @@ final class PreviewTimelineViewModel: TimelineViewModelProtocol {
         self.typingUsers = typingUsers
     }
 
-    func loadTimeline(focusedOnEventId fullyReadEventId: String? = nil) async {}
+    func loadTimeline() async {}
     func loadThreadTimeline(rootEventId: String) async {}
     func loadMoreHistory() async {}
     func loadMoreFuture() async {}

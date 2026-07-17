@@ -132,7 +132,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
     // MARK: - Public
 
-    public func loadTimeline(focusedOnEventId fullyReadEventId: String? = nil) async {
+    public func loadTimeline() async {
         if isSuspended {
             await resume()
             return
@@ -141,20 +141,9 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
         isLoading = true
         do {
-            if let fullyReadEventId {
-                // Load timeline focused on the fully-read marker
-                try await setupTimeline(focus: .event(
-                    eventId: fullyReadEventId,
-                    numContextEvents: 50,
-                    threadMode: .automatic(hideThreadedEvents: false)
-                ))
-                timelineFocus = .focusedOnEvent(fullyReadEventId)
-                hasReachedEnd = false
-            } else {
-                try await setupTimeline(focus: .live(hideThreadedEvents: false))
-                timelineFocus = .live
-                hasReachedEnd = true
-            }
+            try await setupTimeline(focus: .live(hideThreadedEvents: false))
+            timelineFocus = .live
+            hasReachedEnd = true
             observeTypingNotifications()
         } catch {
             activityLog?.log(

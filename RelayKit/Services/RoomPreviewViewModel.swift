@@ -212,7 +212,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
 
     // MARK: - TimelineViewModelProtocol (no-op write operations)
 
-    public func loadTimeline(focusedOnEventId fullyReadEventId: String?) async {
+    public func loadTimeline() async {
         // The preview timeline is already loaded by loadPreview(). Just bump
         // the version so TimelineView rebuilds its row cache with the existing
         // messages.

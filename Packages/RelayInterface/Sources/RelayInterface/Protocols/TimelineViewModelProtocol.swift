@@ -64,11 +64,9 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     /// Whether the timeline is showing live messages or focused on a specific event.
     var timelineFocus: TimelineFocusState { get }
 
-    /// Loads the room timeline, restoring cached messages and subscribing to live updates.
-    ///
-    /// - Parameter fullyReadEventId: If provided, the timeline is loaded focused on this event
-    ///   instead of the live edge, allowing the user to catch up from their last read position.
-    func loadTimeline(focusedOnEventId fullyReadEventId: String?) async
+    /// Loads the room timeline in live mode, subscribing to real-time updates
+    /// and restoring cached messages.
+    func loadTimeline() async
 
     /// Loads a thread-scoped timeline showing only the thread root and its replies.
     ///

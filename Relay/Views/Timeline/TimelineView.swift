@@ -308,35 +308,40 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             // the async loadTimeline call reconnects to the SDK.
             rebuildCachedRows()
 
-            // Load focused on the fully-read marker if the user has opted out of "always load newest"
+            // Always load the live timeline first — it is reliable and fast.
+            await viewModel.loadTimeline()
+
+            // If the user has opted out of "always load newest", focus on
+            // their last-read position using focusOnEvent (which properly
+            // tears down the live timeline and rebuilds with event context).
             var focusEventId: String?
             if !readOnly, !alwaysLoadNewest {
                 focusEventId = await matrixService.fullyReadEventId(roomId: roomId)
+                if let focusEventId {
+                    await viewModel.focusOnEvent(eventId: focusEventId)
+                    await scrollToEventWhenAvailable(focusEventId)
+                }
             }
-            await viewModel.loadTimeline(focusedOnEventId: focusEventId)
 
             // Restore scroll position from a previous visit to this room.
             // If the user was scrolled up reading history, jump back to
             // that position instead of snapping to the bottom.
-            let savedAnchor = scrollAnchorStore.take(roomId: roomId)
-            if let savedAnchor, !savedAnchor.isNearBottom, focusEventId == nil {
-                // Yield briefly so the table view has applied its initial
-                // snapshot before we attempt the scroll.
-                try? await Task.sleep(for: .milliseconds(50))
-                if !timelineUseLazyVStack {
-                    tableProxy.scrollToRow(id: savedAnchor.eventId, animated: false)
+            if focusEventId == nil {
+                let savedAnchor = scrollAnchorStore.take(roomId: roomId)
+                if let savedAnchor, !savedAnchor.isNearBottom {
+                    // Yield briefly so the table view has applied its initial
+                    // snapshot before we attempt the scroll.
+                    try? await Task.sleep(for: .milliseconds(50))
+                    if !timelineUseLazyVStack {
+                        tableProxy.scrollToRow(id: savedAnchor.eventId, animated: false)
+                    }
+                    isNearBottom = false
+                } else if timelineUseLazyVStack {
+                    // Let the onChange(of: messagesVersion) handler perform
+                    // the scroll reactively once fresh diffs arrive, instead
+                    // of racing layout with a fixed delay.
+                    pendingScrollToBottom = true
                 }
-                isNearBottom = false
-            } else if timelineUseLazyVStack, focusEventId == nil {
-                // Let the onChange(of: messagesVersion) handler perform
-                // the scroll reactively once fresh diffs arrive, instead
-                // of racing layout with a fixed delay.
-                pendingScrollToBottom = true
-            }
-
-            // After loading, scroll to the focused event and briefly highlight it
-            if let focusEventId {
-                await scrollToEventWhenAvailable(focusEventId)
             }
 
             guard !readOnly else { return }
