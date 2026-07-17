@@ -603,7 +603,8 @@ public final class MatrixService: MatrixServiceProtocol {
             return cached
         }
         guard let room = room(id: roomId) else { return nil }
-        let unreadCount = rooms.first(where: { $0.id == roomId })?.notificationCount ?? 0
+        let summary = rooms.first(where: { $0.id == roomId })
+        let unreadCount = summary?.lastKnownUnreadCount ?? summary?.notificationCount ?? 0
         // swiftlint:disable:next identifier_name
         let vm = TimelineViewModel(
             room: room, currentUserId: userId(),
@@ -931,6 +932,7 @@ public final class MatrixService: MatrixServiceProtocol {
             summary.notificationCount = 0
             summary.highlightCount = 0
             summary.isOptimisticallyCleared = true
+            summary.optimisticClearedAt = .now
         }
 
         let receiptType: ReceiptType = sendPublicReceipt ? .read : .readPrivate

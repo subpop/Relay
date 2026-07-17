@@ -118,6 +118,23 @@ public final class RoomSummary: Identifiable {
     /// accepted rather than suppressed.
     public var optimisticClearedBaseline: UInt = 0
 
+    /// The timestamp at which the room was optimistically marked as read.
+    ///
+    /// Used together with ``isOptimisticallyCleared`` to prevent premature
+    /// acceptance of stale SDK unread counts. The guard is only cleared after
+    /// a cooldown period has elapsed, giving the server time to fully process
+    /// the read receipt.
+    public var optimisticClearedAt: Date?
+
+    /// The last SDK-reported unread notification count, unaffected by
+    /// optimistic clearing.
+    ///
+    /// Always tracks the raw value from the SDK's room info updates. Used
+    /// by ``MatrixService/makeTimelineViewModel(roomId:)`` to compute the
+    /// "New" divider position even when ``notificationCount`` has been
+    /// optimistically set to zero.
+    public var lastKnownUnreadCount: UInt = 0
+
     /// The user's current membership state in this room.
     public var membership: RoomMembership
 

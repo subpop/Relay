@@ -518,15 +518,20 @@ private final class RoomEntry: Identifiable {
         // Skip overwriting the cleared values in that case.
         let sdkNotifications = UInt(info.numUnreadMessages)
         let sdkHighlights = UInt(info.numUnreadMentions)
+        summary.lastKnownUnreadCount = sdkNotifications
         if summary.isOptimisticallyCleared {
-            if sdkNotifications == 0 && sdkHighlights == 0 {
-                // Server confirmed — safe to clear the guard.
+            let cooldownElapsed = summary.optimisticClearedAt
+                .map { Date.now.timeIntervalSince($0) >= 3 } ?? true
+            if sdkNotifications == 0 && sdkHighlights == 0 && cooldownElapsed {
+                // Server confirmed and cooldown elapsed — safe to clear the guard.
                 summary.isOptimisticallyCleared = false
+                summary.optimisticClearedAt = nil
                 summary.highlightCount = 0
             } else if sdkNotifications > summary.optimisticClearedBaseline {
                 // New messages arrived after the read receipt was sent.
                 // Accept the SDK's values and clear the optimistic flag.
                 summary.isOptimisticallyCleared = false
+                summary.optimisticClearedAt = nil
                 summary.notificationCount = sdkNotifications
                 summary.highlightCount = sdkHighlights
             }
