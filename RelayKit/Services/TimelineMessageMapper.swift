@@ -471,11 +471,25 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
 
             // Map the item from scratch (involves FFI calls).
             ffiLookups += 1
+            let itemState = PerformanceSignposts.messageMapper.beginInterval(
+                PerformanceSignposts.MessageMapperName.mapSingleItem
+            )
             if let mapped = mapItem(item) {
                 if mapped.hasUnresolvedReply {
                     pendingReplyFetchIds.insert(mapped.message.eventID)
                 }
                 result.append(mapped.message)
+                PerformanceSignposts.messageMapper.endInterval(
+                    PerformanceSignposts.MessageMapperName.mapSingleItem,
+                    itemState,
+                    "mapped"
+                )
+            } else {
+                PerformanceSignposts.messageMapper.endInterval(
+                    PerformanceSignposts.MessageMapperName.mapSingleItem,
+                    itemState,
+                    "skipped"
+                )
             }
         }
 

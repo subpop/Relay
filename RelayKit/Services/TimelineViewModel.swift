@@ -617,6 +617,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     /// visible until fresh data arrives via the normal diff pipeline.
     func resume() async {
         guard isSuspended else { return }
+        let label = roomLabel
+        let resumeState = PerformanceSignposts.roomSwitch.beginInterval(
+            PerformanceSignposts.RoomSwitchName.resume,
+            "\(label)"
+        )
         activityLog?.log(
             category: .timeline, severity: .info, source: "TimelineViewModel",
             summary: "Resuming timeline for \(roomLabel)",
@@ -629,7 +634,17 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             timelineFocus = .live
             hasReachedEnd = true
             observeTypingNotifications()
+            PerformanceSignposts.roomSwitch.endInterval(
+                PerformanceSignposts.RoomSwitchName.resume,
+                resumeState,
+                "success"
+            )
         } catch {
+            PerformanceSignposts.roomSwitch.endInterval(
+                PerformanceSignposts.RoomSwitchName.resume,
+                resumeState,
+                "failed"
+            )
             activityLog?.log(
                 category: .timeline, severity: .error, source: "TimelineViewModel",
                 summary: "Failed to resume timeline for \(roomLabel)",
@@ -665,6 +680,12 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
     /// Creates a new SDK timeline with the given focus, subscribes to diffs and pagination status.
     private func setupTimeline(focus: TimelineFocus) async throws {
+        let label = roomLabel
+        let setupState = PerformanceSignposts.roomSwitch.beginInterval(
+            PerformanceSignposts.RoomSwitchName.setupTimeline,
+            "\(label)"
+        )
+
         // Create a one-shot stream that the diff observer signals once the
         // first batch of diffs has been applied. Consumers (pagination status
         // observer, focusOnEvent) await this so they never clear `isLoading`
@@ -681,8 +702,18 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             trackReadReceipts: .allEvents,
             reportUtds: false
         )
+
+        let createState = PerformanceSignposts.roomSwitch.beginInterval(
+            PerformanceSignposts.RoomSwitchName.sdkTimelineCreate,
+            "\(label)"
+        )
         // swiftlint:disable:next identifier_name
         let tl = try await room.timelineWithConfiguration(configuration: config)
+        PerformanceSignposts.roomSwitch.endInterval(
+            PerformanceSignposts.RoomSwitchName.sdkTimelineCreate,
+            createState
+        )
+
         sdkTimeline = tl
         observeTimeline(tl)
 
@@ -691,7 +722,15 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         switch focus {
         case .live:
             do {
+                let paginateSubState = PerformanceSignposts.roomSwitch.beginInterval(
+                    PerformanceSignposts.RoomSwitchName.paginationSubscribe,
+                    "\(label)"
+                )
                 try await observePaginationStatus(tl)
+                PerformanceSignposts.roomSwitch.endInterval(
+                    PerformanceSignposts.RoomSwitchName.paginationSubscribe,
+                    paginateSubState
+                )
             } catch {
                 activityLog?.log(
                     category: .timeline, severity: .error, source: "TimelineViewModel",
@@ -702,6 +741,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         default:
             break
         }
+
+        PerformanceSignposts.roomSwitch.endInterval(
+            PerformanceSignposts.RoomSwitchName.setupTimeline,
+            setupState
+        )
     }
 
     // MARK: - Private
@@ -718,11 +762,25 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         let listener = SDKListener<[TimelineDiff]> { diffs in
             continuation.yield(diffs)
         }
+        let label = roomLabel
 
         observationTask = Task { [weak self] in
             guard let self else { return }
 
+            let addListenerState = PerformanceSignposts.roomSwitch.beginInterval(
+                PerformanceSignposts.RoomSwitchName.addListener,
+                "\(label)"
+            )
             self.timelineHandle = await tl.addListener(listener: listener)
+            PerformanceSignposts.roomSwitch.endInterval(
+                PerformanceSignposts.RoomSwitchName.addListener,
+                addListenerState
+            )
+
+            let firstDiffState = PerformanceSignposts.roomSwitch.beginInterval(
+                PerformanceSignposts.RoomSwitchName.firstDiffDelivery,
+                "\(label)"
+            )
 
             // Adaptive diff processing: diffs are applied to `timelineItems`
             // immediately (cheap array mutations). The first diff triggers an
@@ -744,6 +802,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 // consumers waiting on `initialDiffsStream` can proceed.
                 if !hasSignaledInitialDiffs {
                     hasSignaledInitialDiffs = true
+                    PerformanceSignposts.roomSwitch.endInterval(
+                        PerformanceSignposts.RoomSwitchName.firstDiffDelivery,
+                        firstDiffState,
+                        "\(diffs.count) diffs, \(self.timelineItems.count) items"
+                    )
                     self.initialDiffsContinuation?.yield()
                     self.initialDiffsContinuation?.finish()
                     self.initialDiffsContinuation = nil
@@ -776,18 +839,31 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                         isRebuilding = false
 
                         // After the rebuild, if more diffs arrived during the
-                        // background mapping pass, start a short coalesce timer
-                        // to batch any further rapid-fire diffs before the next
-                        // rebuild.
+                        // background mapping pass, either rebuild immediately
+                        // (during initial load when low latency matters most)
+                        // or start a short coalesce timer to batch further
+                        // rapid-fire diffs.
                         if needsRebuild && coalesceTask == nil {
-                            coalesceTask = Task { [weak self] in
-                                try? await Task.sleep(for: Self.diffCoalesceInterval)
-                                guard !Task.isCancelled, let self else { return }
-                                while needsRebuild {
-                                    needsRebuild = false
-                                    await self.rebuildMessages()
+                            if self.isLoading || self.messages.count < 20 {
+                                // Still filling the initial viewport — rebuild
+                                // immediately to avoid a 200ms gap after
+                                // auto-pagination.
+                                needsRebuild = false
+                                await self.rebuildMessages()
+                            }
+                            // If yet more diffs arrived during the immediate
+                            // rebuild (or we're past the initial load), fall
+                            // back to the normal coalesce timer.
+                            if needsRebuild && coalesceTask == nil {
+                                coalesceTask = Task { [weak self] in
+                                    try? await Task.sleep(for: Self.diffCoalesceInterval)
+                                    guard !Task.isCancelled, let self else { return }
+                                    while needsRebuild {
+                                        needsRebuild = false
+                                        await self.rebuildMessages()
+                                    }
+                                    coalesceTask = nil
                                 }
-                                coalesceTask = nil
                             }
                         }
                     }
@@ -836,6 +912,10 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     // non-message items but zero actual messages.
                     let msgLikeCount = self.countMsgLikeItems()
                     if !hitStart && msgLikeCount < 20 && !self.paginationPermanentlyFailed {
+                        let autoPaginateState = PerformanceSignposts.roomSwitch.beginInterval(
+                            PerformanceSignposts.RoomSwitchName.autoPaginate,
+                            "\(self.roomLabel) (\(msgLikeCount) msgs, need 20)"
+                        )
                         // Fetch only enough events to fill the viewport.
                         // The threshold is 20 msgLike items, so request
                         // slightly more to account for non-message events
@@ -845,6 +925,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                         if !succeeded {
                             self.paginationPermanentlyFailed = true
                         }
+                        PerformanceSignposts.roomSwitch.endInterval(
+                            PerformanceSignposts.RoomSwitchName.autoPaginate,
+                            autoPaginateState,
+                            "needed \(needed), succeeded: \(succeeded)"
+                        )
                     }
                     if self.isLoading && (hitStart || msgLikeCount >= 20 || self.paginationPermanentlyFailed) {
                         // The initial auto-pagination loop has settled — either

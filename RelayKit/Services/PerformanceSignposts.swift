@@ -112,4 +112,27 @@ nonisolated enum PerformanceSignposts: Sendable {
         /// Full media content fetch.
         static let mediaContent: StaticString = "mediaContent"
     }
+
+    // MARK: - Room Switch
+
+    /// Signposts for room-switch latency diagnosis.
+    static let roomSwitch = OSSignposter(subsystem: subsystem, category: "RoomSwitch")
+
+    /// Names for room switch signpost intervals.
+    nonisolated enum RoomSwitchName: Sendable {
+        /// End-to-end resume (from `resume()` entry to SDK subscriptions established).
+        static let resume: StaticString = "resume"
+        /// The full `setupTimeline(focus:)` call including SDK creation and subscriptions.
+        static let setupTimeline: StaticString = "setupTimeline"
+        /// The `room.timelineWithConfiguration()` FFI call into the Rust SDK.
+        static let sdkTimelineCreate: StaticString = "sdkTimelineCreate"
+        /// The `tl.addListener()` call that registers the diff observer.
+        static let addListener: StaticString = "addListener"
+        /// The gap from listener registration to the first diff batch arriving.
+        static let firstDiffDelivery: StaticString = "firstDiffDelivery"
+        /// The `tl.subscribeToBackPaginationStatus()` FFI call.
+        static let paginationSubscribe: StaticString = "paginationSubscribe"
+        /// Auto-pagination cycles when initial content is insufficient.
+        static let autoPaginate: StaticString = "autoPaginate"
+    }
 }
