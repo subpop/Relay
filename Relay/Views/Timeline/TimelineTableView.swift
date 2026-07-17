@@ -203,16 +203,12 @@ final class TimelineTableViewController: NSViewController {
     /// ``updateRows(_:)``.
     private var rowIDs: [String] = []
 
-    /// Sentinel identifier for the typing indicator row in the diffable
-    /// data source snapshot. Must not collide with any real message ID.
-    static let typingSentinelID = "__typing__"
-
     /// Whether the forward pagination sentinel should be active.
     var hasReachedEnd = true
 
-    /// The users currently typing in this room. When non-empty, a synthetic
-    /// typing indicator row is prepended to the snapshot (newest = index 0).
-    private(set) var typingUsers: [TypingUser] = []
+    /// Whether the typing indicator overlay is visible. When `true`, extra
+    /// bottom content inset is applied so messages scroll above the overlay.
+    private(set) var typingIndicatorShown = false
 
     /// Observable swipe state shared with `TimelineRowView` instances.
     let swipeState = TimelineSwipeState()
@@ -221,14 +217,34 @@ final class TimelineTableViewController: NSViewController {
     /// content can scroll underneath overlapping SwiftUI chrome (toolbar,
     /// compose bar). Set by the representable when the safe area changes.
     var contentInsets: NSEdgeInsets = .init() {
-        didSet {
+        didSet { applyContentInsets(animated: true) }
+    }
+
+    /// Height reserved for the typing indicator overlay. Added to the
+    /// bottom content inset so messages scroll above the overlay.
+    private var typingInsetHeight: CGFloat = 0
+
+    /// Applies the combined base + typing insets to the scroll view.
+    private func applyContentInsets(animated: Bool) {
+        var combined = contentInsets
+        combined.bottom += typingInsetHeight
+        if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
-                scrollView.contentInsets = contentInsets
+                scrollView.contentInsets = combined
             }
+        } else {
+            scrollView.contentInsets = combined
         }
+    }
+
+    /// Updates the bottom content inset to reserve space for the typing
+    /// indicator overlay when it is visible.
+    private func updateTypingInset() {
+        typingInsetHeight = typingIndicatorShown ? 44 : 0
+        applyContentInsets(animated: true)
     }
 
     var callbacks = Callbacks()
@@ -371,27 +387,7 @@ final class TimelineTableViewController: NSViewController {
         dataSource = .init(tableView: tableView) { [weak self] tableView, _, row, identifier in
             guard let self else { return NSView() }
 
-            // Typing indicator sentinel — renders a TypingIndicatorRowView
-            // instead of a TimelineRowView.
-            if identifier == Self.typingSentinelID {
-                let typingView = TypingIndicatorRowView(users: self.typingUsers)
-                let reuseID = NSUserInterfaceItemIdentifier("typing")
-                if let recycled = tableView.makeView(withIdentifier: reuseID, owner: self)
-                    as? NSHostingView<TypingIndicatorRowView> {
-                    recycled.rootView = typingView
-                    return recycled
-                }
-                let hostView = NSHostingView(rootView: typingView)
-                hostView.identifier = reuseID
-                hostView.sizingOptions = [.standardBounds]
-                hostView.autoresizingMask = [.width, .height]
-                hostView.setContentHuggingPriority(.required, for: .vertical)
-                return hostView
-            }
-
-            // Adjust the row index to account for the typing sentinel
-            // occupying row 0 when present.
-            let messageIndex = self.typingUsers.isEmpty ? row : row - 1
+            let messageIndex = row
             guard messageIndex >= 0, messageIndex < self.rows.count else { return NSView() }
 
             let messageRow = self.rows[messageIndex]
@@ -439,13 +435,13 @@ final class TimelineTableViewController: NSViewController {
         category: "TimelineTable"
     )
 
-    func updateRows(_ newRows: [MessageRow], typingUsers: [TypingUser] = []) {
+    func updateRows(_ newRows: [MessageRow], typingIndicatorShown: Bool = false) {
         // If the scroll view hasn't been laid out yet, defer until it has.
         // Applying the snapshot now would call `heightOfRow` before the
         // column has its final width, producing wildly wrong measurements.
         if scrollView.frame.width < 1 {
             DispatchQueue.main.async { [weak self] in
-                self?.updateRows(newRows, typingUsers: typingUsers)
+                self?.updateRows(newRows, typingIndicatorShown: typingIndicatorShown)
             }
             return
         }
@@ -455,8 +451,16 @@ final class TimelineTableViewController: NSViewController {
             "\(newRows.count) rows"
         )
 
-        let oldTypingUsers = self.typingUsers
-        self.typingUsers = typingUsers
+        let oldTypingShown = self.typingIndicatorShown
+        self.typingIndicatorShown = typingIndicatorShown
+        let typingChanged = oldTypingShown != typingIndicatorShown
+
+        // Update the typing inset immediately so the scroll view reserves
+        // space for (or reclaims space from) the overlay regardless of
+        // whether the row identity list changed.
+        if typingChanged {
+            updateTypingInset()
+        }
 
         // Deduplicate rows by ID, keeping only the last occurrence of each
         // event (the most up-to-date version). The SDK may deliver duplicate
@@ -474,21 +478,9 @@ final class TimelineTableViewController: NSViewController {
         }
 
         let oldRows = rows
-        let oldMessageIDs = rowIDs
+        let oldIDs = rowIDs
         rows = deduplicatedRows
-        let newMessageIDs = rowIDs
-
-        // Build full snapshot ID lists including the typing sentinel.
-        // `rowIDs` only contains message IDs; the sentinel is layered on
-        // top for the diffable data source but doesn't affect row indexing.
-        let oldSnapshot = dataSource?.snapshot()
-        let hadTypingSentinel = oldSnapshot?.itemIdentifiers.first == Self.typingSentinelID
-        let hasTypingSentinel = !typingUsers.isEmpty
-
-        var oldIDs = oldMessageIDs
-        if hadTypingSentinel { oldIDs.insert(Self.typingSentinelID, at: 0) }
-        var newIDs = newMessageIDs
-        if hasTypingSentinel { newIDs.insert(Self.typingSentinelID, at: 0) }
+        let newIDs = rowIDs
 
         // Check whether the data source already has a populated snapshot.
         // When a cached view model provides rows immediately,
@@ -498,7 +490,7 @@ final class TimelineTableViewController: NSViewController {
         // oldIDs == newIDs and takes the content-only fast path — but no
         // rows are visible because the snapshot is still empty.  Detecting
         // an empty snapshot here forces a full structural update.
-        let snapshotIsEmpty = (oldSnapshot?.numberOfItems ?? 0) == 0
+        let snapshotIsEmpty = (dataSource?.snapshot().numberOfItems ?? 0) == 0
 
         if oldIDs == newIDs && !snapshotIsEmpty {
             // Content-only update (reactions, read receipts, edits).
@@ -506,25 +498,13 @@ final class TimelineTableViewController: NSViewController {
             // avoid unnecessary NSHostingView re-renders that cause
             // flickering.
             let visible = tableView.rows(in: tableView.visibleRect)
-            // The sentinel (if present) occupies table row 0 but has no
-            // entry in `rows`/`oldRows`. Offset message comparisons
-            // accordingly and skip the sentinel row itself.
-            let sentinelOffset = hasTypingSentinel ? 1 : 0
             if visible.length > 0 {
                 var changedIndexes = IndexSet()
                 for idx in visible.lowerBound ..< visible.upperBound {
-                    if idx < sentinelOffset { continue }
-                    let mi = idx - sentinelOffset
-                    guard mi < rows.count, mi < oldRows.count else { continue }
-                    if rows[mi] != oldRows[mi] {
+                    guard idx < rows.count, idx < oldRows.count else { continue }
+                    if rows[idx] != oldRows[idx] {
                         changedIndexes.insert(idx)
                     }
-                }
-
-                // Also reload the sentinel if typing users changed.
-                if hasTypingSentinel, visible.contains(0),
-                   typingUsers != oldTypingUsers {
-                    changedIndexes.insert(0)
                 }
 
                 guard !changedIndexes.isEmpty else {
@@ -533,12 +513,15 @@ final class TimelineTableViewController: NSViewController {
                         updateState,
                         "content-only: no changes"
                     )
+                    if typingChanged, isNearBottom {
+                        scrollToBottom(animated: true)
+                    }
                     return
                 }
 
                 let scrollBefore = scrollView.contentView.bounds.origin
-                for idx in changedIndexes where idx >= sentinelOffset {
-                    invalidateHeight(for: rows[idx - sentinelOffset].id)
+                for idx in changedIndexes {
+                    invalidateHeight(for: rows[idx].id)
                 }
                 tableView.reloadData(
                     forRowIndexes: changedIndexes,
@@ -572,13 +555,12 @@ final class TimelineTableViewController: NSViewController {
         // Detect messages appended at the bottom (newest end) while in live
         // mode after the initial load.  These IDs are exposed to row views
         // so they can play an entry animation.
-        if isLive && hasScrolledToBottom && !oldMessageIDs.isEmpty {
+        if isLive && hasScrolledToBottom && !oldIDs.isEmpty {
             // newIDs is reversed (newest = index 0).  Walk from the front
             // and collect IDs that didn't exist in the previous snapshot.
-            // Skip the typing sentinel — it's not a real message.
-            let oldMessageSet = Set(oldMessageIDs)
+            let oldMessageSet = Set(oldIDs)
             var appended: Set<String> = []
-            for id in newMessageIDs {
+            for id in newIDs {
                 if oldMessageSet.contains(id) { break }
                 appended.insert(id)
             }
@@ -597,14 +579,13 @@ final class TimelineTableViewController: NSViewController {
         // avoid distracting movement during regular use.
         let oldSet = Set(oldIDs)
         let overlap = oldSet.intersection(newIDs).count
-        let typingChanged = hadTypingSentinel != hasTypingSentinel
         let isReplacement = !oldIDs.isEmpty && !snapshotIsEmpty
             && overlap < oldIDs.count / 2
 
         var snapshot = NSDiffableDataSourceSnapshot<Section, String>()
         snapshot.appendSections([.main])
         snapshot.appendItems(newIDs, toSection: .main)
-        dataSource?.apply(snapshot, animatingDifferences: isReplacement || typingChanged)
+        dataSource?.apply(snapshot, animatingDifferences: isReplacement)
 
         Self.perfSignposter.endInterval(
             "updateRows" as StaticString,
@@ -643,7 +624,7 @@ final class TimelineTableViewController: NSViewController {
     /// offset by the bottom content inset so the newest row sits above
     /// the compose bar.
     func scrollToBottom(animated: Bool = true) {
-        let bottomPoint = NSPoint(x: 0, y: -contentInsets.bottom)
+        let bottomPoint = NSPoint(x: 0, y: -scrollView.contentInsets.bottom)
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
@@ -661,7 +642,7 @@ final class TimelineTableViewController: NSViewController {
     /// in the visible area.
     func scrollToRow(id: String, animated: Bool = true) {
         guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
-        let tableRow = index + (typingUsers.isEmpty ? 0 : 1)
+        let tableRow = index
         let rowRect = tableView.rect(ofRow: tableRow)
         let visibleHeight = scrollView.contentView.bounds.height
         // Center the row vertically within the visible area.
@@ -683,13 +664,10 @@ final class TimelineTableViewController: NSViewController {
         }
     }
 
-    /// Converts a table-view row index to a `rows` array index, accounting
-    /// for the typing sentinel occupying row 0 when present.
+    /// Converts a table-view row index to a `rows` array index.
     private func messageIndex(forTableRow tableRow: Int) -> Int? {
-        let offset = typingUsers.isEmpty ? 0 : 1
-        let mi = tableRow - offset
-        guard mi >= 0, mi < rows.count else { return nil }
-        return mi
+        guard tableRow >= 0, tableRow < rows.count else { return nil }
+        return tableRow
     }
 
     // MARK: - Scroll Anchor
@@ -766,12 +744,8 @@ final class TimelineTableViewController: NSViewController {
     /// is created or recycled, so swipe state changes during the gesture
     /// must be pushed manually to the already-rendered `NSHostingView`.
     private func updateSwipeRowView(at row: Int) {
-        // `row` here is a `rows` array index (not a table row index),
-        // because callers pass `rows.firstIndex(...)` results. Add the
-        // sentinel offset to get the correct table row.
-        let tableRow = row + (typingUsers.isEmpty ? 0 : 1)
         guard row >= 0, row < rows.count,
-              let hostView = tableView.view(atColumn: 0, row: tableRow, makeIfNecessary: false)
+              let hostView = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
                 as? NSHostingView<TimelineRowView> else { return }
         let messageRow = rows[row]
         let offset: CGFloat = swipeState.swipingMessageId == messageRow.id ? swipeState.offset : 0
@@ -805,17 +779,14 @@ final class TimelineTableViewController: NSViewController {
         var targetWidth = tableView.tableColumns.first?.width ?? 0
         if targetWidth < 1 { targetWidth = scrollView.frame.width }
         let roundedWidth = targetWidth.rounded()
-        let sentinelOffset = typingUsers.isEmpty ? 0 : 1
 
         for idx in visible.lowerBound ..< visible.upperBound {
-            if idx < sentinelOffset { continue }
-            let mi = idx - sentinelOffset
-            guard mi < rows.count else { continue }
+            guard idx < rows.count else { continue }
             if let cell = tableView.view(atColumn: 0, row: idx, makeIfNecessary: false)
                 as? NSHostingView<TimelineRowView> {
                 let h = cell.fittingSize.height
                 if h > 0 {
-                    heightCache[HeightCacheKey(rows[mi].id, roundedWidth)] = h
+                    heightCache[HeightCacheKey(rows[idx].id, roundedWidth)] = h
                 }
             }
         }
@@ -832,8 +803,7 @@ final class TimelineTableViewController: NSViewController {
     /// state, so it returns the full expanded (or collapsed) height.
     func remeasureRow(forMessageID id: String) {
         guard let messageIndex = rows.firstIndex(where: { $0.id == id }) else { return }
-        let sentinelOffset = typingUsers.isEmpty ? 0 : 1
-        let rowIndex = messageIndex + sentinelOffset
+        let rowIndex = messageIndex
 
         // Defer so the live hosting cell has settled its SwiftUI re-render
         // before we note the new height (matches the resize handler).
@@ -940,13 +910,7 @@ extension TimelineTableViewController: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        // The typing sentinel occupies table row 0 when present.
-        // Return a fixed estimate; the hosting view's sizingOptions
-        // will refine it automatically.
-        let sentinelOffset = typingUsers.isEmpty ? 0 : 1
-        if !typingUsers.isEmpty && row == 0 { return 44 }
-
-        let messageIndex = row - sentinelOffset
+        let messageIndex = row
         guard messageIndex >= 0, messageIndex < rows.count else { return 44 }
 
         var targetWidth = tableView.tableColumns.first?.width ?? 0

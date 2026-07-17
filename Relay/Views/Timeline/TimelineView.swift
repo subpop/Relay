@@ -651,7 +651,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 highlightedMessageId: highlightedMessageId,
                 showURLPreviews: showURLPreviews,
                 actions: timelineActionsRef,
-                viewModel: viewModel,
+                typingIndicatorShown: isTypingRevealed,
                 onAppear: { row in advanceFullyReadMarker(to: row.message.eventID) },
                 onNearBottomChanged: { nearBottom in
                     isNearBottom = nearBottom

@@ -33,9 +33,9 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
     /// The consolidated timeline interaction callbacks.
     let actions: TimelineActions
 
-    /// The view model, used to observe typing state for the synthetic
-    /// typing indicator row without invalidating the parent view's body.
-    let viewModel: any TimelineViewModelProtocol
+    /// Whether the typing indicator overlay is currently visible. Drives
+    /// the extra bottom content inset on the table view.
+    let typingIndicatorShown: Bool
 
     /// Called when a row appears on screen (for read receipt advancement).
     var onAppear: (MessageRow) -> Void
@@ -53,7 +53,7 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
         vc.hasReachedEnd = hasReachedEnd
         vc.isLive = isLive
         configureCallbacks(vc, context: context)
-        vc.updateRows(rows, typingUsers: viewModel.typingUsers)
+        vc.updateRows(rows, typingIndicatorShown: typingIndicatorShown)
         scrollProxy.controller = vc
         return vc
     }
@@ -62,7 +62,7 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
         vc.hasReachedEnd = hasReachedEnd
         vc.isLive = isLive
         configureCallbacks(vc, context: context)
-        vc.updateRows(rows, typingUsers: viewModel.typingUsers)
+        vc.updateRows(rows, typingIndicatorShown: typingIndicatorShown)
         // Ensure the proxy always points to the current controller.
         scrollProxy.controller = vc
     }
