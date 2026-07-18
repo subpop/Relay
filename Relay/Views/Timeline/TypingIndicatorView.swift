@@ -60,15 +60,17 @@ struct TypingIndicatorRowView: View {
 
     // MARK: - Bubble
 
+    private var userColors: [Color] {
+        users.prefix(3).map { Color(stableColorFor: $0.id) }
+    }
+
     private var typingBubble: some View {
-        TypingBubble()
+        TypingBubble(colors: userColors)
             .padding(.horizontal, BubbleStyle.horizontalPadding)
             .padding(.vertical, 12)
             .background {
-                BreathingColorBackground(
-                    colors: users.prefix(3).map { Color(stableColorFor: $0.id) }
-                )
-                .clipShape(BubbleStyle.shape)
+                BreathingColorBackground(colors: userColors)
+                    .clipShape(BubbleStyle.shape)
             }
     }
 }
@@ -95,9 +97,7 @@ struct BreathingColorBackground: View {
                 let mixAmount = sin(userProgress * .pi)
                 let userColor = colors[userIndex]
 
-                Color(.unemphasizedSelectedContentBackgroundColor)
-                    .opacity(1 - mixAmount)
-                    .overlay(Color(userColor).opacity(mixAmount))
+                userColor.opacity(0.25 + 0.25 * mixAmount)
             }
         }
     }
@@ -107,15 +107,22 @@ struct BreathingColorBackground: View {
 
 struct TypingBubble: View {
     private let startDate = Date()
+    let colors: [Color]
 
     var body: some View {
         SwiftUI.TimelineView(.animation) { context in
             let elapsed = context.date.timeIntervalSince(startDate)
+            let breatheDuration = 3.0
+            let cycleDuration = breatheDuration * Double(max(colors.count, 1))
+            let progress = (elapsed.truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
+            let userIndex = min(Int(progress * Double(max(colors.count, 1))), max(colors.count - 1, 0))
+            let dotColor = colors.isEmpty ? Color.secondary : colors[userIndex]
+
             HStack(spacing: 5) {
                 ForEach((0..<3).reversed(), id: \.self) { index in
                     let phase = dotPhase(elapsed: elapsed, index: index)
                     Circle()
-                        .fill(.secondary)
+                        .fill(dotColor)
                         .frame(width: 8, height: 8)
                         .scaleEffect(0.6 + 0.4 * phase)
                         .opacity(0.4 + 0.6 * phase)
@@ -126,7 +133,7 @@ struct TypingBubble: View {
 
     /// Returns a 0...1 pulsing value for each dot, staggered by index.
     private func dotPhase(elapsed: TimeInterval, index: Int) -> Double {
-        let period = 1.8 // full cycle duration in seconds
+        let period = 3.0
         let delay = Double(index) * 0.15
         // swiftlint:disable:next identifier_name
         let t = (elapsed + delay).truncatingRemainder(dividingBy: period) / period
