@@ -447,14 +447,21 @@ struct CallView: View {
             }
 
             // Live captions toggle (on-device speech-to-text via SpeechAnalyzer)
-            controlButton(
-                icon: viewModel.isCaptionsEnabled ? "captions.bubble.fill" : "captions.bubble",
-                isActive: viewModel.isCaptionsEnabled,
-                help: viewModel.isCaptionsEnabled ? "Hide Captions" : "Show Captions"
-            ) {
+            Button {
                 let next = !viewModel.isCaptionsEnabled
                 Task { await viewModel.setCaptionsEnabled(next) }
+            } label: {
+                Image(systemName: viewModel.isCaptionsEnabled ? "captions.bubble.fill" : "captions.bubble.fill")
+                    .font(.title3)
+                    .foregroundStyle(viewModel.isCaptionsEnabled ? .black : .white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        viewModel.isCaptionsEnabled ? Color.white : Color.white.opacity(0.15),
+                        in: Circle()
+                    )
             }
+            .buttonStyle(.plain)
+            .help(viewModel.isCaptionsEnabled ? "Hide Captions" : "Show Captions")
 
             // End call
             Button {
