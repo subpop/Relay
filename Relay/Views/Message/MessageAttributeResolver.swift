@@ -46,7 +46,7 @@ extension MessageTextView {
         let result = NSMutableAttributedString(attributedString: source)
         let fullRange = NSRange(location: 0, length: result.length)
         let keys = NSAttributedString.Key.self
-        let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let baseFont = MessageTextScale.baseFont
 
         // Muted color for blockquote text content.
         let mutedForeground = foreground.withAlphaComponent(0.75)

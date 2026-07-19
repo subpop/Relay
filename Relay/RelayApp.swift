@@ -58,6 +58,7 @@ struct RelayApp: App {
             QuickSwitchCommand(appActions: appActions)
             SidebarCommands()
             InspectorCommands()
+            TextSizeCommands()
             CommandGroup(before: .appTermination) {
                 Button("Clear Cache…") {
                     showClearCacheConfirmation = true
@@ -445,6 +446,35 @@ struct QuickSwitchCommand: Commands {
                 appActions.showQuickSwitch = true
             }
             .keyboardShortcut("k", modifiers: .command)
+        }
+    }
+}
+
+// MARK: - Text Size Commands
+
+/// Adds message text-zoom items to the View menu: Increase Text Size (⌘+),
+/// Reset Text Size (⌥⌘0), and Decrease Text Size (⌘−).
+///
+/// Each adjusts ``MessageTextScale``, which rescales the conversation text,
+/// mention pills, and the compose field together.
+struct TextSizeCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Divider()
+            Button("Increase Text Size") {
+                MessageTextScale.increase()
+            }
+            .keyboardShortcut("+", modifiers: .command)
+
+            Button("Reset Text Size") {
+                MessageTextScale.reset()
+            }
+            .keyboardShortcut("0", modifiers: [.option, .command])
+
+            Button("Decrease Text Size") {
+                MessageTextScale.decrease()
+            }
+            .keyboardShortcut("-", modifiers: .command)
         }
     }
 }

@@ -110,7 +110,7 @@ extension NSAttributedString {
 
         // 4. Bridge to NSAttributedString and resolve InlinePresentationIntent
         //    into concrete AppKit fonts and decorations.
-        let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let baseFont = MessageTextScale.baseFont
         let result = NSMutableAttributedString(attributedString: NSAttributedString(source))
         let fullRange = NSRange(location: 0, length: result.length)
 
@@ -360,7 +360,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
 
                 case "blockquote":
                     blockquoteDepth += 1
-                    let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                    let baseFont = MessageTextScale.baseFont
                     let barString = "\u{2502} "
                     let barWidth = (barString as NSString)
                         .size(withAttributes: [.font: baseFont]).width
@@ -392,7 +392,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                     let separator = NSAttributedString(
                         string: "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
                         attributes: [
-                            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                            .font: MessageTextScale.baseFont,
                             .foregroundColor: NSColor.separatorColor
                         ]
                     )
@@ -417,7 +417,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                             marker = "\(bullets[min(depth - 1, bullets.count - 1)]) "
                         }
                         ensureNewline(in: result)
-                        let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                        let baseFont = MessageTextScale.baseFont
                         let markerWidth = (marker as NSString)
                             .size(withAttributes: [.font: baseFont]).width
                         let basePad: CGFloat = 6.0
@@ -523,7 +523,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                                 }
                             }
                             // Apply paragraph style for blockquote wrapping.
-                            let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                            let baseFont = MessageTextScale.baseFont
                             let barWidth = ("\u{2502} " as NSString)
                                 .size(withAttributes: [.font: baseFont]).width
                             let style = NSMutableParagraphStyle()
@@ -571,7 +571,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                             let level = Int(String(tag.last!))!
                             let scales: [CGFloat] = [1.5, 1.35, 1.2, 1.1, 1.05, 1.0]
                             let scale = scales[min(level - 1, scales.count - 1)]
-                            let headingSize = NSFont.systemFontSize * scale
+                            let headingSize = MessageTextScale.baseFontSize * scale
                             let headingFont = NSFont.boldSystemFont(ofSize: headingSize)
                             result.addAttribute(.font, value: headingFont, range: range)
                             let style = NSMutableParagraphStyle()
@@ -599,7 +599,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                             // Re-derive the paragraph style for this list depth.
                             let depth = listStack.count
                             if depth > 0 {
-                                let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                                let baseFont = MessageTextScale.baseFont
                                 // Use a placeholder marker to measure width consistently.
                                 let sampleMarker = listStack[depth - 1].ordered ? "0. " : "\u{2022} "
                                 let markerWidth = (sampleMarker as NSString)
@@ -664,7 +664,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func buildAttributes(from style: Style) -> [NSAttributedString.Key: Any] {
-        let baseSize = NSFont.systemFontSize
+        let baseSize = MessageTextScale.baseFontSize
         var attrs: [NSAttributedString.Key: Any] = [:]
 
         // Font

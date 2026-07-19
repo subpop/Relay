@@ -60,9 +60,9 @@ struct ComposeTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainerInset = NSSize(width: 8, height: 10)
-        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.font = MessageTextScale.baseFont
         textView.typingAttributes = [
-            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .font: MessageTextScale.baseFont,
             .foregroundColor: NSColor.textColor,
         ]
         textView.placeholderString = "Message"
@@ -78,6 +78,7 @@ struct ComposeTextView: NSViewRepresentable {
         scrollView.linkedTextView = textView
 
         context.coordinator.textView = textView
+        context.coordinator.startObservingTextScale()
 
         // Expose the mention insertion closure to the parent view.
         // Safe to assign synchronously because `insertMentionHandler` is
@@ -170,6 +171,35 @@ struct ComposeTextView: NSViewRepresentable {
             self.parent = parent
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        /// Re-applies the compose font and re-measures the field whenever the
+        /// timeline text-zoom level changes, so the compose bar scales in step
+        /// with the conversation.
+        func startObservingTextScale() {
+            NotificationCenter.default.removeObserver(
+                self, name: MessageTextScale.didChangeNotification, object: nil
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(textScaleDidChange),
+                name: MessageTextScale.didChangeNotification,
+                object: nil
+            )
+        }
+
+        @objc private func textScaleDidChange() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let font = Coordinator.composeFontForText(parent.text)
+            applyFont(font, to: storage)
+            textView.typingAttributes[.font] = font
+            textView.font = font
+            textView.recalculateHeight()
+            parent.onHeightChange?(textView.cachedHeight)
+        }
+
         // MARK: - Plain Text Extraction
 
         /// Extracts plain text from the text storage, replacing pill attachments
@@ -220,9 +250,9 @@ struct ComposeTextView: NSViewRepresentable {
         static func composeFontForText(_ text: String) -> NSFont {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty && trimmed.isEmojiOnly {
-                return .systemFont(ofSize: emojiFontSize)
+                return .systemFont(ofSize: emojiFontSize * MessageTextScale.scale)
             }
-            return .systemFont(ofSize: NSFont.systemFontSize)
+            return MessageTextScale.baseFont
         }
 
         /// Applies a font to the entire text storage, skipping pill attachments.
