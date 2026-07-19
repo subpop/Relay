@@ -910,17 +910,28 @@ final class TimelineTableViewController: NSViewController {
 
     // MARK: - Text Zoom
 
-    /// Coalesces a burst of text-zoom changes (e.g. holding or repeating ⌘+)
-    /// into a single re-measure, since re-rendering and re-measuring every row
-    /// is main-thread work. Chrome already re-renders live via `@AppStorage`;
-    /// this trailing pass fixes the row heights once the scale settles.
+    /// Timestamp of the last immediate zoom-step viewport refresh (throttle).
+    private var lastZoomRefresh = Date.distantPast
+
+    /// Responds to a text-zoom step. The chrome scales on the same frame via
+    /// `@AppStorage`, so the message text lagging behind it reads as jank:
+    /// drop the stale-font caches and refresh the *visible* rows immediately
+    /// (throttled so holding ⌘+ doesn't re-parse the viewport at key-repeat
+    /// rate). The full-timeline pass — re-parsing and re-measuring every row
+    /// is main-thread work — runs once, after the burst settles. It drops the
+    /// parse caches again because a throttle-skipped final step leaves
+    /// intermediate-scale parses in the cache.
     @objc private func messageTextScaleDidChange() {
+        if Date().timeIntervalSince(lastZoomRefresh) > 0.1 {
+            lastZoomRefresh = Date()
+            MessageBubbleContent.invalidateParseCaches()
+            MessageTextView.invalidateSizeCaches()
+            refreshVisibleRows(reloadCells: true)
+        }
         textScaleRemeasureTask?.cancel()
         textScaleRemeasureTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(60))
+            try? await Task.sleep(for: .milliseconds(250))
             guard let self, !Task.isCancelled else { return }
-            // Zoom changes the font but not the width, so nothing re-renders on
-            // its own — reload the cells and drop the (now stale-font) parse caches.
             self.remeasureAllRows(reloadCells: true, dropParseCaches: true)
         }
     }
@@ -1028,7 +1039,7 @@ final class TimelineTableViewController: NSViewController {
                 // Defer one turn: this runs from inside the table's layout()
                 // pass, and noteHeightOfRows must not re-enter layout.
                 Task { @MainActor [weak self] in
-                    self?.remeasureVisibleRows()
+                    self?.refreshVisibleRows(reloadCells: false)
                 }
             }
             return
@@ -1048,32 +1059,50 @@ final class TimelineTableViewController: NSViewController {
     /// Timestamp of the last mid-drag visible-row height pass (throttle).
     private var lastLiveResizeRemeasure = Date.distantPast
 
-    /// Lightweight height correction for the rows currently on screen, used
-    /// while a live window-resize drag is in progress. Skips the cell reload
-    /// (the live cells re-wrap on their own as the column tracks the drag) and
-    /// leaves off-screen rows to the full pass on drag end.
-    private func remeasureVisibleRows() {
+    /// Lightweight refresh of just the rows currently on screen, used mid-burst
+    /// (a live window-resize drag, a text-zoom step) so the viewport responds
+    /// immediately while the full-timeline pass waits for the burst to end.
+    ///
+    /// - Parameter reloadCells: When `true`, reassigns the visible cells'
+    ///   `rootView` so their content re-renders (needed when the *font* changed
+    ///   on a zoom step). A resize drag passes `false`: the live cells re-wrap
+    ///   on their own as the column tracks the drag, and reloading would snap
+    ///   them back to a stale layout mid-drag.
+    private func refreshVisibleRows(reloadCells: Bool) {
         let visible = tableView.rows(in: tableView.visibleRect)
         guard visible.length > 0 else { return }
         let wasNearBottom = isNearBottom
+        let anchorRow = visible.location
+        let anchorOffset = anchorRow >= 0
+            ? tableView.rect(ofRow: anchorRow).minY - tableView.visibleRect.minY
+            : 0
 
         // The shared host caches its height when only the width proposal
-        // changes, so it must be rebuilt for the new width.
+        // changes, so it must be rebuilt for the new width/scale.
         measurementHost = nil
         let upper = min(visible.upperBound, rows.count)
         guard visible.lowerBound < upper else { return }
+        let indexes = IndexSet(integersIn: visible.lowerBound ..< upper)
         for idx in visible.lowerBound ..< upper {
             invalidateHeight(for: rows[idx].id)
+        }
+        if reloadCells {
+            tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
-            tableView.noteHeightOfRows(
-                withIndexesChanged: IndexSet(integersIn: visible.lowerBound ..< upper)
-            )
+            tableView.noteHeightOfRows(withIndexesChanged: indexes)
         }
         if wasNearBottom {
             scrollToBottom(animated: false)
+        } else if anchorRow >= 0, anchorRow < rows.count {
+            let targetY = tableView.rect(ofRow: anchorRow).minY - anchorOffset
+            let current = scrollView.contentView.bounds.origin
+            if abs(current.y - targetY) > 0.5 {
+                scrollView.contentView.scroll(to: CGPoint(x: 0, y: targetY))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         }
     }
 
