@@ -288,7 +288,6 @@ final class TimelineTableViewController: NSViewController {
     /// ``viewDidLayout`` watches it so those changes still trigger a re-measure.
     private var lastRenderWidth: CGFloat = 0
 
-    /// Coalesces rapid resize events so only the final one runs.
     /// Coalesces a live window-resize drag into one re-measure once it settles.
     private var resizeRemeasureTask: Task<Void, Never>?
     /// Coalesces bursts of text-zoom changes into one re-measure pass.
@@ -296,9 +295,9 @@ final class TimelineTableViewController: NSViewController {
 
     /// A reusable hosting controller used to measure SwiftUI row heights
     /// for rows that don't have a live cell on screen. Only used as a
-    /// fallback when no cached height exists. Using the concrete
-    /// ``TimelineRowView`` type avoids `AnyView` type-erasure overhead
-    /// and lets SwiftUI reuse the internal view hierarchy between measurements.
+    /// fallback when no cached height exists. Wrapped in `AnyView` so the
+    /// measured row can be pinned to a fixed `.frame(width:)` matching the
+    /// live cell's wrap width.
     private var measurementHost: NSHostingController<AnyView>?
 
     /// Caches measured row heights keyed on `(messageID, roundedWidth)`.

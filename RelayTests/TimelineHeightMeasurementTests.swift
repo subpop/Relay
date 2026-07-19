@@ -114,8 +114,7 @@ struct TimelineHeightMeasurementTests {
     /// Capping the attachment to the line box keeps a pill line the same height
     /// as a normal text line. (TextKit "grow-and-shift" keeps the pill inside the
     /// used rect either way, so line growth — not a draw-overhang — is the defect.)
-    @Test
-    func mentionPillDoesNotGrowLineHeight() {
+    @Test func mentionPillDoesNotGrowLineHeight() {
         // The same short message on one line (600pt-wide container) as plain
         // text and with a leading mention pill.
         let plain = layout(
@@ -141,8 +140,7 @@ struct TimelineHeightMeasurementTests {
     /// Direct unit invariant: a pill's attachment bounds must fit inside the
     /// font line box (top ≤ ascender, bottom ≥ descender) so it can never
     /// overhang whatever line it lands on.
-    @Test
-    func pillAttachmentBoundsFitWithinFontLineBox() {
+    @Test func pillAttachmentBoundsFitWithinFontLineBox() {
         let pill = PillTextAttachment(
             userId: "@sample:matrix.org", displayName: "Sample User",
             font: baseFont, style: .messageDefault
@@ -170,8 +168,7 @@ struct TimelineHeightMeasurementTests {
     /// sized for a larger font, TextKit upscales the small bitmap into the large
     /// bounds and the capsule reads as stretched/blurry — the defect that surfaces
     /// once the timeline text-zoom enlarges the message font.
-    @Test
-    func mentionPillContentScalesWithFontSize() {
+    @Test func mentionPillContentScalesWithFontSize() {
         func renderedPixelHeight(fontSize: CGFloat) -> Int {
             let view = MentionPillView(
                 displayName: "Sample User", style: .messageDefault, fontSize: fontSize
@@ -198,8 +195,7 @@ struct TimelineHeightMeasurementTests {
     ///
     /// Here we assert the measured height (at `floor(w)`) fully contains the text
     /// laid out at that same render width across a sweep of fractional widths.
-    @Test
-    func textHeightMeasuredAtRenderWidthAcrossFractionalWidths() {
+    @Test func textHeightMeasuredAtRenderWidthAcrossFractionalWidths() {
         let body = "the quick brown fox jumps over the lazy dog again "
             + "and again to make this message wrap onto several lines"
         let attributed = NSAttributedString(matrixMarkdown: body)
@@ -228,8 +224,7 @@ struct TimelineHeightMeasurementTests {
     /// width. A message that wraps must report a *taller* height at a narrower
     /// width — the regression guard for rows keeping their old (too-short)
     /// height after a resize and clipping the re-wrapped text.
-    @Test
-    func wrappingMessageHeightGrowsAsWidthShrinks() {
+    @Test func wrappingMessageHeightGrowsAsWidthShrinks() {
         let body = "the quick brown fox jumps over the lazy dog again and again "
             + "so that this message must wrap onto several lines when it is narrow"
         let attributed = NSAttributedString(matrixMarkdown: body)
@@ -248,8 +243,7 @@ struct TimelineHeightMeasurementTests {
     /// but not on a bare proposal change. That is why the timeline discards its
     /// host before a full re-measure on window resize; this guards the primitive
     /// that fix relies on.
-    @Test
-    func measurementHostIsWidthSensitiveWhenFresh() {
+    @Test func measurementHostIsWidthSensitiveWhenFresh() {
         func measure(width: CGFloat) -> CGFloat {
             let host = NSHostingController(rootView: AnyView(
                 Text("the quick brown fox jumps over the lazy dog again and again "
@@ -271,8 +265,7 @@ struct TimelineHeightMeasurementTests {
     /// A variable-height link card must derive its height synchronously from the
     /// shared card cache, so the detached measurement host (whose async image
     /// load never runs) computes the same card height the live cell renders.
-    @Test
-    func linkCardHeightIsDeterministicFromCache() {
+    @Test func linkCardHeightIsDeterministicFromCache() {
         let url = URL(string: "https://example.com/deterministic-\(UUID().uuidString)")!
 
         // Unresolved: placeholder height.
@@ -304,8 +297,7 @@ struct TimelineHeightMeasurementTests {
     }
 
     /// An unavailable link resolves to a hidden (zero-height) card.
-    @Test
-    func unavailableLinkCardIsHidden() {
+    @Test func unavailableLinkCardIsHidden() {
         let url = URL(string: "https://example.com/gone-\(UUID().uuidString)")!
         LinkPreviewView.cardCache.set(.unavailable, forKey: url)
         let height = measuredHeight(
@@ -316,8 +308,7 @@ struct TimelineHeightMeasurementTests {
 
     /// A compact (favicon/globe) card has a fixed, deterministic height distinct
     /// from a hidden card.
-    @Test
-    func compactLinkCardHeightIsFixed() {
+    @Test func compactLinkCardHeightIsFixed() {
         let url = URL(string: "https://example.com/compact-\(UUID().uuidString)")!
         LinkPreviewView.cardCache.set(.compact, forKey: url)
         let a = measuredHeight(
