@@ -62,6 +62,12 @@ struct MentionPillView: View {
     /// Set to `false` for keyword highlight pills.
     var showAtPrefix: Bool = true
 
+    /// Point size of the surrounding message text. The pill's own text renders
+    /// one point smaller than this, so the pill scales with the timeline's
+    /// text-zoom level and the rendered bitmap always matches the attachment
+    /// bounds rather than being upscaled (which reads as a stretched capsule).
+    var fontSize: CGFloat = NSFont.systemFontSize
+
     private var pillText: String {
         if !showAtPrefix { return displayName }
         return displayName.hasPrefix("@") ? displayName : "@\(displayName)"
@@ -91,8 +97,7 @@ struct MentionPillView: View {
 
     var body: some View {
         Text(pillText)
-            .font(.callout)
-            .bold()
+            .font(.system(size: fontSize - 1, weight: .bold))
             .foregroundStyle(textColor)
             .padding(.horizontal, 4)
             .background(backgroundColor, in: .capsule)
