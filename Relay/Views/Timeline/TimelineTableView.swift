@@ -260,6 +260,8 @@ final class TimelineTableViewController: NSViewController {
 
     /// Coalesces rapid resize events so only the final one runs.
     private var resizeWorkItem: DispatchWorkItem?
+    /// Coalesces bursts of text-zoom changes into one re-measure pass.
+    private var textScaleRemeasureTask: Task<Void, Never>?
 
     /// A reusable hosting controller used to measure SwiftUI row heights
     /// for rows that don't have a live cell on screen. Only used as a
@@ -317,6 +319,7 @@ final class TimelineTableViewController: NSViewController {
             paginateTask?.cancel()
             remeasureDebounceTask?.cancel()
             remeasureMaxWaitTask?.cancel()
+            textScaleRemeasureTask?.cancel()
         }
     }
 
@@ -882,14 +885,34 @@ final class TimelineTableViewController: NSViewController {
 
     // MARK: - Text Zoom
 
-    /// Re-renders and re-measures every row when the message text-zoom level
-    /// changes. ``MessageTextScale`` has already dropped the parse caches, so
-    /// reloading the row views re-parses their text at the new base font size,
-    /// and clearing the height cache forces a fresh measurement per row.
+    /// Coalesces a burst of text-zoom changes (e.g. holding or repeating ⌘+)
+    /// into a single re-measure, since re-rendering and re-measuring every row
+    /// is main-thread work. Chrome already re-renders live via `@AppStorage`;
+    /// this trailing pass fixes the row heights once the scale settles.
     @objc private func messageTextScaleDidChange() {
+        textScaleRemeasureTask?.cancel()
+        textScaleRemeasureTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(60))
+            guard let self, !Task.isCancelled else { return }
+            self.remeasureAllRowsForTextScale()
+        }
+    }
+
+    /// Re-renders and re-measures every row at the current text-zoom level.
+    /// ``MessageTextScale`` has already dropped the parse caches, so reloading
+    /// the row views re-parses their text at the new base font size, and
+    /// clearing the height cache forces a fresh measurement per row. The first
+    /// visible row is anchored so zooming while scrolled up keeps the same
+    /// content in view rather than jumping (every row's height changes).
+    private func remeasureAllRowsForTextScale() {
         guard !rows.isEmpty else { return }
-        heightCache.removeAll()
         let wasNearBottom = isNearBottom
+        let anchorRow = tableView.rows(in: tableView.visibleRect).location
+        let anchorOffset = anchorRow >= 0
+            ? tableView.rect(ofRow: anchorRow).minY - tableView.visibleRect.minY
+            : 0
+
+        heightCache.removeAll()
         let all = IndexSet(integersIn: 0 ..< rows.count)
         tableView.reloadData(forRowIndexes: all, columnIndexes: IndexSet(integer: 0))
         NSAnimationContext.runAnimationGroup { context in
@@ -897,8 +920,14 @@ final class TimelineTableViewController: NSViewController {
             context.allowsImplicitAnimation = false
             tableView.noteHeightOfRows(withIndexesChanged: all)
         }
+        tableView.layoutSubtreeIfNeeded()
+
         if wasNearBottom {
             scrollToBottom(animated: false)
+        } else if anchorRow >= 0, anchorRow < rows.count {
+            let targetY = tableView.rect(ofRow: anchorRow).minY - anchorOffset
+            scrollView.contentView.scroll(to: CGPoint(x: 0, y: targetY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
 

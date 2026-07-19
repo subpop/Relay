@@ -132,8 +132,7 @@ struct TimelineRowView: View, Equatable {
 
         if info.showDateHeader {
             Text(dateSectionLabel(for: message.timestamp))
-                .font(.caption2)
-                .fontWeight(.medium)
+                .scaledChromeFont(.caption2, weight: .medium)
                 .foregroundStyle(.secondary)
                 .padding(.top, info.isFirst ? 4 : 12)
                 .padding(.bottom, 4)

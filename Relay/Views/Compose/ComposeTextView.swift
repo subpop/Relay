@@ -191,13 +191,41 @@ struct ComposeTextView: NSViewRepresentable {
         }
 
         @objc private func textScaleDidChange() {
-            guard let textView, let storage = textView.textStorage else { return }
+            guard let textView else { return }
             let font = Coordinator.composeFontForText(parent.text)
-            applyFont(font, to: storage)
-            textView.typingAttributes[.font] = font
+            // `NSText.font` re-fonts all existing characters and sets the default
+            // for typing and the placeholder, so it covers the empty field too.
             textView.font = font
+            textView.typingAttributes[.font] = font
+            if let storage = textView.textStorage {
+                rescalePillAttachments(in: storage)
+            }
             textView.recalculateHeight()
             parent.onHeightChange?(textView.cachedHeight)
+        }
+
+        /// Rebuilds any inline mention pills at the new base font size so typed
+        /// mentions scale with the zoom. A pill's attachment image is rendered
+        /// once at creation, so it doesn't otherwise resize.
+        private func rescalePillAttachments(in storage: NSTextStorage) {
+            let fullRange = NSRange(location: 0, length: storage.length)
+            var replacements: [(NSRange, PillTextAttachment)] = []
+            storage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
+                guard let old = value as? PillTextAttachment else { return }
+                replacements.append((
+                    range,
+                    PillTextAttachment(
+                        userId: old.userId, displayName: old.displayName,
+                        font: MessageTextScale.baseFont
+                    )
+                ))
+            }
+            guard !replacements.isEmpty else { return }
+            storage.beginEditing()
+            for (range, pill) in replacements {
+                storage.addAttribute(.attachment, value: pill, range: range)
+            }
+            storage.endEditing()
         }
 
         // MARK: - Plain Text Extraction

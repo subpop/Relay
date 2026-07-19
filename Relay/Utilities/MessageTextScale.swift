@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import SwiftUI
 
 /// The user-adjustable zoom level for conversation and compose text.
 ///
@@ -80,5 +81,30 @@ enum MessageTextScale {
         MessageBubbleContent.markdownCache.removeAll()
         MessageBubbleContent.emoteHtmlCache.removeAll()
         ReplyPreviewBubble.replyTextCache.removeAll()
+    }
+}
+
+// MARK: - Scaled Chrome Font
+
+private struct ScaledChromeFont: ViewModifier {
+    let textStyle: NSFont.TextStyle
+    let weight: Font.Weight
+
+    @AppStorage(MessageTextScale.userDefaultsKey) private var scale = Double(MessageTextScale.defaultScale)
+
+    func body(content: Content) -> some View {
+        let base = NSFont.preferredFont(forTextStyle: textStyle).pointSize
+        content.font(.system(size: base * CGFloat(scale), weight: weight))
+    }
+}
+
+extension View {
+    /// Applies a system font for `textStyle` scaled by the current message
+    /// text-zoom level — for chrome (sender names, timestamps) that should track
+    /// the conversation text. Reading the scale through `@AppStorage` re-renders
+    /// on zoom regardless of any `Equatable` view optimization, and the detached
+    /// row-measurement host reads the same value so heights stay correct.
+    func scaledChromeFont(_ textStyle: NSFont.TextStyle, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledChromeFont(textStyle: textStyle, weight: weight))
     }
 }
