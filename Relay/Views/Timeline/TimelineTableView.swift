@@ -381,6 +381,14 @@ final class TimelineTableViewController: NSViewController {
 
         // Link previews use a fixed-size card, so no height re-measurement
         // is needed when metadata loads.
+
+        // Re-render and re-measure every row when the message text-zoom changes.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(messageTextScaleDidChange),
+            name: MessageTextScale.didChangeNotification,
+            object: nil
+        )
     }
 
     // MARK: - Data Source
@@ -794,15 +802,6 @@ final class TimelineTableViewController: NSViewController {
         }
     }
 
-    /// Re-measures a single row whose content height changed without any
-    /// change to the underlying message data — specifically when a collapsed
-    /// system-event group is expanded or collapsed.
-    ///
-    /// `updateRows` only re-measures when `rows` diff, which they don't here
-    /// (only the shared ``ExpandedGroupsState`` flipped). We invalidate the
-    /// cached height for this row and note its new height; `heightOfRow`'s
-    /// measurement host rebuilds the row reading the now-updated expansion
-    /// state, so it returns the full expanded (or collapsed) height.
     /// Message IDs awaiting a debounced height re-measure.
     private var pendingRemeasureIDs: Set<String> = []
     /// Coalesces a burst of ``remeasureRow(forMessageID:)`` calls into one pass.
@@ -811,6 +810,16 @@ final class TimelineTableViewController: NSViewController {
     /// trailing debounce can't be reset indefinitely.
     private var remeasureMaxWaitTask: Task<Void, Never>?
 
+    /// Re-measures a row whose content height changed without any change to the
+    /// underlying message data — when a collapsed system-event group is expanded
+    /// or collapsed, or when a link-preview card resolves to its final size.
+    ///
+    /// `updateRows` only re-measures when `rows` diff, which they don't in these
+    /// cases. We invalidate the row's cached height and note its new height; the
+    /// measurement host rebuilds the row reading the current state, so it returns
+    /// the correct height. Calls are debounced (trailing, with a max-wait) so a
+    /// burst — e.g. several link-preview cards resolving at once — collapses into
+    /// a single pass.
     func remeasureRow(forMessageID id: String) {
         let wasEmpty = pendingRemeasureIDs.isEmpty
         pendingRemeasureIDs.insert(id)
@@ -868,6 +877,28 @@ final class TimelineTableViewController: NSViewController {
         } else if abs(scrollBefore.y - scrollView.contentView.bounds.origin.y) > 0.5 {
             scrollView.contentView.scroll(to: scrollBefore)
             scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    // MARK: - Text Zoom
+
+    /// Re-renders and re-measures every row when the message text-zoom level
+    /// changes. ``MessageTextScale`` has already dropped the parse caches, so
+    /// reloading the row views re-parses their text at the new base font size,
+    /// and clearing the height cache forces a fresh measurement per row.
+    @objc private func messageTextScaleDidChange() {
+        guard !rows.isEmpty else { return }
+        heightCache.removeAll()
+        let wasNearBottom = isNearBottom
+        let all = IndexSet(integersIn: 0 ..< rows.count)
+        tableView.reloadData(forRowIndexes: all, columnIndexes: IndexSet(integer: 0))
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            tableView.noteHeightOfRows(withIndexesChanged: all)
+        }
+        if wasNearBottom {
+            scrollToBottom(animated: false)
         }
     }
 

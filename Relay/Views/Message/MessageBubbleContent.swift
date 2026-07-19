@@ -274,7 +274,7 @@ struct MessageBubbleContent: View {
             let cached = Self.emoteHtmlCache.value(forKey: cacheKey) {
                 guard let parsed = NSAttributedString(matrixHTML: html) else { return nil }
                 let emoteResult = NSMutableAttributedString()
-                let nameFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                let nameFont = MessageTextScale.baseFont
                 let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
                 let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
                 emoteResult.append(NSAttributedString(
