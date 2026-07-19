@@ -85,7 +85,21 @@ struct MessageTextView: NSViewRepresentable {
         var cachedSizeResult: CGSize?
         var cachedSizeTextLength: Int?
         var cachedSizeTextHash: Int?
+        /// The ``sizeCacheGeneration`` the cached size was measured under. A
+        /// width change bumps the generation to invalidate every cell's cache.
+        var cachedSizeGeneration: Int = -1
     }
+
+    /// Bumped whenever the timeline re-lays-out at a new width. Recycled cells
+    /// keep their `Coordinator` (and its size cache) across a width change; a
+    /// cell measured narrow mid-drag would otherwise return that stale, narrower
+    /// width from `sizeThatFits`, so its bubble hugs the narrow width and wraps
+    /// an extra line that clips. Invalidating the caches forces a fresh measure
+    /// at the settled width. See ``invalidateSizeCaches()``.
+    @MainActor static var sizeCacheGeneration: Int = 0
+
+    /// Invalidates every cell's `sizeThatFits` cache (see ``sizeCacheGeneration``).
+    @MainActor static func invalidateSizeCaches() { sizeCacheGeneration &+= 1 }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -202,15 +216,36 @@ struct MessageTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         let textHash = nsView.textStorage?.string.hashValue ?? 0
         if let cached = coordinator.cachedSizeResult,
+           coordinator.cachedSizeGeneration == Self.sizeCacheGeneration,
            coordinator.cachedSizeTextLength == textLength,
            coordinator.cachedSizeTextHash == textHash,
            coordinator.cachedSizeProposedWidth == proposedWidth {
             return cached
         }
 
-        // Prevent setFrameSize from constraining the container while we measure.
+        // Prevent setFrameSize from constraining the container while we measure,
+        // then leave the container at the view's actual render (frame) width.
+        // `sizeThatFits` sets the container to several widths — including the
+        // unconstrained natural width for an ideal-size query — and SwiftUI
+        // issues those queries in an order we don't control. Whatever width is
+        // left in the container is the width the live text wraps at, so it must
+        // end up equal to the frame: leaving it wider strands the text past its
+        // frame (horizontal clip); leaving it narrower — which is what restoring
+        // the *pre-measurement* container width did for a recycled or resized
+        // cell whose container was already stale — wraps an extra line that eats
+        // the bubble padding and clips the top and bottom. The frame width is
+        // authoritative: `setFrameSize` keeps it current, and it is exactly the
+        // width SwiftUI renders the text at.
         nsView.suppressContainerSync = true
-        defer { nsView.suppressContainerSync = false }
+        defer {
+            let renderWidth = nsView.frame.width
+            if renderWidth > 0 {
+                container.containerSize = NSSize(
+                    width: renderWidth, height: CGFloat.greatestFiniteMagnitude
+                )
+            }
+            nsView.suppressContainerSync = false
+        }
 
         // Natural layout (unconstrained) to find the intrinsic text width.
         container.containerSize = NSSize(
@@ -288,6 +323,7 @@ struct MessageTextView: NSViewRepresentable {
         coordinator.cachedSizeResult = result
         coordinator.cachedSizeTextLength = textLength
         coordinator.cachedSizeTextHash = textHash
+        coordinator.cachedSizeGeneration = Self.sizeCacheGeneration
 
         return result
     }

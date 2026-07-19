@@ -241,6 +241,31 @@ struct TimelineHeightMeasurementTests {
         )
     }
 
+    /// A fresh `NSHostingController` measures a wrapping row taller at a narrower
+    /// width. The timeline reuses one measurement host for speed, but reusing it
+    /// *across a width change* returns the previous width's height — an
+    /// `NSHostingController` re-measures on a content change (why text-zoom works)
+    /// but not on a bare proposal change. That is why the timeline discards its
+    /// host before a full re-measure on window resize; this guards the primitive
+    /// that fix relies on.
+    @Test
+    func measurementHostIsWidthSensitiveWhenFresh() {
+        func measure(width: CGFloat) -> CGFloat {
+            let host = NSHostingController(rootView: AnyView(
+                Text("the quick brown fox jumps over the lazy dog again and again "
+                    + "so that this message wraps onto several lines when it is narrow")
+                    .frame(maxWidth: 500, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            ))
+            host.sizingOptions = [.standardBounds]
+            return host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        }
+        #expect(
+            measure(width: 180) > measure(width: 480),
+            "A narrower width must yield a taller measured row."
+        )
+    }
+
     // MARK: - 4. Link-preview card height determinism
 
     /// A variable-height link card must derive its height synchronously from the

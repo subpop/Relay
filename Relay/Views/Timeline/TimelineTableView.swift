@@ -68,6 +68,29 @@ final class TimelineTableProxy {
 final class BottomAnchoredTableView: NSTableView {
     override var isFlipped: Bool { false }
 
+    /// Called after every layout pass. The timeline controller uses this to
+    /// detect effective-content-width changes (column width minus horizontal
+    /// safe-area insets). A safe-area change — the overlay sidebar appearing,
+    /// disappearing, or resizing — re-lays the cells without resizing the
+    /// scroll view or the column, so neither `viewDidResize` nor the
+    /// controller's `viewDidLayout` is guaranteed to see it.
+    var onLayout: (() -> Void)?
+
+    /// Called when a live window-resize drag ends, so the controller can run
+    /// the full-timeline height pass immediately instead of waiting out a
+    /// debounce.
+    var onLiveResizeEnd: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        onLiveResizeEnd?()
+    }
+
     // MARK: - Swipe-to-Reply Gesture
 
     /// Called with `(row, offsetX)` during a horizontal swipe.
@@ -258,8 +281,16 @@ final class TimelineTableViewController: NSViewController {
     /// Tracks the last column width so we can invalidate row heights on resize.
     private var lastColumnWidth: CGFloat = 0
 
+    /// The table *column* width the rows were last measured at. Rows are measured
+    /// at this width (the width the cell content actually renders at), which can
+    /// change without the scroll view's frame changing — e.g. a vertical scroller
+    /// appearing/disappearing, or the initial layout settling after launch.
+    /// ``viewDidLayout`` watches it so those changes still trigger a re-measure.
+    private var lastRenderWidth: CGFloat = 0
+
     /// Coalesces rapid resize events so only the final one runs.
-    private var resizeWorkItem: DispatchWorkItem?
+    /// Coalesces a live window-resize drag into one re-measure once it settles.
+    private var resizeRemeasureTask: Task<Void, Never>?
     /// Coalesces bursts of text-zoom changes into one re-measure pass.
     private var textScaleRemeasureTask: Task<Void, Never>?
 
@@ -268,7 +299,7 @@ final class TimelineTableViewController: NSViewController {
     /// fallback when no cached height exists. Using the concrete
     /// ``TimelineRowView`` type avoids `AnyView` type-erasure overhead
     /// and lets SwiftUI reuse the internal view hierarchy between measurements.
-    private var measurementHost: NSHostingController<TimelineRowView>?
+    private var measurementHost: NSHostingController<AnyView>?
 
     /// Caches measured row heights keyed on `(messageID, roundedWidth)`.
     /// Avoids redundant `NSHostingController.sizeThatFits` calls during
@@ -320,6 +351,7 @@ final class TimelineTableViewController: NSViewController {
             remeasureDebounceTask?.cancel()
             remeasureMaxWaitTask?.cancel()
             textScaleRemeasureTask?.cancel()
+            resizeRemeasureTask?.cancel()
         }
     }
 
@@ -352,6 +384,16 @@ final class TimelineTableViewController: NSViewController {
         }
         tableView.lockedOffset = { [weak self] in
             self?.swipeState.offset ?? 0
+        }
+        tableView.onLayout = { [weak self] in
+            self?.scheduleRemeasureIfEffectiveWidthChanged()
+        }
+        tableView.onLiveResizeEnd = { [weak self] in
+            guard let self else { return }
+            // The drag is over — settle the whole timeline now rather than
+            // waiting out a debounce, so the release doesn't feel laggy.
+            self.resizeRemeasureTask?.cancel()
+            self.remeasureAllRows(reloadCells: true, dropParseCaches: false)
         }
 
         scrollView.documentView = tableView
@@ -612,9 +654,13 @@ final class TimelineTableViewController: NSViewController {
         let hasNewlyAppended = !newlyAppendedMessageIDs.isEmpty
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // The first rows may arrive after the initial layout passes have
+            // all run (the width check refuses to latch while the table is
+            // empty) — re-check now so those rows get measured at the current
+            // effective width.
+            self.scheduleRemeasureIfEffectiveWidthChanged()
             let visible = self.tableView.rows(in: self.tableView.visibleRect)
             if visible.length > 0 {
-                self.preCacheHeights(for: visible)
                 self.tableView.noteHeightOfRows(
                     withIndexesChanged: IndexSet(integersIn: visible.lowerBound ..< visible.upperBound)
                 )
@@ -784,27 +830,6 @@ final class TimelineTableViewController: NSViewController {
         }
     }
 
-    /// Walks visible live cells and writes their current `fittingSize` into
-    /// the height cache. Call this *outside* of `heightOfRow` (e.g. from a
-    /// deferred block) so that the subsequent `noteHeightOfRows` can return
-    /// cached values without hitting the measurement host.
-    private func preCacheHeights(for visible: NSRange) {
-        var targetWidth = tableView.tableColumns.first?.width ?? 0
-        if targetWidth < 1 { targetWidth = scrollView.frame.width }
-        let roundedWidth = targetWidth.rounded()
-
-        for idx in visible.lowerBound ..< visible.upperBound {
-            guard idx < rows.count else { continue }
-            if let cell = tableView.view(atColumn: 0, row: idx, makeIfNecessary: false)
-                as? NSHostingView<TimelineRowView> {
-                let h = cell.fittingSize.height
-                if h > 0 {
-                    heightCache[HeightCacheKey(rows[idx].id, roundedWidth)] = h
-                }
-            }
-        }
-    }
-
     /// Message IDs awaiting a debounced height re-measure.
     private var pendingRemeasureIDs: Set<String> = []
     /// Coalesces a burst of ``remeasureRow(forMessageID:)`` calls into one pass.
@@ -894,17 +919,34 @@ final class TimelineTableViewController: NSViewController {
         textScaleRemeasureTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(60))
             guard let self, !Task.isCancelled else { return }
-            self.remeasureAllRowsForTextScale()
+            // Zoom changes the font but not the width, so nothing re-renders on
+            // its own — reload the cells and drop the (now stale-font) parse caches.
+            self.remeasureAllRows(reloadCells: true, dropParseCaches: true)
         }
     }
 
-    /// Re-renders and re-measures every row at the current text-zoom level.
-    /// ``MessageTextScale`` has already dropped the parse caches, so reloading
-    /// the row views re-parses their text at the new base font size, and
-    /// clearing the height cache forces a fresh measurement per row. The first
-    /// visible row is anchored so zooming while scrolled up keeps the same
-    /// content in view rather than jumping (every row's height changes).
-    private func remeasureAllRowsForTextScale() {
+    /// Re-measures every row and applies the new heights, anchoring the first
+    /// visible row so the viewport keeps the same content.
+    ///
+    /// - Parameters:
+    ///   - reloadCells: When `true`, reassigns every recycled cell's `rootView`
+    ///     so its content re-lays-out from scratch. Needed on a width change:
+    ///     NSTableView re-wraps visible cells live as the column changes, but a
+    ///     recycled `MessageTextView` can be left wrapping at a stale (narrower)
+    ///     width from mid-drag, rendering an extra line that eats the bubble
+    ///     padding and clips top/bottom. A fresh render at the settled width
+    ///     restores correct wrapping. (Cheap: it re-renders, it does not re-parse.)
+    ///   - dropParseCaches: When `true`, also drops the parsed-text caches — only
+    ///     needed when the text *content/font* changed (a text-zoom step), not on
+    ///     a resize, where re-parsing every message would needlessly churn the
+    ///     main thread since parsing is width-independent.
+    ///
+    /// The shared measurement host is discarded regardless: an
+    /// `NSHostingController` re-measures on a content change but returns the
+    /// previous height when only the width *proposal* changes, so reusing it
+    /// across a resize would keep the old height. A fresh host measures at the
+    /// new width.
+    private func remeasureAllRows(reloadCells: Bool, dropParseCaches: Bool) {
         guard !rows.isEmpty else { return }
         let wasNearBottom = isNearBottom
         let anchorRow = tableView.rows(in: tableView.visibleRect).location
@@ -912,9 +954,18 @@ final class TimelineTableViewController: NSViewController {
             ? tableView.rect(ofRow: anchorRow).minY - tableView.visibleRect.minY
             : 0
 
+        if dropParseCaches {
+            MessageBubbleContent.invalidateParseCaches()
+        }
+        // Invalidate per-cell size caches so a cell measured narrow mid-drag
+        // re-measures at the settled width instead of hugging the stale width.
+        MessageTextView.invalidateSizeCaches()
+        measurementHost = nil
         heightCache.removeAll()
         let all = IndexSet(integersIn: 0 ..< rows.count)
-        tableView.reloadData(forRowIndexes: all, columnIndexes: IndexSet(integer: 0))
+        if reloadCells {
+            tableView.reloadData(forRowIndexes: all, columnIndexes: IndexSet(integer: 0))
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
@@ -933,52 +984,122 @@ final class TimelineTableViewController: NSViewController {
 
     // MARK: - Resize Handling
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        scheduleRemeasureIfEffectiveWidthChanged()
+    }
+
+    /// Re-measures every row when the *effective content width* changes — the
+    /// column width minus the horizontal safe-area insets, i.e. the width the
+    /// cell's SwiftUI content actually renders and wraps at.
+    ///
+    /// Rows are measured at this width. It can change without the scroll view's
+    /// frame changing, so `viewDidResize` (which watches the scroll-view frame)
+    /// misses it: a vertical scroller appearing or disappearing, the initial
+    /// layout settling right after launch, and — because the table ignores safe
+    /// areas and spans the full window under the overlay sidebar — the sidebar
+    /// appearing, disappearing, or resizing. When that happens the visible
+    /// cells re-wrap live but keep their old (too-short) measured heights,
+    /// clipping the re-wrapped content — and it never self-corrects because
+    /// the scroll-view frame never changes again.
+    ///
+    /// Called from `viewDidLayout` and from the table view's own `layout()`
+    /// hook (a safe-area change re-lays the cells without laying out the
+    /// controller's view). The width guard makes this a no-op on the frequent
+    /// layout passes that don't change the width (scrolling, the re-measure's
+    /// own `layoutSubtreeIfNeeded`), so there is no feedback loop.
+    private func scheduleRemeasureIfEffectiveWidthChanged() {
+        // Don't latch a width while the table is still empty: the initial rows
+        // arrive after the first layout passes, and a latched width would
+        // suppress the re-measure those rows need at this same width.
+        guard !rows.isEmpty else { return }
+        let columnWidth = tableView.tableColumns.first?.width ?? 0
+        let renderWidth = columnWidth - tableView.safeAreaInsets.left - tableView.safeAreaInsets.right
+        guard columnWidth > 1, renderWidth > 1, abs(renderWidth - lastRenderWidth) > 0.5 else { return }
+        lastRenderWidth = renderWidth
+
+        if tableView.inLiveResize {
+            // Mid-drag: keep the *visible* rows' heights tracking the drag so
+            // the resize feels live. A full-timeline pass here would re-measure
+            // every row per throttle tick and stutter the drag; the full pass
+            // runs once, immediately, from `viewDidEndLiveResize`.
+            if Date().timeIntervalSince(lastLiveResizeRemeasure) > 0.1 {
+                lastLiveResizeRemeasure = Date()
+                // Defer one turn: this runs from inside the table's layout()
+                // pass, and noteHeightOfRows must not re-enter layout.
+                Task { @MainActor [weak self] in
+                    self?.remeasureVisibleRows()
+                }
+            }
+            return
+        }
+
+        // A settled, single-shot width change (sidebar toggled or resized,
+        // scroller appeared, programmatic window resize): coalesce layout
+        // bursts for one frame, then run the full pass.
+        resizeRemeasureTask?.cancel()
+        resizeRemeasureTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard let self, !Task.isCancelled else { return }
+            self.remeasureAllRows(reloadCells: true, dropParseCaches: false)
+        }
+    }
+
+    /// Timestamp of the last mid-drag visible-row height pass (throttle).
+    private var lastLiveResizeRemeasure = Date.distantPast
+
+    /// Lightweight height correction for the rows currently on screen, used
+    /// while a live window-resize drag is in progress. Skips the cell reload
+    /// (the live cells re-wrap on their own as the column tracks the drag) and
+    /// leaves off-screen rows to the full pass on drag end.
+    private func remeasureVisibleRows() {
+        let visible = tableView.rows(in: tableView.visibleRect)
+        guard visible.length > 0 else { return }
+        let wasNearBottom = isNearBottom
+
+        // The shared host caches its height when only the width proposal
+        // changes, so it must be rebuilt for the new width.
+        measurementHost = nil
+        let upper = min(visible.upperBound, rows.count)
+        guard visible.lowerBound < upper else { return }
+        for idx in visible.lowerBound ..< upper {
+            invalidateHeight(for: rows[idx].id)
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            tableView.noteHeightOfRows(
+                withIndexesChanged: IndexSet(integersIn: visible.lowerBound ..< upper)
+            )
+        }
+        if wasNearBottom {
+            scrollToBottom(animated: false)
+        }
+    }
+
     @objc private func viewDidResize(_ notification: Notification) {
-        let newWidth = tableView.tableColumns.first?.width ?? scrollView.frame.width
+        // Use the scroll view's width: it is current the moment the frame-change
+        // notification fires, whereas the column width may not have autoresized
+        // yet. The deferred re-measure reads the (settled) column width.
+        let newWidth = scrollView.frame.width
         guard abs(newWidth - lastColumnWidth) > 1 else { return }
         lastColumnWidth = newWidth
 
-        // Capture whether the user is at the bottom before heights change.
-        let wasNearBottom = isNearBottom
+        // During a live drag the layout hook already tracks the width change
+        // (visible rows live, full pass on drag end) — scheduling the full
+        // pass here too would stutter the drag.
+        guard !tableView.inLiveResize else { return }
 
-        // Defer the height update so live cells settle at the new column width,
-        // then re-measure. We *invalidate* the visible rows' cached heights and
-        // let `heightOfRow` recompute them through the measurement host at the
-        // exact new width, rather than reading a live cell's `fittingSize`.
-        // During a resize the cell's frame width has already changed but its
-        // SwiftUI content may not have re-flowed yet, so `fittingSize` still
-        // reports the pre-resize height; caching that would leave the row too
-        // short for the now-rewrapped text (it keeps its old height and clips).
-        //
-        // Cancel any previously scheduled resize work so that rapid
-        // resize events (live window drag) coalesce into a single
-        // update after the last frame change settles.
-        resizeWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            let visible = self.tableView.rows(in: self.tableView.visibleRect)
-            guard visible.length > 0 else { return }
-
-            for idx in visible.lowerBound ..< visible.upperBound where idx < self.rows.count {
-                self.invalidateHeight(for: self.rows[idx].id)
-            }
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                context.allowsImplicitAnimation = false
-                self.tableView.noteHeightOfRows(
-                    withIndexesChanged: IndexSet(integersIn: visible.lowerBound ..< visible.upperBound)
-                )
-            }
-
-            // Re-anchor to the bottom so the newest row stays above the
-            // compose bar after row heights change.
-            if wasNearBottom {
-                self.scrollToBottom(animated: false)
-            }
+        // NSTableView re-wraps the visible cells live as the column width
+        // changes; only the row heights lag (they aren't re-queried on a width
+        // change), leaving the rewrapped text clipped. Coalesce the layout
+        // burst for one frame, then re-measure.
+        resizeRemeasureTask?.cancel()
+        resizeRemeasureTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard let self, !Task.isCancelled else { return }
+            self.remeasureAllRows(reloadCells: true, dropParseCaches: false)
         }
-        resizeWorkItem = work
-        DispatchQueue.main.async(execute: work)
     }
 
     // MARK: - Scroll Detection
@@ -1024,6 +1145,15 @@ extension TimelineTableViewController: NSTableViewDelegate {
         var targetWidth = tableView.tableColumns.first?.width ?? 0
         if targetWidth < 1 { targetWidth = scrollView.frame.width }
         if targetWidth < 1 { targetWidth = 600 }
+        // Measure at the width the cell's SwiftUI content actually lays out at.
+        // The table ignores safe areas and spans the full window, so the column
+        // is wider than the visible pane; the overlay sidebar contributes a
+        // leading safe-area inset that the live NSHostingView cells respect
+        // when laying out their content, but a detached measurement host knows
+        // nothing about. Measuring at the full column width proposes a wider
+        // text wrap than the live cell uses, under-measuring the row height and
+        // clipping the (more-wrapped, taller) live content top and bottom.
+        targetWidth -= tableView.safeAreaInsets.left + tableView.safeAreaInsets.right
 
         let messageRow = rows[messageIndex]
         let cacheKey = HeightCacheKey(messageRow.id, targetWidth)
@@ -1039,7 +1169,16 @@ extension TimelineTableViewController: NSTableViewDelegate {
             "heightOfRow" as StaticString,
             "cache miss: \(messageRow.id.prefix(8))"
         )
-        let rowView = callbacks.makeRowView(messageRow, false, 0, false)
+        // Pin the row to the exact cell width so the bubble wraps identically to
+        // the live cell. Without the fixed frame, the row's `maxWidth: .infinity`
+        // makes `sizeThatFits` return the *ideal* size — the bubble hugging its
+        // content at a width that can exceed the cell's — which wraps to fewer
+        // lines and under-measures the height, clipping the live (more-wrapped)
+        // text's last line and the "edited" label.
+        let rowView = AnyView(
+            callbacks.makeRowView(messageRow, false, 0, false)
+                .frame(width: targetWidth)
+        )
         if let host = measurementHost {
             host.rootView = rowView
         } else {

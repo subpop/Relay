@@ -70,17 +70,8 @@ enum MessageTextScale {
         let clamped = min(max(newValue, minScale), maxScale)
         guard abs(clamped - scale) > 0.001 else { return }
         UserDefaults.standard.set(Double(clamped), forKey: userDefaultsKey)
-        invalidateCaches()
+        MessageBubbleContent.invalidateParseCaches()
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
-    }
-
-    /// Drops every cached parse result, since each was laid out at the previous
-    /// base font size.
-    @MainActor private static func invalidateCaches() {
-        MessageBubbleContent.htmlCache.removeAll()
-        MessageBubbleContent.markdownCache.removeAll()
-        MessageBubbleContent.emoteHtmlCache.removeAll()
-        ReplyPreviewBubble.replyTextCache.removeAll()
     }
 }
 
