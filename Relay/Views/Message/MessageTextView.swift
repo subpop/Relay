@@ -245,11 +245,24 @@ struct MessageTextView: NSViewRepresentable {
         // swiftlint:disable:next identifier_name
         if let pw = proposedWidth, pw > 0 {
             if tightWidth > pw {
-                // Text must wrap to fit the proposed width.
-                container.containerSize = NSSize(width: pw, height: CGFloat.greatestFiniteMagnitude)
+                // Text must wrap. Measure at the *integral* width the text
+                // container will actually be assigned at render time: SwiftUI
+                // hands the NSView a device-pixel-rounded frame, and
+                // `MessageTextContent.setFrameSize` syncs the container to that
+                // frame width — which is a fraction narrower than a fractional
+                // `pw`. Measuring at `pw` while the live container ends up at
+                // `floor(pw)` makes a line sitting right at the wrap boundary
+                // wrap one extra line on screen, overflowing the measured row
+                // height and clipping the last line (or a trailing link-preview
+                // card pushed down by it). Flooring keeps measurement and render
+                // on the same width so wrapping — and therefore height — agree.
+                // Guard against a sub-point proposal flooring to 0, which would
+                // give a zero-width container and a garbage height.
+                let wrapWidth = max(1, pw.rounded(.down))
+                container.containerSize = NSSize(width: wrapWidth, height: CGFloat.greatestFiniteMagnitude)
                 lm.ensureLayout(for: container)
                 let constrainedHeight = lm.usedRect(for: container).height
-                result = CGSize(width: pw, height: ceil(constrainedHeight))
+                result = CGSize(width: wrapWidth, height: ceil(constrainedHeight))
             } else {
                 // Text fits on fewer lines — hug the text width but never
                 // exceed the proposed width. This ensures SwiftUI sets the
