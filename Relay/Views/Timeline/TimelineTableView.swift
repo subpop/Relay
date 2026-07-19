@@ -912,12 +912,14 @@ final class TimelineTableViewController: NSViewController {
         // Capture whether the user is at the bottom before heights change.
         let wasNearBottom = isNearBottom
 
-        // Defer the height update so that live NSHostingView cells have
-        // time to re-layout their SwiftUI content at the new column width.
-        // On the next run-loop pass we walk the visible cells, read their
-        // `fittingSize` (which now reflects the new width), and pre-populate
-        // the height cache. Then `noteHeightOfRows` triggers `heightOfRow`
-        // which returns the cached value — no measurement host needed.
+        // Defer the height update so live cells settle at the new column width,
+        // then re-measure. We *invalidate* the visible rows' cached heights and
+        // let `heightOfRow` recompute them through the measurement host at the
+        // exact new width, rather than reading a live cell's `fittingSize`.
+        // During a resize the cell's frame width has already changed but its
+        // SwiftUI content may not have re-flowed yet, so `fittingSize` still
+        // reports the pre-resize height; caching that would leave the row too
+        // short for the now-rewrapped text (it keeps its old height and clips).
         //
         // Cancel any previously scheduled resize work so that rapid
         // resize events (live window drag) coalesce into a single
@@ -928,7 +930,9 @@ final class TimelineTableViewController: NSViewController {
             let visible = self.tableView.rows(in: self.tableView.visibleRect)
             guard visible.length > 0 else { return }
 
-            self.preCacheHeights(for: visible)
+            for idx in visible.lowerBound ..< visible.upperBound where idx < self.rows.count {
+                self.invalidateHeight(for: self.rows[idx].id)
+            }
 
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0
