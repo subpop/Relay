@@ -78,6 +78,13 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
             vc?.remeasureRow(forMessageID: groupID)
         }
 
+        // A link-preview card resizes to its image's aspect ratio once the
+        // Open-Graph image loads; the row must re-measure so the height cache
+        // picks up the new card height instead of the pre-load placeholder.
+        actions.remeasureRow = { [weak vc] messageID in
+            vc?.remeasureRow(forMessageID: messageID)
+        }
+
         vc.callbacks = .init(
             onNearBottomChanged: onNearBottomChanged,
             onPaginateBackward: onPaginateBackward,

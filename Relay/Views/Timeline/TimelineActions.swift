@@ -112,6 +112,14 @@ final class TimelineActions: Equatable {
     /// has expanded. Keyed by the first message's ID in each collapsed group.
     let expandedGroups = ExpandedGroupsState()
 
+    /// Requests that the table-backed renderer re-measure a specific row by
+    /// message ID. Used when a row's content height changes asynchronously
+    /// without any change to the underlying message data — e.g. a link-preview
+    /// card resizing to its image's aspect ratio once the Open-Graph image
+    /// loads. Without this, the height cache keeps the pre-load placeholder
+    /// height and clips (or leaves a gap under) the resized card.
+    var remeasureRow: ((String) -> Void)?
+
     /// Creates a ``TimelineActions`` with default (no-op) callbacks.
     init(currentUserID: String? = nil) {
         self.currentUserID = currentUserID

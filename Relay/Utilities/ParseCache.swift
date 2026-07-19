@@ -54,4 +54,41 @@ final class ParseCache<Key: Hashable, Value>: @unchecked Sendable {
 
         return result
     }
+
+    /// Returns the cached value for `key` without computing or promoting it —
+    /// an O(1) read safe to call from hot paths such as SwiftUI `body`. Recency
+    /// is updated only by ``set(_:_:)``, which suffices for caches that write on
+    /// resolution. Returns `nil` on a miss.
+    func peek(_ key: Key) -> Value? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage[key]
+    }
+
+    /// Removes every cached entry. Used when a global input the cached values
+    /// depend on (e.g. the message text-zoom level) changes and every previously
+    /// computed value is stale.
+    func removeAll() {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.removeAll()
+        order.removeAll()
+    }
+
+    /// Stores `value` for `key`, evicting the least-recently-used entry when the
+    /// cache exceeds its capacity.
+    func set(_ value: Value, forKey key: Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        if storage[key] == nil {
+            order.append(key)
+        } else if let idx = order.firstIndex(of: key) {
+            order.append(order.remove(at: idx))
+        }
+        storage[key] = value
+        if order.count > capacity {
+            let evicted = order.removeFirst()
+            storage.removeValue(forKey: evicted)
+        }
+    }
 }
