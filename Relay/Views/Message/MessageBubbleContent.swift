@@ -288,7 +288,7 @@ struct MessageBubbleContent: View {
             if let result = cached { return result }
         }
         // Markdown fallback with italic name prefix.
-        let nameFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let nameFont = MessageTextScale.baseFont
         let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
         let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
         let result = NSMutableAttributedString(

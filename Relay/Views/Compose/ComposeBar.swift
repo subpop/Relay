@@ -104,7 +104,7 @@ struct ComposeBar: View {
 private struct ComposeBarContent: View {
     @Bindable var compose: ComposeViewModel
     @Binding var mentionSuggestionsHeight: CGFloat
-    @State private var textViewHeight: CGFloat = NSFont.systemFontSize * 1.2 + 20
+    @State private var textViewHeight: CGFloat = MessageTextScale.baseFontSize * 1.2 + 20
     var onSend: () async -> Void
 
     var body: some View {
