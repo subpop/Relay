@@ -29,12 +29,15 @@ extension MessageBubbleContent {
 
     /// Drops every message parse cache.
     ///
-    /// Call when a global change must force every row to re-render from scratch:
-    /// a text-zoom step, or a window resize (recycled cells otherwise keep a
-    /// stale text-container width and clip). Because the caches key by content,
-    /// the returned attributed string is a *new* instance, which makes
-    /// ``MessageTextView``'s `updateNSView` re-resolve and re-sync its container
-    /// to the current width instead of early-returning on an unchanged instance.
+    /// Call when a global change must force every row to re-render from
+    /// scratch — a text-zoom step, where the cached attributed strings were
+    /// built at the old font size. A window resize does *not* need this: the
+    /// text container's stale-width problem is handled separately, by
+    /// ``MessageTextView``'s size-cache generation counter. Because the
+    /// caches key by content, the returned attributed string is a *new*
+    /// instance, which makes ``MessageTextView``'s `updateNSView` re-resolve
+    /// and re-sync its container to the current width instead of
+    /// early-returning on an unchanged instance.
     @MainActor
     static func invalidateParseCaches() {
         htmlCache.removeAll()

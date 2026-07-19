@@ -261,12 +261,20 @@ struct LinkPreviewView: View {
         title = metadata.title
 
         // A real Open-Graph image drives a full-bleed banner card. Otherwise fall
-        // back to a compact card showing the favicon (or a globe if none).
-        if let imageProvider = metadata.imageProvider,
-           let loaded = await loadImage(from: imageProvider),
-           loaded.size.width > 0, loaded.size.height > 0 {
-            image = loaded
-            resolve(.banner(aspect: loaded.size.width / loaded.size.height))
+        // back to a compact card showing the favicon (or a globe if none). Only
+        // fall back to the favicon when no banner image was offered at all —
+        // not merely because the offered one failed to load or decoded to a
+        // degenerate size — so a page can't force a second, potentially
+        // different-origin fetch just by serving a broken `og:image`.
+        if let imageProvider = metadata.imageProvider {
+            if let loaded = await loadImage(from: imageProvider),
+               loaded.size.width > 0, loaded.size.height > 0 {
+                image = loaded
+                resolve(.banner(aspect: loaded.size.width / loaded.size.height))
+            } else {
+                image = nil
+                resolve(.compact)
+            }
         } else if let iconProvider = metadata.iconProvider,
                   let icon = await loadImage(from: iconProvider),
                   icon.size.width > 0, icon.size.height > 0 {
@@ -281,7 +289,12 @@ struct LinkPreviewView: View {
     /// Publishes the resolved card to the shared cache and this instance, and
     /// re-measures the row when the resolved *height* can change.
     private func resolve(_ resolved: LinkPreviewCard) {
-        let previous = Self.cardCache.peek(url)
+        // Compare against this instance's own prior state, not the shared,
+        // URL-keyed cache: two rows referencing the same URL both resolve
+        // independently, and the cache's previous value may already have
+        // been overwritten by a sibling row's resolution — comparing against
+        // it would skip this row's own placeholder-to-final remeasure.
+        let instancePrevious = card
         Self.cardCache.set(resolved, forKey: url)
         card = resolved
         // Re-measure on any height-changing transition: the first resolution, a
@@ -289,7 +302,7 @@ struct LinkPreviewView: View {
         // image-load failure), or a changed banner aspect. Re-resolving to the
         // same card — including a globe→favicon swap, which keeps the compact
         // height — needs no re-measure.
-        if previous != resolved {
+        if instancePrevious != resolved {
             actions.remeasureRow?(messageID)
         }
     }

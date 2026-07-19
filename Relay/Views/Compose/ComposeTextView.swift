@@ -87,6 +87,11 @@ struct ComposeTextView: NSViewRepresentable {
         self.insertMentionHandler = { [weak coordinator] userId, displayName in
             coordinator?.insertMention(userId: userId, displayName: displayName)
         }
+        // cachedHeight's stored-property default is seeded at the unscaled
+        // system font size; recompute it now that `font` is set to the
+        // persisted zoom scale so a launch at a non-default zoom doesn't
+        // report a too-short initial height.
+        textView.recalculateHeight()
         let heightCallback = onHeightChange
         let initialHeight = textView.cachedHeight
         Task { @MainActor in
@@ -567,7 +572,7 @@ final class ComposeInputTextView: NSTextView {
 
     /// Cached content height, updated after every text change.
     /// Initialized to a sensible single-line height (lineHeight + insets).
-    private(set) var cachedHeight: CGFloat = NSFont.systemFontSize * 1.2 + 20
+    private(set) var cachedHeight: CGFloat = MessageTextScale.baseFontSize * 1.2 + 20
     private var isRecalculatingHeight = false
 
     override var intrinsicContentSize: NSSize {

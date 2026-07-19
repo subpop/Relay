@@ -17,11 +17,30 @@ import Foundation
 /// A simple LRU cache for expensive parse results (HTML, Markdown, URL detection).
 ///
 /// Thread-safe via `NSLock`. Designed for main-thread hot paths where the same
-/// content is re-parsed on every SwiftUI body evaluation.
+/// content is re-parsed on every SwiftUI body evaluation. Backed by a
+/// dictionary of doubly-linked-list nodes so every operation (get, set,
+/// recency promotion, eviction) is O(1) rather than scanning a recency array.
 final class ParseCache<Key: Hashable, Value>: @unchecked Sendable {
+    /// `prev` is `weak` so the list's only strong ownership chain runs
+    /// `head -> next -> ... -> tail`; dropping a node from `nodes` and
+    /// unlinking it from that chain lets ARC deallocate it immediately,
+    /// instead of the two directions retaining each other forever.
+    private final class Node {
+        let key: Key
+        var value: Value
+        weak var prev: Node?
+        var next: Node?
+
+        init(key: Key, value: Value) {
+            self.key = key
+            self.value = value
+        }
+    }
+
     private let capacity: Int
-    private var storage: [Key: Value] = [:]
-    private var order: [Key] = []
+    private var nodes: [Key: Node] = [:]
+    private var head: Node?
+    private var tail: Node?
     private let lock = NSLock()
 
     init(capacity: Int) {
@@ -31,11 +50,9 @@ final class ParseCache<Key: Hashable, Value>: @unchecked Sendable {
     /// Returns the cached value for `key`, or computes and caches it using `compute`.
     func value(forKey key: Key, compute: () -> Value) -> Value {
         lock.lock()
-        if let cached = storage[key] {
-            // Move to end (most recently used).
-            if let idx = order.firstIndex(of: key) {
-                order.append(order.remove(at: idx))
-            }
+        if let node = nodes[key] {
+            moveToFront(node)
+            let cached = node.value
             lock.unlock()
             return cached
         }
@@ -44,25 +61,26 @@ final class ParseCache<Key: Hashable, Value>: @unchecked Sendable {
         let result = compute()
 
         lock.lock()
-        storage[key] = result
-        order.append(key)
-        if order.count > capacity {
-            let evicted = order.removeFirst()
-            storage.removeValue(forKey: evicted)
+        defer { lock.unlock() }
+        // A concurrent caller may have inserted this key while `compute()`
+        // ran unlocked; keep the existing value (first writer wins) rather
+        // than inserting a second node for the same key.
+        if let existing = nodes[key] {
+            moveToFront(existing)
+            return existing.value
         }
-        lock.unlock()
-
+        insert(key: key, value: result)
         return result
     }
 
     /// Returns the cached value for `key` without computing or promoting it —
     /// an O(1) read safe to call from hot paths such as SwiftUI `body`. Recency
-    /// is updated only by ``set(_:_:)``, which suffices for caches that write on
-    /// resolution. Returns `nil` on a miss.
+    /// is updated only by ``set(_:forKey:)``, which suffices for caches that
+    /// write on resolution. Returns `nil` on a miss.
     func peek(_ key: Key) -> Value? {
         lock.lock()
         defer { lock.unlock() }
-        return storage[key]
+        return nodes[key]?.value
     }
 
     /// Removes every cached entry. Used when a global input the cached values
@@ -71,8 +89,9 @@ final class ParseCache<Key: Hashable, Value>: @unchecked Sendable {
     func removeAll() {
         lock.lock()
         defer { lock.unlock() }
-        storage.removeAll()
-        order.removeAll()
+        nodes.removeAll()
+        head = nil
+        tail = nil
     }
 
     /// Stores `value` for `key`, evicting the least-recently-used entry when the
@@ -80,15 +99,44 @@ final class ParseCache<Key: Hashable, Value>: @unchecked Sendable {
     func set(_ value: Value, forKey key: Key) {
         lock.lock()
         defer { lock.unlock() }
-        if storage[key] == nil {
-            order.append(key)
-        } else if let idx = order.firstIndex(of: key) {
-            order.append(order.remove(at: idx))
+        if let node = nodes[key] {
+            node.value = value
+            moveToFront(node)
+        } else {
+            insert(key: key, value: value)
         }
-        storage[key] = value
-        if order.count > capacity {
-            let evicted = order.removeFirst()
-            storage.removeValue(forKey: evicted)
+    }
+
+    // MARK: - Linked-list bookkeeping (call only while holding `lock`)
+
+    private func insert(key: Key, value: Value) {
+        let node = Node(key: key, value: value)
+        nodes[key] = node
+        node.next = head
+        head?.prev = node
+        head = node
+        if tail == nil { tail = node }
+        evictIfNeeded()
+    }
+
+    private func moveToFront(_ node: Node) {
+        guard head !== node else { return }
+        node.prev?.next = node.next
+        node.next?.prev = node.prev
+        if tail === node { tail = node.prev }
+        node.prev = nil
+        node.next = head
+        head?.prev = node
+        head = node
+        if tail == nil { tail = node }
+    }
+
+    private func evictIfNeeded() {
+        while nodes.count > capacity, let evicted = tail {
+            nodes.removeValue(forKey: evicted.key)
+            tail = evicted.prev
+            tail?.next = nil
+            if head === evicted { head = nil }
         }
     }
 }

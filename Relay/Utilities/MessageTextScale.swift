@@ -28,6 +28,15 @@ enum MessageTextScale {
     /// `UserDefaults` key holding the scale factor as a `Double`.
     nonisolated static let userDefaultsKey = "timeline.textScale"
 
+    /// The `UserDefaults` suite the scale is persisted to and read from.
+    /// Defaults to `.standard`. A fully-serialized test suite that exercises
+    /// ``increase()``/``decrease()``/``reset()`` may override this to a
+    /// private, throwaway suite so its writes can't race with any other test
+    /// (or the app's own persisted value) reading `.standard` concurrently —
+    /// `UserDefaults` itself is thread-safe, but swapping *which store*
+    /// every reader/writer here uses is not.
+    nonisolated(unsafe) static var userDefaults: UserDefaults = .standard
+
     /// Posted after the scale changes and the parse caches are cleared.
     static let didChangeNotification = Notification.Name("relay.messageTextScaleDidChange")
 
@@ -44,9 +53,17 @@ enum MessageTextScale {
     /// `nonisolated` so message parsing can read it off the main actor; the
     /// backing `UserDefaults` read is itself thread-safe.
     nonisolated static var scale: CGFloat {
-        let stored = UserDefaults.standard.object(forKey: userDefaultsKey) as? Double
+        let stored = userDefaults.object(forKey: userDefaultsKey) as? Double
         let value = stored.map { CGFloat($0) } ?? defaultScale
-        return min(max(value, minScale), maxScale)
+        return clamp(value)
+    }
+
+    /// Clamps a raw scale value to `[minScale, maxScale]`. Shared by ``scale``
+    /// and ``ScaledChromeFont`` so both apply the same bound even though the
+    /// latter reads the persisted value through `@AppStorage` (for SwiftUI
+    /// reactivity) rather than through ``scale`` itself.
+    nonisolated static func clamp(_ value: CGFloat) -> CGFloat {
+        min(max(value, minScale), maxScale)
     }
 
     /// The base message/compose font point size at the current scale.
@@ -63,14 +80,16 @@ enum MessageTextScale {
     @MainActor static func decrease() { apply(scale - step) }
     @MainActor static func reset() { apply(defaultScale) }
 
-    /// Persists `newValue` (clamped), invalidates the caches that hold text laid
-    /// out at the old size, and notifies observers. A no-op when the clamped
-    /// value is unchanged, so hitting the limit doesn't churn the timeline.
+    /// Persists `newValue` (clamped) and notifies observers. A no-op when the
+    /// clamped value is unchanged, so hitting the limit doesn't churn the
+    /// timeline. Cache invalidation is left to the observer that owns the
+    /// affected cache (``TimelineTableViewController``) rather than done here,
+    /// so this Utilities-layer type doesn't need to know about a specific
+    /// Views-layer cache.
     @MainActor private static func apply(_ newValue: CGFloat) {
-        let clamped = min(max(newValue, minScale), maxScale)
+        let clamped = clamp(newValue)
         guard abs(clamped - scale) > 0.001 else { return }
-        UserDefaults.standard.set(Double(clamped), forKey: userDefaultsKey)
-        MessageBubbleContent.invalidateParseCaches()
+        userDefaults.set(Double(clamped), forKey: userDefaultsKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
@@ -85,7 +104,7 @@ private struct ScaledChromeFont: ViewModifier {
 
     func body(content: Content) -> some View {
         let base = NSFont.preferredFont(forTextStyle: textStyle).pointSize
-        content.font(.system(size: base * CGFloat(scale), weight: weight))
+        content.font(.system(size: base * MessageTextScale.clamp(CGFloat(scale)), weight: weight))
     }
 }
 

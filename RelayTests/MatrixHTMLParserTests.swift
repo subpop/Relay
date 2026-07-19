@@ -21,6 +21,15 @@ import Testing
 
 struct MatrixHTMLParserTests {
 
+    init() {
+        // MatrixHTMLParser derives heading/base sizes from
+        // MessageTextScale.baseFontSize. This test target shares UserDefaults
+        // with the app (bundle_loader), so a real, persisted text-zoom level
+        // from manual testing would otherwise make size-comparison tests here
+        // fail for reasons unrelated to the change under test.
+        UserDefaults.standard.removeObject(forKey: MessageTextScale.userDefaultsKey)
+    }
+
     // MARK: - Helpers
 
     /// Returns attributes at a character offset.
