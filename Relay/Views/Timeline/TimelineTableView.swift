@@ -315,6 +315,8 @@ final class TimelineTableViewController: NSViewController {
         NotificationCenter.default.removeObserver(self)
         MainActor.assumeIsolated {
             paginateTask?.cancel()
+            remeasureDebounceTask?.cancel()
+            remeasureMaxWaitTask?.cancel()
         }
     }
 
@@ -801,29 +803,71 @@ final class TimelineTableViewController: NSViewController {
     /// cached height for this row and note its new height; `heightOfRow`'s
     /// measurement host rebuilds the row reading the now-updated expansion
     /// state, so it returns the full expanded (or collapsed) height.
-    func remeasureRow(forMessageID id: String) {
-        guard let messageIndex = rows.firstIndex(where: { $0.id == id }) else { return }
-        let rowIndex = messageIndex
+    /// Message IDs awaiting a debounced height re-measure.
+    private var pendingRemeasureIDs: Set<String> = []
+    /// Coalesces a burst of ``remeasureRow(forMessageID:)`` calls into one pass.
+    private var remeasureDebounceTask: Task<Void, Never>?
+    /// Guarantees a flush even under a continuous stream of requests, so the
+    /// trailing debounce can't be reset indefinitely.
+    private var remeasureMaxWaitTask: Task<Void, Never>?
 
-        // Defer so the live hosting cell has settled its SwiftUI re-render
-        // before we note the new height (matches the resize handler).
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.invalidateHeight(for: id)
-            let scrollBefore = self.scrollView.contentView.bounds.origin
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                context.allowsImplicitAnimation = false
-                self.tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: rowIndex))
+    func remeasureRow(forMessageID id: String) {
+        let wasEmpty = pendingRemeasureIDs.isEmpty
+        pendingRemeasureIDs.insert(id)
+        // Trailing debounce: defer so the live hosting cell settles its SwiftUI
+        // re-render, and so several rows changing in the same window (e.g.
+        // multiple link-preview cards resolving at once) collapse into a single
+        // height pass instead of one per row.
+        remeasureDebounceTask?.cancel()
+        remeasureDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard let self, !Task.isCancelled else { return }
+            self.flushPendingRemeasures()
+        }
+        // Max-wait, anchored to the first queued request: a continuous stream of
+        // calls can't keep resetting the trailing timer past this bound.
+        if wasEmpty {
+            remeasureMaxWaitTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(120))
+                guard let self, !Task.isCancelled else { return }
+                self.flushPendingRemeasures()
             }
-            // Preserve the scroll position; growing a row above the viewport
-            // would otherwise shift the visible content.
-            if self.isNearBottom {
-                self.scrollToBottom(animated: false)
-            } else if abs(scrollBefore.y - self.scrollView.contentView.bounds.origin.y) > 0.5 {
-                self.scrollView.contentView.scroll(to: scrollBefore)
-                self.scrollView.reflectScrolledClipView(self.scrollView.contentView)
+        }
+    }
+
+    /// Re-measures every row queued since the last flush in a single
+    /// `noteHeightOfRows` pass, preserving scroll position.
+    private func flushPendingRemeasures() {
+        remeasureDebounceTask?.cancel()
+        remeasureDebounceTask = nil
+        remeasureMaxWaitTask?.cancel()
+        remeasureMaxWaitTask = nil
+
+        let ids = pendingRemeasureIDs
+        pendingRemeasureIDs.removeAll()
+
+        var indices = IndexSet()
+        for id in ids {
+            invalidateHeight(for: id)
+            if let idx = rows.firstIndex(where: { $0.id == id }) {
+                indices.insert(idx)
             }
+        }
+        guard !indices.isEmpty else { return }
+
+        let scrollBefore = scrollView.contentView.bounds.origin
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            tableView.noteHeightOfRows(withIndexesChanged: indices)
+        }
+        // Preserve the scroll position; growing a row above the viewport would
+        // otherwise shift the visible content.
+        if isNearBottom {
+            scrollToBottom(animated: false)
+        } else if abs(scrollBefore.y - scrollView.contentView.bounds.origin.y) > 0.5 {
+            scrollView.contentView.scroll(to: scrollBefore)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
 
