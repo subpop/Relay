@@ -114,8 +114,7 @@ struct MessageView: View {
 
                     if showSenderName && !message.isOutgoing {
                         Text(message.displayName)
-                            .font(.caption)
-                            .fontWeight(.medium)
+                            .scaledChromeFont(.caption1, weight: .medium)
                             .foregroundStyle(.secondary)
                             .padding(.leading, BubbleStyle.horizontalPadding)
                             .padding(.bottom, 2)
