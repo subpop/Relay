@@ -26,6 +26,22 @@ extension MessageBubbleContent {
 
     /// LRU cache for parsed emote HTML bodies. Shared across all `MessageBubbleContent` instances.
     static let emoteHtmlCache = ParseCache<String, NSAttributedString?>(capacity: 64)
+
+    /// Drops every message parse cache.
+    ///
+    /// Call when a global change must force every row to re-render from scratch:
+    /// a text-zoom step, or a window resize (recycled cells otherwise keep a
+    /// stale text-container width and clip). Because the caches key by content,
+    /// the returned attributed string is a *new* instance, which makes
+    /// ``MessageTextView``'s `updateNSView` re-resolve and re-sync its container
+    /// to the current width instead of early-returning on an unchanged instance.
+    @MainActor
+    static func invalidateParseCaches() {
+        htmlCache.removeAll()
+        markdownCache.removeAll()
+        emoteHtmlCache.removeAll()
+        ReplyPreviewBubble.replyTextCache.removeAll()
+    }
 }
 
 // MARK: - Parse Caches (ReplyPreviewBubble)
