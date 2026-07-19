@@ -183,6 +183,10 @@ struct TimelineRowView: View, Equatable {
             if showURLPreviews, message.kind == .text,
                let url = URLPreviewExtractor.firstPreviewURL(in: message.body) {
                 LinkPreviewView(url: url, isOutgoing: message.isOutgoing, messageID: message.id)
+                    // Bind identity to the URL so a recycled cell reused for a
+                    // different-URL message gets fresh state instead of bleeding
+                    // the previous URL's cached aspect ratio.
+                    .id(url)
                     .padding(.leading, message.isOutgoing ? 0 : 34)
                     .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
             }

@@ -61,76 +61,168 @@ actor LinkMetadataCache {
     }
 }
 
+// MARK: - Card Cache
+
+/// The resolved presentation of a link preview, cached per URL.
+///
+/// Modelled as a type rather than a sentinel number so the loading, hidden, and
+/// resolved states are explicit. A cache *miss* (no entry) means "not resolved
+/// yet" — the card shows a placeholder.
+enum LinkPreviewCard: Sendable, Equatable {
+    /// The link has no usable preview; the card is hidden entirely.
+    case unavailable
+    /// A full-bleed Open-Graph image with the given aspect ratio (width ÷ height).
+    case banner(aspect: CGFloat)
+    /// A compact card (favicon or globe fallback) with a fixed image height.
+    case compact
+}
+
 // MARK: - LinkPreviewView
 
-/// The fixed side length of the link preview card in points.
-private let previewSize: CGFloat = 260
-
-/// Displays a fixed-size link preview card for a URL.
+/// Displays a link preview card sized to its Open-Graph image's aspect ratio.
 ///
-/// The card has a constant size (`260×260` pt) so that loading metadata never
-/// changes the row height. This eliminates the height-cache invalidation and
-/// re-measurement that previously caused visible jumps during scrolling.
-///
-/// Metadata is fetched asynchronously via `LPMetadataProvider` and cached
-/// globally so that scrolling through the timeline doesn't re-fetch.
+/// The card width is fixed; the image height follows the loaded image's aspect
+/// ratio (clamped to a sane range), so wide banners are shown edge-to-edge
+/// without cropping. Links without a banner image fall back to a compact card
+/// showing the site's favicon. Because the height is variable, the card triggers
+/// a one-time row re-measure (via ``TimelineActions/remeasureRow``) when its
+/// presentation resolves. Both the live cell and the timeline's detached
+/// height-measurement host read the resolved card from ``cardCache`` so
+/// measured and rendered heights match.
 struct LinkPreviewView: View {
     let url: URL
     let isOutgoing: Bool
 
-    /// The timeline message ID that contains this preview.
+    /// The timeline message ID that contains this preview. Used to request a
+    /// row re-measure once the card's presentation is known.
     let messageID: String
+
+    @Environment(\.timelineActions) private var actions
 
     @State private var title: String?
     @State private var image: NSImage?
-    @State private var didLoad = false
-    @State private var didFail = false
 
-    var body: some View {
-        cardContent
-            .frame(width: previewSize, height: previewSize)
-            .clipShape(.rect(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(.quaternary, lineWidth: 0.5)
-            )
-            .contentShape(.rect(cornerRadius: 12))
-            .onTapGesture {
-                NSWorkspace.shared.open(url)
-            }
-            .task(id: url) {
-                await loadMetadata()
-            }
+    /// This instance's resolved card, mirroring ``cardCache``.
+    /// `nil` before resolution (placeholder / loading).
+    @State private var card: LinkPreviewCard?
+
+    /// A bounded cache of resolved link-preview presentations, keyed by URL.
+    ///
+    /// This is the linchpin that lets link-preview cards be **variable height**
+    /// (sized to their image, iMessage-style) without the timeline clipping them.
+    /// Row heights in ``TimelineTableViewController`` are measured by a *detached*
+    /// `NSHostingController` whose SwiftUI `.task` never runs, so it cannot observe
+    /// a per-view `@State` image loaded asynchronously. By publishing the resolved
+    /// card here, both the live cell **and** the detached measurement host compute
+    /// the identical card height synchronously at body-evaluation time — the
+    /// measurement host renders a placeholder glyph at the *same* frame size the
+    /// live cell renders the real image at, so measured and rendered heights agree.
+    ///
+    /// Backed by an LRU (``ParseCache``) so a long session browsing many links
+    /// does not grow the cache without bound.
+    static let cardCache = ParseCache<URL, LinkPreviewCard>(capacity: 256)
+
+    /// Fixed card width in points. Only the image height varies.
+    private static let cardWidth: CGFloat = 260
+    /// Image height shown before the card resolves.
+    private static let placeholderImageHeight: CGFloat = 150
+    /// Clamp so extreme aspect ratios don't produce absurdly short/tall cards.
+    private static let minImageHeight: CGFloat = 90
+    private static let maxImageHeight: CGFloat = 340
+    /// Compact image height for links with no Open-Graph banner (favicon/globe).
+    private static let iconImageHeight: CGFloat = 72
+    /// Maximum favicon edge within the compact card. Small favicons are drawn at
+    /// their native size rather than upscaled to this.
+    private static let faviconMaxSize: CGFloat = 40
+
+    /// The card resolved for this URL: this instance's state, falling back to
+    /// the shared cache so a freshly-built view (including the detached
+    /// measurement host) sizes correctly without waiting for its `.task`.
+    private var resolvedCard: LinkPreviewCard? {
+        card ?? Self.cardCache.peek(url)
     }
 
-    @ViewBuilder
-    private var cardContent: some View {
-        if didFail {
-            EmptyView()
-        } else {
-            VStack(spacing: 0) {
-                // Image area — fills the top portion.
-                imageArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
+    /// Whether the link has no usable preview and the card should be hidden.
+    private var isHidden: Bool { resolvedCard == .unavailable }
 
-                // Text area — fixed at the bottom.
-                textArea
+    /// Whether this is a compact (favicon/globe) card rather than a banner.
+    private var isCompact: Bool { resolvedCard == .compact }
+
+    /// The image area height, derived from the resolved card.
+    private var imageHeight: CGFloat {
+        switch resolvedCard {
+        case .banner(let aspect) where aspect > 0:
+            return min(max(Self.cardWidth / aspect, Self.minImageHeight), Self.maxImageHeight)
+        case .compact:
+            return Self.iconImageHeight
+        default:
+            return Self.placeholderImageHeight
+        }
+    }
+
+    var body: some View {
+        Group {
+            if isHidden {
+                EmptyView()
+            } else {
+                cardBody
             }
-            .background(.fill.tertiary)
+        }
+        .task(id: url) {
+            // Seed from the cache so recycled/measurement instances size
+            // correctly immediately, then (re)load for display.
+            card = Self.cardCache.peek(url)
+            await loadMetadata()
+        }
+    }
+
+    private var cardBody: some View {
+        VStack(spacing: 0) {
+            imageArea
+                .frame(width: Self.cardWidth, height: imageHeight)
+                .clipped()
+
+            textArea
+        }
+        .frame(width: Self.cardWidth)
+        .background(.fill.tertiary)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        )
+        .contentShape(.rect(cornerRadius: 12))
+        .onTapGesture {
+            NSWorkspace.shared.open(url)
         }
     }
 
     @ViewBuilder
     private var imageArea: some View {
         if let image {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
-        } else if !didLoad {
+            if isCompact {
+                // Favicon: fit within the compact area rather than filling, so a
+                // small square icon isn't cropped or stretched.
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    // Never upscale a small favicon (e.g. 16×16): cap the fit
+                    // frame at the icon's native size and at faviconMaxSize.
+                    .frame(
+                        maxWidth: min(image.size.width, Self.faviconMaxSize),
+                        maxHeight: min(image.size.height, Self.faviconMaxSize)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            }
+        } else if resolvedCard == nil {
             ProgressView()
                 .controlSize(.small)
         } else {
+            // Compact card with no favicon available.
             Image(systemName: "globe")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
@@ -139,10 +231,14 @@ struct LinkPreviewView: View {
 
     private var textArea: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // Reserve two lines regardless of the actual title length so the
+            // text area height is deterministic — the detached measurement
+            // host (which has no title yet) reserves the same space the live
+            // cell uses for a wrapped two-line title.
             Text(title ?? url.host() ?? url.absoluteString)
                 .font(.callout)
                 .bold()
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .truncationMode(.tail)
 
             Text(url.host() ?? url.absoluteString)
@@ -158,18 +254,44 @@ struct LinkPreviewView: View {
 
     private func loadMetadata() async {
         guard let metadata = await LinkMetadataCache.shared.metadata(for: url) else {
-            didFail = true
+            resolve(.unavailable)
             return
         }
 
         title = metadata.title
 
-        // Extract the preview image from the metadata provider.
-        if let imageProvider = metadata.imageProvider ?? metadata.iconProvider {
-            image = await loadImage(from: imageProvider)
+        // A real Open-Graph image drives a full-bleed banner card. Otherwise fall
+        // back to a compact card showing the favicon (or a globe if none).
+        if let imageProvider = metadata.imageProvider,
+           let loaded = await loadImage(from: imageProvider),
+           loaded.size.width > 0, loaded.size.height > 0 {
+            image = loaded
+            resolve(.banner(aspect: loaded.size.width / loaded.size.height))
+        } else if let iconProvider = metadata.iconProvider,
+                  let icon = await loadImage(from: iconProvider),
+                  icon.size.width > 0, icon.size.height > 0 {
+            image = icon
+            resolve(.compact)
+        } else {
+            image = nil
+            resolve(.compact)
         }
+    }
 
-        didLoad = true
+    /// Publishes the resolved card to the shared cache and this instance, and
+    /// re-measures the row when the resolved *height* can change.
+    private func resolve(_ resolved: LinkPreviewCard) {
+        let previous = Self.cardCache.peek(url)
+        Self.cardCache.set(resolved, forKey: url)
+        card = resolved
+        // Re-measure on any height-changing transition: the first resolution, a
+        // compact fallback upgrading to a banner (e.g. after a transient
+        // image-load failure), or a changed banner aspect. Re-resolving to the
+        // same card — including a globe→favicon swap, which keeps the compact
+        // height — needs no re-measure.
+        if previous != resolved {
+            actions.remeasureRow?(messageID)
+        }
     }
 
     private func loadImage(from provider: NSItemProvider) async -> NSImage? {
