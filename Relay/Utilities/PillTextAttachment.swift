@@ -57,17 +57,12 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
-        let fontSize = font.pointSize
-        let pillSize = MainActor.assumeIsolated {
-            MentionPillView.measureSize(
-                displayName: displayName,
-                font: NSFont.systemFont(ofSize: fontSize)
-            )
-        }
-        self.image = Self.renderPillImage(
-            userId: userId, displayName: displayName, size: pillSize, style: .compose
+        let rendered = Self.renderPill(
+            userId: userId, displayName: displayName,
+            fontSize: font.pointSize, style: .compose
         )
-        self.bounds = CGRect(origin: .zero, size: pillSize)
+        self.image = rendered.image
+        self.bounds = CGRect(origin: .zero, size: rendered.size)
     }
 
     /// Creates a pill attachment for message rendering with a specific style.
@@ -78,17 +73,12 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
-        let fontSize = font.pointSize
-        let pillSize = MainActor.assumeIsolated {
-            MentionPillView.measureSize(
-                displayName: displayName,
-                font: NSFont.systemFont(ofSize: fontSize)
-            )
-        }
-        self.image = Self.renderPillImage(
-            userId: userId, displayName: displayName, size: pillSize, style: style
+        let rendered = Self.renderPill(
+            userId: userId, displayName: displayName,
+            fontSize: font.pointSize, style: style
         )
-        self.bounds = CGRect(origin: .zero, size: pillSize)
+        self.image = rendered.image
+        self.bounds = CGRect(origin: .zero, size: rendered.size)
     }
 
     /// Creates a pill attachment for a keyword highlight (no `@` prefix, no link).
@@ -99,19 +89,12 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
-        let fontSize = font.pointSize
-        let pillSize = MainActor.assumeIsolated {
-            MentionPillView.measureSize(
-                displayName: keyword,
-                font: NSFont.systemFont(ofSize: fontSize),
-                showAtPrefix: false
-            )
-        }
-        self.image = Self.renderPillImage(
-            userId: "", displayName: keyword, size: pillSize, style: style,
-            showAtPrefix: false
+        let rendered = Self.renderPill(
+            userId: "", displayName: keyword,
+            fontSize: font.pointSize, style: style, showAtPrefix: false
         )
-        self.bounds = CGRect(origin: .zero, size: pillSize)
+        self.image = rendered.image
+        self.bounds = CGRect(origin: .zero, size: rendered.size)
     }
 
     @available(*, unavailable)
@@ -121,16 +104,19 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
 
     // MARK: - Image Rendering
 
-    /// Renders the ``MentionPillView`` to a static `NSImage` at 2x resolution.
+    /// Renders the ``MentionPillView`` to an `NSImage` at 2x resolution and
+    /// returns it together with its natural point size.
     ///
-    /// Uses SwiftUI's `ImageRenderer` with an explicit scale of 2 so that pills
-    /// look sharp on Retina displays without relying on window backing scale.
-    /// The resulting `NSImage` has its logical size set to the 1x point size so
-    /// TextKit positions it correctly.
-    private static func renderPillImage(
-        userId: String, displayName: String, size: CGSize, style: MentionPillStyle,
-        showAtPrefix: Bool = true
-    ) -> NSImage {
+    /// The pill text is rendered at `fontSize`, and the caller uses the returned
+    /// natural size as the attachment bounds, so the bitmap is drawn 1:1 and is
+    /// never scaled. The capsule therefore stays sharp and undistorted at any
+    /// surrounding font size — including when the timeline text-zoom enlarges the
+    /// message font. The explicit `scale` of 2 keeps pills crisp on Retina
+    /// displays without relying on the window backing scale.
+    private static func renderPill(
+        userId: String, displayName: String, fontSize: CGFloat,
+        style: MentionPillStyle, showAtPrefix: Bool = true
+    ) -> (image: NSImage, size: CGSize) {
         MainActor.assumeIsolated {
             let tintColor = Color(stableColorFor: userId)
             let colorScheme: ColorScheme =
@@ -138,16 +124,23 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
                     ? .dark : .light
             let pillView = MentionPillView(
                 displayName: displayName, tintColor: tintColor, style: style,
-                showAtPrefix: showAtPrefix
+                showAtPrefix: showAtPrefix, fontSize: fontSize
             )
             .environment(\.colorScheme, colorScheme)
             let renderer = ImageRenderer(content: pillView)
             renderer.scale = 2
 
-            guard let cgImage = renderer.cgImage else {
-                return NSImage(size: size)
+            if let image = renderer.nsImage {
+                return (image, image.size)
             }
-            return NSImage(cgImage: cgImage, size: size)
+            // Rendering should never fail; fall back to the measured size so the
+            // mention still reserves inline space.
+            let size = MentionPillView.measureSize(
+                displayName: displayName,
+                font: NSFont.systemFont(ofSize: fontSize),
+                showAtPrefix: showAtPrefix
+            )
+            return (NSImage(size: size), size)
         }
     }
 
@@ -186,7 +179,15 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     /// visual midline (midpoint between ascender and descender).
     private static func paddedBounds(pillSize: CGSize, fontSize: CGFloat) -> CGRect {
         let font = NSFont.systemFont(ofSize: fontSize)
-        let paddedHeight = pillSize.height + verticalPadding
+        // Cap the attachment height to the font's line box (ascender − descender)
+        // so the pill can never overhang the line it sits on. Without the cap the
+        // padded pill (~18pt) is taller than the ~15.8pt line box, so a pill on
+        // the first line overhangs the ascender and its top is clipped by the
+        // bubble; every pill also reads as vertically tight. Centering the capped
+        // height on the font midline places the pill exactly within
+        // [descender, ascender].
+        let lineHeight = font.ascender - font.descender
+        let paddedHeight = min(pillSize.height + verticalPadding, lineHeight)
         let midline = (font.ascender + font.descender) / 2
         let y = midline - paddedHeight / 2
         return CGRect(
