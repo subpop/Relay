@@ -227,7 +227,7 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
     public func returnToLive() async {}
     public func sendFullyReadReceipt(upTo eventId: String) async {}
     public func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {}
-    public func sendAttachment(url: URL, caption: String?) async {}
+    public func sendAttachment(url: URL, caption: String?, inReplyTo: String?) async {}
     public func toggleReaction(messageId: String, key: String) async {}
     public func edit(messageId: String, newText: String, mentionedUserIds: [String]) async {}
     public func redact(messageId: String, reason: String?) async {}

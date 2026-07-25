@@ -53,7 +53,7 @@ final class PreviewTimelineViewModel: TimelineViewModelProtocol {
     func returnToLive() async { timelineFocus = .live }
     func sendFullyReadReceipt(upTo eventId: String) async {}
     func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {}
-    func sendAttachment(url: URL, caption: String?) async {}
+    func sendAttachment(url: URL, caption: String?, inReplyTo: String?) async {}
     func edit(messageId: String, newText: String, mentionedUserIds: [String]) async {}
     func toggleReaction(messageId: String, key: String) async {}
     func redact(messageId: String, reason: String?) async {}

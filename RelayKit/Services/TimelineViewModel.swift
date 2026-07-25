@@ -407,7 +407,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     }
 
     // swiftlint:disable:next function_body_length
-    public func sendAttachment(url: URL, caption: String? = nil) async {
+    public func sendAttachment(url: URL, caption: String? = nil, inReplyTo: String? = nil) async {
         guard let sdkTimeline else { return }
 
         let filename = url.lastPathComponent
@@ -445,7 +445,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     caption: caption,
                     formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
-                    inReplyTo: nil
+                    inReplyTo: inReplyTo
                 )
                 handle = try sdkTimeline.sendImage(
                     params: params,
@@ -488,7 +488,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     caption: caption,
                     formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
-                    inReplyTo: nil
+                    inReplyTo: inReplyTo
                 )
                 handle = try sdkTimeline.sendVideo(
                     params: params,
@@ -512,7 +512,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     caption: caption,
                     formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
-                    inReplyTo: nil
+                    inReplyTo: inReplyTo
                 )
                 handle = try sdkTimeline.sendAudio(
                     params: params,
@@ -539,7 +539,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     caption: caption,
                     formattedCaption: formattedCaption.map { .init(format: .html, body: $0) },
                     mentions: nil,
-                    inReplyTo: nil
+                    inReplyTo: inReplyTo
                 )
                 handle = try sdkTimeline.sendFile(
                     params: params,

@@ -125,7 +125,8 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     /// - Parameters:
     ///   - url: A local file URL pointing to the attachment to upload.
     ///   - caption: Optional alt-text / caption to include with the attachment.
-    func sendAttachment(url: URL, caption: String?) async
+    ///   - inReplyTo: The event ID of the message being replied to, or `nil` for a standalone message.
+    func sendAttachment(url: URL, caption: String?, inReplyTo: String?) async
 
     /// Toggles an emoji reaction on a message. Adds the reaction if not present; removes it if already sent.
     ///

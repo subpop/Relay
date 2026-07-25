@@ -214,7 +214,8 @@ final class ComposeViewModel {
             for attachment in pendingAttachments {
                 let caption = attachment.caption.trimmingCharacters(in: .whitespacesAndNewlines)
                 await viewModel.sendAttachment(
-                    url: attachment.url, caption: caption.isEmpty ? nil : caption
+                    url: attachment.url, caption: caption.isEmpty ? nil : caption,
+                    inReplyTo: replyEventId
                 )
             }
             matrixService.donateOutgoingInteraction(roomId: roomId)
@@ -273,6 +274,8 @@ final class ComposeViewModel {
         errorReporter: ErrorReporter,
         onScrollToBottom: (() -> Void)? = nil
     ) {
+        let replyEventId = replyingTo?.eventID
+        replyingTo = nil
         onScrollToBottom?()
         Task {
             if let url = gif.onsentURL {
@@ -300,7 +303,7 @@ final class ComposeViewModel {
                 return
             }
 
-            await viewModel.sendAttachment(url: tempURL, caption: nil)
+            await viewModel.sendAttachment(url: tempURL, caption: nil, inReplyTo: replyEventId)
         }
     }
 
