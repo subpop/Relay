@@ -44,39 +44,37 @@ struct TimelineHeightMeasurementTests {
 
     // MARK: - TextKit Layout Harness
 
-    /// A faithful replica of the `NSTextView`/`NSLayoutManager`/`NSTextContainer`
-    /// configuration `MessageTextView.makeNSView` builds, so height/geometry
-    /// measured here matches what the app renders.
+    /// A faithful replica of the TextKit 2 stack that `MessageTextView.makeNSView`
+    /// builds, so height/geometry measured here matches what the app renders.
     private struct Layout {
-        let layoutManager: NSLayoutManager
+        let tlm: NSTextLayoutManager
         let container: NSTextContainer
-        let storage: NSTextStorage
-        /// The ceil'd used-rect height — what `MessageTextView.sizeThatFits`
+        let contentStorage: NSTextContentStorage
+        /// The ceil'd usage-bounds height — what `MessageTextView.sizeThatFits`
         /// reports and the timeline uses as the row's text height.
         let usedHeight: CGFloat
     }
 
     /// Lays out `attributed` at the given container width using the app's exact
-    /// TextKit settings (`usesFontLeading = false`, `lineFragmentPadding = 0`).
-    /// The width is floored to match the app's render-time container width
+    /// TextKit 2 settings (`lineFragmentPadding = 0`). The width is floored to
+    /// match the app's render-time container width
     /// (`MessageTextView.sizeThatFits` measures the wrapped case at
     /// `pw.rounded(.down)`).
     private func layout(_ attributed: NSAttributedString, width: CGFloat) -> Layout {
-        let storage = NSTextStorage(attributedString: attributed)
-        let layoutManager = NSLayoutManager()
-        layoutManager.usesFontLeading = false
-        storage.addLayoutManager(layoutManager)
+        let contentStorage = NSTextContentStorage()
+        contentStorage.textStorage = NSTextStorage(attributedString: attributed)
+        let tlm = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(tlm)
         let container = NSTextContainer(
             size: NSSize(width: width.rounded(.down), height: .greatestFiniteMagnitude)
         )
-        container.widthTracksTextView = false
         container.lineFragmentPadding = 0
-        layoutManager.addTextContainer(container)
-        layoutManager.ensureLayout(for: container)
-        let usedHeight = ceil(layoutManager.usedRect(for: container).height)
+        tlm.textContainer = container
+        tlm.ensureLayout(for: tlm.documentRange)
+        let usedHeight = ceil(tlm.usageBoundsForTextContainer.height)
         return Layout(
-            layoutManager: layoutManager, container: container,
-            storage: storage, usedHeight: usedHeight
+            tlm: tlm, container: container,
+            contentStorage: contentStorage, usedHeight: usedHeight
         )
     }
 
@@ -153,13 +151,7 @@ struct TimelineHeightMeasurementTests {
             userId: "@sample:matrix.org", displayName: "Sample User",
             font: baseFont, style: .messageDefault
         )
-        let dummyContainer = NSTextContainer(
-            size: NSSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
-        )
-        let bounds = pill.attachmentBounds(
-            for: dummyContainer, proposedLineFragment: .zero,
-            glyphPosition: .zero, characterIndex: 0
-        )
+        let bounds = pill.bounds
         // Baseline-relative, +y up: top = bounds.maxY, bottom = bounds.minY.
         #expect(
             bounds.maxY <= baseFont.ascender + 0.5,
@@ -217,8 +209,8 @@ struct TimelineHeightMeasurementTests {
             // beyond what was measured.
             let renderWidth = width.rounded(.down)
             laid.container.size = NSSize(width: renderWidth, height: .greatestFiniteMagnitude)
-            laid.layoutManager.ensureLayout(for: laid.container)
-            let renderHeight = ceil(laid.layoutManager.usedRect(for: laid.container).height)
+            laid.tlm.ensureLayout(for: laid.tlm.documentRange)
+            let renderHeight = ceil(laid.tlm.usageBoundsForTextContainer.height)
             #expect(
                 laid.usedHeight >= renderHeight,
                 "At width \(width): measured \(laid.usedHeight)pt < rendered \(renderHeight)pt — last line clips."

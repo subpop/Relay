@@ -25,6 +25,56 @@ extension NSAttributedString.Key {
     static let mentionDisplayName = NSAttributedString.Key("relay.mentionDisplayName")
 }
 
+// MARK: - PillTextAttachmentViewProvider
+
+/// Provides a live SwiftUI ``MentionPillView`` for inline rendering of
+/// mention pills in TextKit 2 text layouts.
+///
+/// This provider hosts the SwiftUI view directly in the text layout via
+/// `NSHostingView`, so the pill adapts automatically to appearance changes,
+/// accessibility settings, and Retina displays without manual scaling.
+nonisolated final class PillTextAttachmentViewProvider: NSTextAttachmentViewProvider {
+
+    nonisolated override init(
+        textAttachment: NSTextAttachment,
+        parentView: NSView?,
+        textLayoutManager: NSTextLayoutManager?,
+        location: any NSTextLocation
+    ) {
+        super.init(
+            textAttachment: textAttachment,
+            parentView: parentView,
+            textLayoutManager: textLayoutManager,
+            location: location
+        )
+    }
+
+    override func loadView() {
+        nonisolated(unsafe) let provider = self
+        MainActor.assumeIsolated {
+            guard let attachment = provider.textAttachment as? PillTextAttachment else { return }
+
+            let tintColor = Color(stableColorFor: attachment.userId)
+            let colorScheme: ColorScheme =
+                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? .dark : .light
+
+            let pillView = MentionPillView(
+                displayName: attachment.displayName,
+                tintColor: tintColor,
+                style: attachment.style,
+                showAtPrefix: attachment.showAtPrefix,
+                fontSize: attachment.pillFontSize
+            )
+            .environment(\.colorScheme, colorScheme)
+
+            let hostingView = NSHostingView(rootView: pillView)
+            hostingView.sizingOptions = .intrinsicContentSize
+            provider.view = hostingView
+        }
+    }
+}
+
 // MARK: - PillTextAttachment
 
 /// An `NSTextAttachment` subclass that represents an inline mention pill.
@@ -33,10 +83,10 @@ extension NSAttributedString.Key {
 /// character (`\u{FFFC}`) is atomically deletable — deleting any part of it
 /// removes the entire mention.
 ///
-/// The pill is rendered as an `NSImage` at creation time by snapshotting a
-/// SwiftUI ``MentionPillView`` via `NSHostingView`. This approach works with
-/// both TextKit 1 and TextKit 2 on macOS (`NSTextAttachmentViewProvider` is
-/// not supported by `NSTextView` on macOS despite existing in the API).
+/// In TextKit 2 contexts the pill is rendered as a live SwiftUI
+/// ``MentionPillView`` via ``PillTextAttachmentViewProvider``. A bitmap
+/// snapshot is kept on ``image`` as a fallback for contexts where the view
+/// provider is not invoked (e.g. offscreen measurement stacks, copy/paste).
 nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendable {
 
     /// The Matrix user ID for this mention (e.g. `@alice:matrix.org`).
@@ -49,52 +99,63 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     /// Stored as a plain `CGFloat` to avoid `Sendable` issues with `NSFont`.
     let pillFontSize: CGFloat
 
-    /// Creates a pill attachment for the compose bar (stable color tint, no border).
-    init(userId: String, displayName: String, font: NSFont) {
-        self.userId = userId
-        self.displayName = displayName
-        self.pillFontSize = font.pointSize
-        super.init(data: nil, ofType: nil)
-        self.attachmentCell = nil
+    /// The visual style of the pill (compose, message, highlight).
+    let style: MentionPillStyle
 
-        let rendered = Self.renderPill(
-            userId: userId, displayName: displayName,
-            fontSize: font.pointSize, style: .compose
+    /// Whether to prepend `@` to the display name.
+    let showAtPrefix: Bool
+
+    /// Creates a pill attachment for the compose bar (stable color tint, no border).
+    convenience init(userId: String, displayName: String, font: NSFont) {
+        self.init(
+            userId: userId,
+            displayName: displayName,
+            font: font,
+            style: .compose,
+            showAtPrefix: true
         )
-        self.image = rendered.image
-        self.bounds = CGRect(origin: .zero, size: rendered.size)
     }
 
     /// Creates a pill attachment for message rendering with a specific style.
-    init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle) {
-        self.userId = userId
-        self.displayName = displayName
-        self.pillFontSize = font.pointSize
-        super.init(data: nil, ofType: nil)
-        self.attachmentCell = nil
-
-        let rendered = Self.renderPill(
-            userId: userId, displayName: displayName,
-            fontSize: font.pointSize, style: style
+    convenience init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle) {
+        self.init(
+            userId: userId,
+            displayName: displayName,
+            font: font,
+            style: style,
+            showAtPrefix: true
         )
-        self.image = rendered.image
-        self.bounds = CGRect(origin: .zero, size: rendered.size)
     }
 
     /// Creates a pill attachment for a keyword highlight (no `@` prefix, no link).
-    init(keyword: String, font: NSFont, style: MentionPillStyle) {
-        self.userId = ""
-        self.displayName = keyword
+    convenience init(keyword: String, font: NSFont, style: MentionPillStyle) {
+        self.init(
+            userId: "",
+            displayName: keyword,
+            font: font,
+            style: style,
+            showAtPrefix: false
+        )
+    }
+
+    init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle, showAtPrefix: Bool) {
+        self.userId = userId
+        self.displayName = displayName
         self.pillFontSize = font.pointSize
+        self.style = style
+        self.showAtPrefix = showAtPrefix
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
         let rendered = Self.renderPill(
-            userId: "", displayName: keyword,
-            fontSize: font.pointSize, style: style, showAtPrefix: false
+            userId: userId,
+            displayName: displayName,
+            fontSize: font.pointSize,
+            style: style,
+            showAtPrefix: showAtPrefix
         )
         self.image = rendered.image
-        self.bounds = CGRect(origin: .zero, size: rendered.size)
+        self.bounds = Self.paddedBounds(pillSize: rendered.size, fontSize: font.pointSize)
     }
 
     @available(*, unavailable)
@@ -102,17 +163,29 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         fatalError("PillTextAttachment does not support NSCoding")
     }
 
-    // MARK: - Image Rendering
+    // MARK: - View Provider
 
-    /// Renders the ``MentionPillView`` to an `NSImage` at 2x resolution and
-    /// returns it together with its natural point size.
-    ///
-    /// The pill text is rendered at `fontSize`, and the caller uses the returned
-    /// natural size as the attachment bounds, so the bitmap is drawn 1:1 and is
-    /// never scaled. The capsule therefore stays sharp and undistorted at any
-    /// surrounding font size — including when the timeline text-zoom enlarges the
-    /// message font. The explicit `scale` of 2 keeps pills crisp on Retina
-    /// displays without relying on the window backing scale.
+    override var usesTextAttachmentView: Bool { true }
+
+    @preconcurrency
+    override func viewProvider(
+        for parentView: NSView?,
+        location: any NSTextLocation,
+        textContainer: NSTextContainer?
+    ) -> NSTextAttachmentViewProvider? {
+        PillTextAttachmentViewProvider(
+            textAttachment: self,
+            parentView: parentView,
+            textLayoutManager: textContainer?.textLayoutManager,
+            location: location
+        )
+    }
+
+    // MARK: - Image Fallback
+
+    /// Renders the ``MentionPillView`` to an `NSImage` at 2x resolution.
+    /// Used as a fallback for contexts where the view provider is not invoked
+    /// (e.g. offscreen measurement stacks, copy/paste).
     private static func renderPill(
         userId: String, displayName: String, fontSize: CGFloat,
         style: MentionPillStyle, showAtPrefix: Bool = true
@@ -133,8 +206,6 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
             if let image = renderer.nsImage {
                 return (image, image.size)
             }
-            // Rendering should never fail; fall back to the measured size so the
-            // mention still reserves inline space.
             let size = MentionPillView.measureSize(
                 displayName: displayName,
                 font: NSFont.systemFont(ofSize: fontSize),
@@ -159,17 +230,6 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         textContainer: NSTextContainer?,
         proposedLineFragment: CGRect,
         position: CGPoint
-    ) -> CGRect {
-        Self.paddedBounds(pillSize: bounds.size, fontSize: pillFontSize)
-    }
-
-    /// TextKit 1 attachment bounds (fallback).
-    @preconcurrency
-    override func attachmentBounds(
-        for textContainer: NSTextContainer?,
-        proposedLineFragment lineFrag: CGRect,
-        glyphPosition position: CGPoint,
-        characterIndex charIndex: Int
     ) -> CGRect {
         Self.paddedBounds(pillSize: bounds.size, fontSize: pillFontSize)
     }

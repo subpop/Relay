@@ -17,8 +17,8 @@ import SwiftUI
 
 /// An `NSViewRepresentable` wrapping an `NSTextView` with inline mention pill support.
 ///
-/// ``ComposeTextView`` hosts ``PillTextAttachment`` pills rendered as
-/// static images (SwiftUI ``MentionPillView`` snapshots). It supports:
+/// ``ComposeTextView`` hosts ``PillTextAttachment`` pills rendered as live
+/// SwiftUI views via ``PillTextAttachmentViewProvider``. It supports:
 /// - Return to send, Shift+Return for newline
 /// - Arrow key / Tab / Escape navigation for mention suggestions
 /// - Atomic deletion of pill attachments
@@ -51,7 +51,7 @@ struct ComposeTextView: NSViewRepresentable {
         let textView = ComposeInputTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 22))
         textView.textContainer?.lineFragmentPadding = 4
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.size = NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
         textView.isRichText = true
         textView.allowsUndo = true
         textView.isEditable = true
@@ -592,9 +592,9 @@ final class ComposeInputTextView: NSTextView {
         let maxHeight = lineHeight * 5 + insets.height * 2
 
         let usedHeight: CGFloat
-        if let layoutManager, let textContainer {
-            layoutManager.ensureLayout(for: textContainer)
-            usedHeight = layoutManager.usedRect(for: textContainer).height
+        if let textLayoutManager {
+            textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+            usedHeight = textLayoutManager.usageBoundsForTextContainer.height
         } else {
             usedHeight = 0
         }

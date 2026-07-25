@@ -78,9 +78,8 @@ struct MessageTextView: NSViewRepresentable {
         var lastHighlightKeywords: [String] = []
         var cachedResolved: NSAttributedString?
 
-        /// Cached result from `sizeThatFits` to avoid redundant
-        /// `NSLayoutManager.ensureLayout` calls when SwiftUI re-measures
-        /// with the same proposal and text content.
+        /// Cached result from `sizeThatFits` to avoid redundant layout
+        /// passes when SwiftUI re-measures with the same proposal and text.
         var cachedSizeProposedWidth: CGFloat?
         var cachedSizeResult: CGSize?
         var cachedSizeTextLength: Int?
@@ -88,6 +87,28 @@ struct MessageTextView: NSViewRepresentable {
         /// The ``sizeCacheGeneration`` the cached size was measured under. A
         /// width change bumps the generation to invalidate every cell's cache.
         var cachedSizeGeneration: Int = -1
+
+        /// Offscreen TextKit 2 stack used exclusively for measurement in
+        /// `sizeThatFits`. Measuring on a separate stack avoids mutating the
+        /// display text view's `NSTextLayoutManager`, which would tear down
+        /// and recreate `NSTextAttachmentViewProvider` views on every
+        /// layout pass.
+        let measureContentStorage = NSTextContentStorage()
+        let measureLayoutManager = NSTextLayoutManager()
+        let measureContainer: NSTextContainer = {
+            let c = NSTextContainer(
+                size: NSSize(width: CGFloat.greatestFiniteMagnitude,
+                             height: CGFloat.greatestFiniteMagnitude)
+            )
+            c.lineFragmentPadding = 0
+            return c
+        }()
+
+        lazy var measureStackReady: Bool = {
+            measureContentStorage.addTextLayoutManager(measureLayoutManager)
+            measureLayoutManager.textContainer = measureContainer
+            return true
+        }()
     }
 
     /// Bumped whenever the timeline re-lays-out at a new width. Recycled cells
@@ -104,16 +125,13 @@ struct MessageTextView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> MessageTextContent {
-        let storage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
-        layoutManager.usesFontLeading = false
-        storage.addLayoutManager(layoutManager)
-        let container = NSTextContainer()
-        container.widthTracksTextView = false
-        container.lineFragmentPadding = 0
-        layoutManager.addTextContainer(container)
-
-        let view = MessageTextContent(frame: .zero, textContainer: container)
+        // Default NSTextView init creates a TextKit 2 stack (NSTextLayoutManager),
+        // enabling NSTextAttachmentViewProvider for live SwiftUI pill rendering.
+        let view = MessageTextContent(
+            frame: NSRect(x: 0, y: 0, width: 200, height: CGFloat.greatestFiniteMagnitude)
+        )
+        view.textContainer?.widthTracksTextView = false
+        view.textContainer?.lineFragmentPadding = 0
         view.clipsToBounds = false
         view.isEditable = false
         view.isSelectable = true
@@ -143,11 +161,8 @@ struct MessageTextView: NSViewRepresentable {
         coordinator.lastHighlightedUserId = highlightedUserId
         coordinator.lastHighlightKeywords = highlightKeywords
         coordinator.cachedResolved = resolved
-        view.linkTextAttributes = [
-            .foregroundColor: linkColor,
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-        ]
-        storage.setAttributedString(resolved)
+        view.linkTextAttributes = [.foregroundColor: linkColor]
+        view.textStorage?.setAttributedString(resolved)
 
         return view
     }
@@ -187,10 +202,7 @@ struct MessageTextView: NSViewRepresentable {
             coordinator.lastHighlightKeywords = highlightKeywords
             coordinator.cachedResolved = resolved
 
-            view.linkTextAttributes = [
-                .foregroundColor: linkColor,
-                .underlineStyle: NSUnderlineStyle.single.rawValue,
-            ]
+            view.linkTextAttributes = [.foregroundColor: linkColor]
             view.textStorage?.setAttributedString(resolved)
 
             // Invalidate the size cache — the text content changed.
@@ -201,78 +213,63 @@ struct MessageTextView: NSViewRepresentable {
     func sizeThatFits(
         _ proposal: ProposedViewSize, nsView: MessageTextContent, context: Context
     ) -> CGSize? {
-        guard let container = nsView.textContainer,
-              // swiftlint:disable:next identifier_name
-              let lm = nsView.layoutManager,
-              let textLength = nsView.textStorage?.length,
-              textLength > 0
+        guard let displayStorage = nsView.textStorage,
+              displayStorage.length > 0
         else { return .zero }
 
-        // Return the cached size if the proposal and text haven't changed.
-        // Use the text storage hash (not just length) to detect recycled
-        // cells where sizeThatFits is called before updateNSView replaces
-        // the text content.
         let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
         let coordinator = context.coordinator
-        let textHash = nsView.textStorage?.string.hashValue ?? 0
+        let textHash = displayStorage.string.hashValue
         if let cached = coordinator.cachedSizeResult,
            coordinator.cachedSizeGeneration == Self.sizeCacheGeneration,
-           coordinator.cachedSizeTextLength == textLength,
+           coordinator.cachedSizeTextLength == displayStorage.length,
            coordinator.cachedSizeTextHash == textHash,
            coordinator.cachedSizeProposedWidth == proposedWidth {
             return cached
         }
 
-        // Prevent setFrameSize from constraining the container while we measure,
-        // then leave the container at the view's actual render (frame) width.
-        // `sizeThatFits` sets the container to several widths — including the
-        // unconstrained natural width for an ideal-size query — and SwiftUI
-        // issues those queries in an order we don't control. Whatever width is
-        // left in the container is the width the live text wraps at, so it must
-        // end up equal to the frame: leaving it wider strands the text past its
-        // frame (horizontal clip); leaving it narrower — which is what restoring
-        // the *pre-measurement* container width did for a recycled or resized
-        // cell whose container was already stale — wraps an extra line that eats
-        // the bubble padding and clips the top and bottom. The frame width is
-        // authoritative: `setFrameSize` keeps it current, and it is exactly the
-        // width SwiftUI renders the text at.
-        nsView.suppressContainerSync = true
-        defer {
-            let renderWidth = nsView.frame.width
-            if renderWidth > 0 {
-                container.containerSize = NSSize(
-                    width: renderWidth, height: CGFloat.greatestFiniteMagnitude
-                )
-            }
-            nsView.suppressContainerSync = false
-        }
+        // Measure on a separate, offscreen TextKit 2 stack so the display
+        // text view's NSTextLayoutManager is never mutated. This preserves
+        // any NSTextAttachmentViewProvider views the display layout created
+        // during rendering — mutating the display layout (as the old code
+        // did) would tear those views down on every measurement pass.
+        _ = coordinator.measureStackReady
+        // swiftlint:disable:next identifier_name
+        let ms = coordinator.measureContentStorage
+        ms.textStorage?.setAttributedString(displayStorage)
+        // swiftlint:disable:next identifier_name
+        let tlm = coordinator.measureLayoutManager
+        let container = coordinator.measureContainer
 
         // Natural layout (unconstrained) to find the intrinsic text width.
-        container.containerSize = NSSize(
+        container.size = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        lm.ensureLayout(for: container)
+        tlm.ensureLayout(for: tlm.documentRange)
         var naturalWidth: CGFloat = 0
-        let storage = nsView.textStorage!
-        lm.enumerateLineFragments(forGlyphRange: lm.glyphRange(for: container)) { _, usedRect, _, glyphRange, _ in
-            // Use maxX (origin.x + width) so that paragraph indents
-            // (firstLineHeadIndent, headIndent) are included in the measurement.
-            var lineWidth = usedRect.maxX
-            // If this line's paragraph has a negative tailIndent, that space is
-            // "reserved" on the trailing edge. Add it back so the bubble sizes
-            // wide enough to avoid unnecessary wrapping.
-            let charIndex = lm.characterIndexForGlyph(at: glyphRange.location)
-            if charIndex < storage.length,
-               // swiftlint:disable:next identifier_name
-               let ps = storage.attribute(.paragraphStyle, at: charIndex, effectiveRange: nil)
-                    as? NSParagraphStyle,
-               ps.tailIndent < 0 {
-                lineWidth -= ps.tailIndent // tailIndent is negative, so this adds
+        let docStart = tlm.documentRange.location
+        tlm.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+            for lineFragment in fragment.textLineFragments {
+                var lineWidth = fragment.layoutFragmentFrame.origin.x
+                    + lineFragment.typographicBounds.maxX
+                if let fragStart = fragment.textElement?.elementRange?.location {
+                    let fragOffset = ms.offset(from: docStart, to: fragStart)
+                    let charIndex = fragOffset + lineFragment.characterRange.location
+                    if charIndex < displayStorage.length,
+                       // swiftlint:disable:next identifier_name
+                       let ps = displayStorage.attribute(
+                            .paragraphStyle, at: charIndex, effectiveRange: nil
+                       ) as? NSParagraphStyle,
+                       ps.tailIndent < 0 {
+                        lineWidth -= ps.tailIndent
+                    }
+                }
+                naturalWidth = max(naturalWidth, lineWidth)
             }
-            naturalWidth = max(naturalWidth, lineWidth)
+            return true
         }
-        let naturalHeight = lm.usedRect(for: container).height
+        let naturalHeight = tlm.usageBoundsForTextContainer.height
         let tightWidth = ceil(naturalWidth)
 
         let result: CGSize
@@ -280,39 +277,20 @@ struct MessageTextView: NSViewRepresentable {
         // swiftlint:disable:next identifier_name
         if let pw = proposedWidth, pw > 0 {
             if tightWidth > pw {
-                // Text must wrap. Measure at the *integral* width the text
-                // container will actually be assigned at render time: SwiftUI
-                // hands the NSView a device-pixel-rounded frame, and
-                // `MessageTextContent.setFrameSize` syncs the container to that
-                // frame width — which is a fraction narrower than a fractional
-                // `pw`. Measuring at `pw` while the live container ends up at
-                // `floor(pw)` makes a line sitting right at the wrap boundary
-                // wrap one extra line on screen, overflowing the measured row
-                // height and clipping the last line (or a trailing link-preview
-                // card pushed down by it). Flooring keeps measurement and render
-                // on the same width so wrapping — and therefore height — agree.
-                // Guard against a sub-point proposal flooring to 0, which would
-                // give a zero-width container and a garbage height.
                 let wrapWidth = max(1, pw.rounded(.down))
-                container.containerSize = NSSize(width: wrapWidth, height: CGFloat.greatestFiniteMagnitude)
-                lm.ensureLayout(for: container)
-                let constrainedHeight = lm.usedRect(for: container).height
+                container.size = NSSize(width: wrapWidth, height: CGFloat.greatestFiniteMagnitude)
+                tlm.ensureLayout(for: tlm.documentRange)
+                let constrainedHeight = tlm.usageBoundsForTextContainer.height
                 result = CGSize(width: wrapWidth, height: ceil(constrainedHeight))
             } else {
-                // Text fits on fewer lines — hug the text width but never
-                // exceed the proposed width. This ensures SwiftUI sets the
-                // NSTextView frame within the bubble's clipping bounds.
                 result = CGSize(width: tightWidth, height: ceil(naturalHeight))
             }
         } else {
-            // No proposed width (ideal size query) — return natural size
-            // but cap at the bubble max width so the frame doesn't extend
-            // past the clipping boundary.
             let cappedWidth = min(tightWidth, 476) // 500 maxBubbleWidth - 24 bubblePadding
             if cappedWidth < tightWidth {
-                container.containerSize = NSSize(width: cappedWidth, height: CGFloat.greatestFiniteMagnitude)
-                lm.ensureLayout(for: container)
-                let h = lm.usedRect(for: container).height
+                container.size = NSSize(width: cappedWidth, height: CGFloat.greatestFiniteMagnitude)
+                tlm.ensureLayout(for: tlm.documentRange)
+                let h = tlm.usageBoundsForTextContainer.height
                 result = CGSize(width: cappedWidth, height: ceil(h))
             } else {
                 result = CGSize(width: tightWidth, height: ceil(naturalHeight))
@@ -321,7 +299,7 @@ struct MessageTextView: NSViewRepresentable {
 
         coordinator.cachedSizeProposedWidth = proposedWidth
         coordinator.cachedSizeResult = result
-        coordinator.cachedSizeTextLength = textLength
+        coordinator.cachedSizeTextLength = displayStorage.length
         coordinator.cachedSizeTextHash = textHash
         coordinator.cachedSizeGeneration = Self.sizeCacheGeneration
 

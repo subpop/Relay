@@ -24,11 +24,6 @@ import RelayInterface
 /// features such as mention pills and `matrix.to` links.
 final class MessageTextContent: NSTextView {
 
-    /// When `true`, `setFrameSize` will not update the text container's width.
-    /// This prevents a feedback loop where SwiftUI's layout -> `setFrameSize` ->
-    /// re-layout -> smaller `sizeThatFits` -> smaller frame -> repeat.
-    var suppressContainerSync = false
-
     /// Called when the user clicks a `matrix.to` user mention link, with the Matrix user ID.
     var onUserTap: ((String) -> Void)?
 
@@ -69,8 +64,8 @@ final class MessageTextContent: NSTextView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         // swiftlint:disable:next identifier_name
-        if !suppressContainerSync, let tc = textContainer, newSize.width > 0 {
-            tc.containerSize = NSSize(width: newSize.width, height: CGFloat.greatestFiniteMagnitude)
+        if let textContainer, newSize.width > 0 {
+            textContainer.size = NSSize(width: newSize.width, height: CGFloat.greatestFiniteMagnitude)
         }
     }
 
@@ -111,18 +106,33 @@ final class MessageTextContent: NSTextView {
     }
 
     private func linkRange(at point: NSPoint) -> NSRange? {
-        guard let layoutManager, let textContainer, let textStorage else { return nil }
+        guard let textLayoutManager,
+              let textContentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
+              let textStorage else { return nil }
         let origin = textContainerOrigin
         let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
 
-        let glyphIndex = layoutManager.glyphIndex(for: local, in: textContainer)
-        let glyphRect = layoutManager.boundingRect(
-            forGlyphRange: NSRange(location: glyphIndex, length: 1),
-            in: textContainer
+        guard let fragment = textLayoutManager.textLayoutFragment(for: local) else { return nil }
+        let fragmentLocal = NSPoint(
+            x: local.x - fragment.layoutFragmentFrame.origin.x,
+            y: local.y - fragment.layoutFragmentFrame.origin.y
         )
-        guard glyphRect.contains(local) else { return nil }
 
-        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard let lineFragment = fragment.textLineFragment(
+            forVerticalOffset: fragmentLocal.y, requiresExactMatch: false
+        ) else { return nil }
+
+        let lineLocal = NSPoint(
+            x: fragmentLocal.x - lineFragment.typographicBounds.origin.x,
+            y: fragmentLocal.y - lineFragment.typographicBounds.origin.y
+        )
+        let localCharIndex = lineFragment.characterIndex(for: lineLocal)
+
+        guard let fragStart = fragment.textElement?.elementRange?.location else { return nil }
+        let fragOffset = textContentStorage.offset(
+            from: textLayoutManager.documentRange.location, to: fragStart
+        )
+        let charIndex = fragOffset + localCharIndex
         guard charIndex < textStorage.length else { return nil }
 
         var effectiveRange = NSRange()
