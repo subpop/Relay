@@ -355,7 +355,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 inviteToolbarCapsule(for: room)
             }
         } else if let selectedRoomId, currentRoom != nil {
-            ToolbarItem(placement: .secondaryAction) {
+            ToolbarItem(placement: .principal) {
                 toolbarTitleCapsule
             }
 
@@ -748,8 +748,9 @@ private struct ToolbarRoomLabel: View {
                 Text(room.name)
                     .font(.title3)
                     .fontWeight(.semibold)
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: 100)
+                    .frame(minWidth: 100, maxWidth: 280)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
 
