@@ -15,88 +15,110 @@
 import RelayInterface
 import SwiftUI
 
-/// Displays compact emoji reaction badges that overlay the top corner of a
-/// message bubble, styled after iMessage.
+/// Displays a compact "Emojis" control that overlays a message bubble.
 ///
-/// When collapsed (default), badges overlap horizontally. On hover they fan out
-/// to reveal each reaction individually. Each badge is a small circle containing
-/// the emoji, with an optional count indicator and an accent-color border when
-/// the current user has sent that reaction.
+/// Collapsed, it shows a filled smiley-face icon at the bubble's corner with no
+/// background. Clicking it expands a material capsule that hugs the reaction
+/// row in the bubble's top corner (growing from the corner) listing every
+/// reaction; clicking a reaction badge toggles that reaction without closing
+/// it. When expanded the button becomes an xmark that collapses it. The button
+/// sits at the leading end for outgoing messages and at the trailing end for
+/// incoming ones.
 struct MessageReactionBadges: View {
     let reactions: [TimelineMessage.ReactionGroup]
 
-    /// Whether the message is outgoing (determines fan-out direction).
+    /// Whether the message is outgoing (determines expansion direction).
     let isOutgoing: Bool
 
     /// Whether colored bubbles are enabled (determines badge fill color).
     let coloredBubbles: Bool
 
-    /// Called with the emoji key when the user taps a badge.
+    /// Called with the emoji key when the user taps a reaction badge.
     let onToggle: (String) -> Void
 
-    /// The diameter of each reaction badge circle.
+    /// The diameter of each reaction badge circle and the smiley button.
     private static let badgeSize: CGFloat = 22
 
-    /// The horizontal offset between overlapping badges when collapsed.
-    private static let collapsedStep: CGFloat = -12
+    /// The horizontal spacing between badges in the expanded row.
+    private static let expandedSpacing: CGFloat = 2
 
-    /// The horizontal spacing between badges when fanned out on hover.
-    private static let expandedStep: CGFloat = 2
+    /// The overlay's offset from the bubble's corner.
+    private static let cornerOffsetX: CGFloat = 8
+    private static let cornerOffsetY: CGFloat = -11
 
-    /// Scale factor applied to the badge group on hover.
-    private static let hoverScale: CGFloat = 1.25
-
-    @State private var isHovering = false
+    @State private var isExpanded = false
 
     var body: some View {
-        let step = isHovering ? Self.expandedStep : Self.collapsedStep
+        ZStack(alignment: isOutgoing ? .topLeading : .topTrailing) {
+            if isExpanded {
+                expandedContent
+                    .transition(expandTransition)
+            } else {
+                expandButton
+                    .background(Circle().fill(.ultraThickMaterial))
+                    .transition(expandTransition)
+            }
+        }
+        .offset(x: isOutgoing ? -Self.cornerOffsetX : Self.cornerOffsetX, y: Self.cornerOffsetY)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: isOutgoing ? .topLeading : .topTrailing
+        )
+        .animation(.spring(duration: 0.3, bounce: 0.2), value: isExpanded)
+    }
 
-        // The visible badge stack.
-        HStack(spacing: 0) {
-            ForEach(
-                isOutgoing ? reactions.reversed().enumerated() : reactions.enumerated(),
-                id: \.element.id
-            ) { index, reaction in
+    /// The expanded overlay: the reaction row with a material background that
+    /// hugs its contents, pinned to the bubble's top corner.
+    private var expandedContent: some View {
+        expandedRow
+            .background(BubbleStyle.shape.fill(.ultraThickMaterial))
+    }
+
+    /// The row of reaction badges, with the expand/collapse button at the
+    /// leading end for outgoing messages and the trailing end for incoming
+    /// ones.
+    private var expandedRow: some View {
+        HStack(spacing: Self.expandedSpacing) {
+            if isOutgoing {
+                expandButton
+            }
+
+            ForEach(reactions) { reaction in
                 ReactionBadge(
                     reaction: reaction,
                     coloredBubbles: coloredBubbles,
                     onToggle: { onToggle(reaction.key) }
                 )
-                .offset(
-                    x: offsetForIndex(
-                        isOutgoing ? index : reactions.count - index,
-                        step: step
-                    )
-                )
-                .zIndex(Double(reactions.count - index))
+                .transition(expandTransition)
+            }
+
+            if !isOutgoing {
+                expandButton
             }
         }
-        // The total width of the stack needs to account for overlapping badges.
-        .frame(
-            width: totalWidth(step: step),
-            height: Self.badgeSize,
-            alignment: isOutgoing ? .leading : .trailing
-        )
-        .scaleEffect(isHovering ? Self.hoverScale : 1.0)
-        .onHover { hovering in
-            withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
-                isHovering = hovering
-            }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+    }
+
+    /// The button that expands the control (filled smiley on a material circle)
+    /// and collapses it (plain xmark). Leading for outgoing messages, trailing
+    /// for incoming ones.
+    private var expandButton: some View {
+        Button(action: { isExpanded.toggle() }) {
+            Image(systemName: isExpanded ? "xmark" : "face.smiling")
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                .frame(width: Self.badgeSize, height: Self.badgeSize)
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
     }
 
-    private func offsetForIndex(_ index: Int, step: CGFloat) -> CGFloat {
-        // Outgoing badges are at top-leading, fan rightward (positive).
-        // Incoming badges are at top-trailing, fan leftward (negative).
-        // A single reaction does not fan at all.
-        if reactions.count == 1 { return 0.0 }
-        let direction: CGFloat = isOutgoing ? 1 : -1
-        return CGFloat(index) * step * direction
-    }
-
-    private func totalWidth(step: CGFloat) -> CGFloat {
-        guard reactions.count > 1 else { return Self.badgeSize }
-        return max(Self.badgeSize + CGFloat(reactions.count - 1) * step, Self.badgeSize)
+    /// The grow-from-corner transition used when expanding and collapsing.
+    private var expandTransition: AnyTransition {
+        .scale(scale: 0.5, anchor: isOutgoing ? .topLeading : .topTrailing)
+            .combined(with: .opacity)
     }
 }
 
@@ -176,7 +198,6 @@ private let sampleReactions: [TimelineMessage.ReactionGroup] = [
                     coloredBubbles: false,
                     onToggle: { _ in }
                 )
-                .offset(x: -4, y: -11)
             }
             .padding(.top, 11)
     }
@@ -197,7 +218,6 @@ private let sampleReactions: [TimelineMessage.ReactionGroup] = [
                     coloredBubbles: false,
                     onToggle: { _ in }
                 )
-                .offset(x: 4, y: -11)
             }
             .padding(.top, 11)
     }
@@ -222,7 +242,6 @@ private let sampleReactions: [TimelineMessage.ReactionGroup] = [
                     coloredBubbles: false,
                     onToggle: { _ in }
                 )
-                .offset(x: 4, y: -11)
             }
             .padding(.top, 11)
     }

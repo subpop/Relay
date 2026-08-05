@@ -153,10 +153,6 @@ struct MessageView: View {
                     coloredBubbles: coloredBubbles,
                     onToggle: { key in actions.toggleReaction(message.eventID, key) }
                 )
-                .offset(
-                    x: -4,
-                    y: -11
-                )
             }
         }
         .padding(.top, hasTopOverlay ? 11 : 0)
