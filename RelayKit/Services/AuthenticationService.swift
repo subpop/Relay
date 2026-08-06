@@ -137,7 +137,10 @@ final class AuthenticationService {
         return ClientBuilderProxy()
             .sessionPaths(
                 dataPath: Self.dataDirectory.path,
-                cachePath: Self.cacheDirectory.path
+                cachePath: Self.cacheDirectory.path,
+                // The SDK default is four connections per physical CPU for each store,
+                // which can exhaust macOS file descriptors on high-core-count systems.
+                poolMaxSize: 4
             )
             .slidingSyncVersionBuilder(.discoverNative)
             .autoEnableCrossSigning(true)
