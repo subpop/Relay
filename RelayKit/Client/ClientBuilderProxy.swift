@@ -28,7 +28,7 @@ import Foundation
 /// ```swift
 /// let client = try await ClientBuilderProxy()
 ///     .homeserverUrl("https://matrix.org")
-///     .sessionPaths(dataPath: dataDir, cachePath: cacheDir)
+///     .sessionPaths(dataPath: dataDir, cachePath: cacheDir, poolMaxSize: 4)
 ///     .build()
 /// ```
 ///
@@ -38,7 +38,7 @@ import Foundation
 /// - ``homeserverUrl(_:)``
 /// - ``serverName(_:)``
 /// - ``serverNameOrHomeserverUrl(_:)``
-/// - ``sessionPaths(dataPath:cachePath:)``
+/// - ``sessionPaths(dataPath:cachePath:poolMaxSize:)``
 /// - ``username(_:)``
 ///
 /// ### Building
@@ -86,10 +86,13 @@ public final class ClientBuilderProxy: @unchecked Sendable {
     /// - Parameters:
     ///   - dataPath: The path for persistent data.
     ///   - cachePath: The path for cache data.
+    ///   - poolMaxSize: The maximum number of SQLite connections per store.
     /// - Returns: This builder for chaining.
     @discardableResult
-    public func sessionPaths(dataPath: String, cachePath: String) -> ClientBuilderProxy {
-        builder = builder.sessionPaths(dataPath: dataPath, cachePath: cachePath)
+    public func sessionPaths(dataPath: String, cachePath: String, poolMaxSize: UInt32) -> ClientBuilderProxy {
+        let store = SqliteStoreBuilder(dataPath: dataPath, cachePath: cachePath)
+            .poolMaxSize(poolMaxSize: poolMaxSize)
+        builder = builder.sqliteStore(config: store)
         return self
     }
 
