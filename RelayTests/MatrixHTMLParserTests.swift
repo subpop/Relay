@@ -264,22 +264,22 @@ struct MatrixHTMLParserTests {
         #expect(result.string == "a\nb")
     }
 
-    @Test func blockquoteHasBarAndDepth() {
+    @Test func blockquoteHasMarker() {
         let result = NSAttributedString(matrixHTML:
             "<blockquote><p>quoted</p></blockquote>"
         )!
-        // The result should contain the bar character "\u{2502} " followed by the text.
-        #expect(result.string.contains("\u{2502}"))
+        // The result should contain the marker placeholder followed by the text.
+        #expect(result.string.contains("\u{FFFC}"))
         #expect(result.string.contains("quoted"))
 
-        // The bar character should have the blockquoteBar attribute.
-        let barAttrs = attrs(result, at: 0)
-        #expect(barAttrs[.blockquoteBar] as? Bool == true)
+        // The marker character should have the blockquoteMarker attribute.
+        let markerAttrs = attrs(result, at: 0)
+        #expect(markerAttrs[.blockquoteMarker] as? Bool == true)
 
-        // The quoted text should have a blockquoteDepth attribute.
+        // The quoted text should have a paragraph style indenting it past the icon.
         let textIndex = (result.string as NSString).range(of: "quoted").location
-        let depth = attrs(result, at: textIndex)[.blockquoteDepth] as? Int
-        #expect(depth == 1)
+        let style = attrs(result, at: textIndex)[.paragraphStyle] as? NSParagraphStyle
+        #expect((style?.headIndent ?? 0) > 0)
     }
 
     @Test func preformattedBlock() {
@@ -446,10 +446,9 @@ struct MatrixHTMLParserTests {
             "<blockquote><blockquote><p>deep</p></blockquote></blockquote>"
         )!
         #expect(result.string.contains("deep"))
-        // Find the "deep" text and check its blockquote depth is 2.
-        let textIndex = (result.string as NSString).range(of: "deep").location
-        let depth = attrs(result, at: textIndex)[.blockquoteDepth] as? Int
-        #expect(depth == 2)
+        // Each nesting level contributes a marker placeholder.
+        let markerCount = result.string.filter { $0 == "\u{FFFC}" }.count
+        #expect(markerCount == 2)
     }
 
     @Test func boldInsideLink() {

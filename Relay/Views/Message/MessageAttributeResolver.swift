@@ -14,6 +14,7 @@
 
 import AppKit
 import RelayInterface
+import SwiftUI
 
 // MARK: - Attribute Resolution
 
@@ -48,11 +49,6 @@ extension MessageTextView {
         let keys = NSAttributedString.Key.self
         let baseFont = MessageTextScale.baseFont
 
-        // Muted color for blockquote text content.
-        let mutedForeground = foreground.withAlphaComponent(0.75)
-        // Subtle color for the "|" bar character.
-        let barColor = foreground.withAlphaComponent(0.25)
-
         // Collect mention link ranges for pill replacement (done after the
         // attribute pass to avoid mutating during enumeration).
         var mentionRanges: [(range: NSRange, url: URL, uri: MatrixURI, displayName: String)] = []
@@ -60,12 +56,9 @@ extension MessageTextView {
         result.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
             let hasLink = attrs[keys.link] != nil
             let isSpoiler = attrs[keys.matrixSpoiler] as? Bool == true
-            let isBlockquoteBar = attrs[keys.blockquoteBar] as? Bool == true
-            let isInBlockquote = attrs[keys.blockquoteDepth] != nil
+            let isBlockquoteMarker = attrs[keys.blockquoteMarker] as? Bool == true
 
-            if isBlockquoteBar {
-                result.addAttribute(keys.foregroundColor, value: barColor, range: range)
-            } else if hasLink {
+            if hasLink {
                 result.addAttribute(keys.foregroundColor, value: linkColor, range: range)
                 result.addAttribute(
                     keys.underlineStyle,
@@ -82,8 +75,8 @@ extension MessageTextView {
                 }
             } else if isSpoiler {
                 // Keep spoiler coloring as-is.
-            } else if isInBlockquote, attrs[keys.foregroundColor] == nil {
-                result.addAttribute(keys.foregroundColor, value: mutedForeground, range: range)
+            } else if isBlockquoteMarker {
+                // Replaced with the quote icon attachment below.
             } else if attrs[keys.foregroundColor] == nil {
                 result.addAttribute(keys.foregroundColor, value: foreground, range: range)
             }
@@ -92,6 +85,27 @@ extension MessageTextView {
             if attrs[keys.font] == nil {
                 result.addAttribute(keys.font, value: baseFont, range: range)
             }
+        }
+
+        // Replace blockquote markers with tinted quote icon attachments.
+        // Process in reverse order so earlier ranges stay valid.
+        var markerRanges: [NSRange] = []
+        result.enumerateAttribute(keys.blockquoteMarker, in: fullRange, options: []) { value, range, _ in
+            if (value as? Bool) == true {
+                markerRanges.append(range)
+            }
+        }
+        for range in markerRanges.reversed() {
+            let icon = QuoteTextAttachment(
+                fontSize: baseFont.pointSize,
+                tint: Color(nsColor: foreground.withAlphaComponent(0.6))
+            )
+            let replacement = NSMutableAttributedString(attachment: icon)
+            replacement.addAttributes(
+                result.attributes(at: range.location, effectiveRange: nil),
+                range: NSRange(location: 0, length: replacement.length)
+            )
+            result.replaceCharacters(in: range, with: replacement)
         }
 
         // Replace mention link ranges with PillTextAttachment images.

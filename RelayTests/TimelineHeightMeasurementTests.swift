@@ -163,6 +163,62 @@ struct TimelineHeightMeasurementTests {
         )
     }
 
+    // MARK: - Blockquote icon attachment
+
+    /// Resolving a message with a blockquote must substitute the `\u{FFFC}`
+    /// marker for a ``QuoteTextAttachment`` carrying a bitmap fallback, and the
+    /// quoted text must keep the message foreground (not muted).
+    @Test func blockquoteMarkerSubstitutedWithQuoteIcon() {
+        let src = NSAttributedString(matrixHTML:
+            "<blockquote><p>quoted text</p></blockquote>"
+        )!
+        let resolved = resolvedIncoming(src)
+
+        var found = false
+        var fallbackImage: NSImage?
+        resolved.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: resolved.length)
+        ) { value, _, _ in
+            if let quote = value as? QuoteTextAttachment {
+                found = true
+                fallbackImage = quote.image
+            }
+        }
+        #expect(found, "Expected the blockquote marker to be substituted with a QuoteTextAttachment")
+        #expect(
+            fallbackImage != nil,
+            "QuoteTextAttachment should carry a bitmap fallback for offscreen measurement stacks."
+        )
+
+        let textRange = (resolved.string as NSString).range(of: "quoted")
+        let color = resolved.attribute(
+            .foregroundColor, at: textRange.location, effectiveRange: nil
+        ) as? NSColor
+        #expect(
+            color?.isEqual(NSColor.labelColor) ?? false,
+            "Quoted text should keep the message foreground, not be muted."
+        )
+    }
+
+    /// Direct unit invariant: a quote icon's attachment bounds must fit inside
+    /// the font line box (top ≤ ascender, bottom ≥ descender) so it can never
+    /// overhang whatever line it lands on.
+    @Test func quoteAttachmentBoundsFitWithinFontLineBox() {
+        let quote = QuoteTextAttachment(
+            fontSize: baseFont.pointSize,
+            tint: Color(nsColor: .labelColor)
+        )
+        let bounds = quote.bounds
+        #expect(
+            bounds.maxY <= baseFont.ascender + 0.5,
+            "Quote icon top \(bounds.maxY) exceeds font ascender \(baseFont.ascender) — overhangs the line box."
+        )
+        #expect(
+            bounds.minY >= baseFont.descender - 0.5,
+            "Quote icon bottom \(bounds.minY) is below font descender \(baseFont.descender) — overhangs the line box."
+        )
+    }
+
     /// A pill's rendered glyphs must scale with the surrounding font size. If the
     /// pill view is rendered at a fixed text style while its attachment bounds are
     /// sized for a larger font, TextKit upscales the small bitmap into the large

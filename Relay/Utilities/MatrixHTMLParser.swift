@@ -23,15 +23,10 @@ extension NSAttributedString.Key {
     /// tap-to-reveal behavior.
     static let matrixSpoiler = NSAttributedString.Key("matrixSpoiler")
 
-    /// Blockquote nesting depth. Value: `Int` (1 for outermost, 2 for nested, etc.).
-    /// Used by ``MessageTextView/applyColorOverrides(_:foreground:linkColor:)``
-    /// to mute text color inside blockquotes.
-    static let blockquoteDepth = NSAttributedString.Key("matrixBlockquoteDepth")
-
-    /// Marks the bar character(s) at the start of a blockquote. Value: `Bool`.
-    /// Used by ``MessageTextView/applyColorOverrides(_:foreground:linkColor:)``
-    /// to apply a subtle foreground color to the vertical bar.
-    static let blockquoteBar = NSAttributedString.Key("matrixBlockquoteBar")
+    /// Marks the `\u{FFFC}` placeholder at the start of a blockquote. Value: `Bool`.
+    /// ``MessageTextView/applyColorOverrides(_:foreground:linkColor:)`` replaces
+    /// the placeholder with a ``QuoteTextAttachment`` at render time.
+    static let blockquoteMarker = NSAttributedString.Key("matrixBlockquoteMarker")
 }
 
 // MARK: - NSAttributedString + Matrix HTML
@@ -361,19 +356,22 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                 case "blockquote":
                     blockquoteDepth += 1
                     let baseFont = MessageTextScale.baseFont
-                    let barString = "\u{2502} "
-                    let barWidth = (barString as NSString)
-                        .size(withAttributes: [.font: baseFont]).width
+                            let indent = QuoteTextAttachment.indentWidth(for: baseFont)
                     let paraStyle = NSMutableParagraphStyle()
                     paraStyle.firstLineHeadIndent = 0
-                    paraStyle.headIndent = barWidth
-                    paraStyle.tailIndent = -barWidth
-                    let barAttrs: [NSAttributedString.Key: Any] = [
+                    paraStyle.headIndent = indent
+                    paraStyle.tailIndent = -indent
+                    let markerAttrs: [NSAttributedString.Key: Any] = [
                         .font: baseFont,
-                        .blockquoteBar: true,
+                        .blockquoteMarker: true,
                         .paragraphStyle: paraStyle
                     ]
-                    result.append(NSAttributedString(string: barString, attributes: barAttrs))
+                    result.append(NSAttributedString(
+                        string: "\u{FFFC}", attributes: markerAttrs
+                    ))
+                    result.append(NSAttributedString(
+                        string: " ", attributes: [.font: baseFont, .paragraphStyle: paraStyle]
+                    ))
                     suppressNextBlockBreak = true
                     deferredStack.append(DeferredBlock(
                         tag: tag, startIndex: result.length
@@ -508,28 +506,13 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                             length: result.length - deferred.startIndex
                         )
                         if contentRange.length > 0 {
-                            // Apply depth only where a nested blockquote hasn't
-                            // already set a higher value.
-                            result.enumerateAttribute(
-                                .blockquoteDepth, in: contentRange, options: []
-                            ) { value, range, _ in
-                                let existing = value as? Int ?? 0
-                                if blockquoteDepth > existing {
-                                    result.addAttribute(
-                                        .blockquoteDepth,
-                                        value: blockquoteDepth,
-                                        range: range
-                                    )
-                                }
-                            }
                             // Apply paragraph style for blockquote wrapping.
                             let baseFont = MessageTextScale.baseFont
-                            let barWidth = ("\u{2502} " as NSString)
-                                .size(withAttributes: [.font: baseFont]).width
+                    let indent = QuoteTextAttachment.indentWidth(for: baseFont)
                             let style = NSMutableParagraphStyle()
                             style.firstLineHeadIndent = 0
-                            style.headIndent = barWidth
-                            style.tailIndent = -barWidth
+                            style.headIndent = indent
+                            style.tailIndent = -indent
                             style.paragraphSpacingBefore = 6
                             result.addAttribute(
                                 .paragraphStyle, value: style, range: contentRange
