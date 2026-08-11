@@ -750,7 +750,7 @@ private struct ToolbarRoomLabel: View {
                     .fontWeight(.semibold)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(minWidth: 100, maxWidth: 280)
+                    .frame(maxWidth: 280)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
 
