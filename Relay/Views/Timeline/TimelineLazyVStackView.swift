@@ -122,10 +122,7 @@ struct TimelineLazyVStackView: View {
     @State private var isNearBottomLatched = true
 
     /// IDs of rows currently visible in the scroll viewport, tracked via
-    /// per-row `onScrollVisibilityChange`. Used to advance the read marker
-    /// without requiring `.scrollTargetLayout()`, which causes
-    /// `ScrollPosition` to track view IDs and re-anchor during resize,
-    /// producing jitter when the inspector or sidebar toggles.
+    /// per-row `onScrollVisibilityChange`. Used to advance the read marker.
     @State private var visibleRowIDs: Set<String> = []
 
     /// Delays per-row visibility tracking until the initial scroll position
@@ -174,7 +171,7 @@ struct TimelineLazyVStackView: View {
                     .frame(height: typingIndicatorShown ? 44 : 0)
                     .animation(.easeInOut(duration: 0.25), value: typingIndicatorShown)
             }
-            .scrollTargetLayout()
+
         }
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
