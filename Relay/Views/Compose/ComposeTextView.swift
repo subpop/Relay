@@ -39,6 +39,7 @@ struct ComposeTextView: NSViewRepresentable {
     var onMentionNavigateUp: (() -> Void)?
     var onMentionNavigateDown: (() -> Void)?
     var onMentionConfirm: (() -> Bool)?
+    @Binding var shouldFocus: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -130,6 +131,15 @@ struct ComposeTextView: NSViewRepresentable {
         }
 
         guard let textView = scrollView.linkedTextView else { return }
+
+        if shouldFocus {
+            textView.window?.makeFirstResponder(textView)
+            // Defer state reset to avoid modifying a binding during view update.
+            Task { @MainActor in
+                self.shouldFocus = false
+            }
+        }
+
         guard !context.coordinator.didPushTextChange else {
             context.coordinator.didPushTextChange = false
             return

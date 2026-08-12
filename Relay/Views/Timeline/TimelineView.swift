@@ -570,6 +570,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                 self.compose.replyingTo = message
             }
+            self.compose.shouldFocusTextField = true
         }
         actions.avatarDoubleTap = { message in
             self.onUserTap?(UserProfile(message: message))
@@ -853,6 +854,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                 compose.replyingTo = message
             }
+            compose.shouldFocusTextField = true
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)

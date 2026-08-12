@@ -164,7 +164,8 @@ private struct ComposeBarContent: View {
                 },
                 onMentionConfirm: {
                     return compose.confirmSelectedMention()
-                }
+                },
+                shouldFocus: $compose.shouldFocusTextField
             )
             .frame(height: textViewHeight)
         }

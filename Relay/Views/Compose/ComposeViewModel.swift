@@ -35,6 +35,10 @@ final class ComposeViewModel {
     /// The message being replied to, if any.
     var replyingTo: TimelineMessage?
 
+    /// Transient flag that requests the compose text field to become first
+    /// responder. Automatically reset to `false` after focus is applied.
+    var shouldFocusTextField = false
+
     /// The message being edited, if any.
     var editingMessage: TimelineMessage?
 
