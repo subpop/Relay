@@ -82,10 +82,10 @@ struct CollapsedSystemEventsView: View {
     private var summary: String {
         var counts: [(label: String, count: Int)] = []
 
-        let membership = messages.count(where: { $0.kind == .membership })
-        let profileChange = messages.count(where: { $0.kind == .profileChange })
-        let stateEvent = messages.count(where: { $0.kind == .stateEvent })
-        let callEvent = messages.count(where: { $0.kind == .callEvent })
+        let membership = messages.count(where: { if case .membership = $0.kind { true } else { false } })
+        let profileChange = messages.count(where: { if case .profileChange = $0.kind { true } else { false } })
+        let stateEvent = messages.count(where: { if case .stateEvent = $0.kind { true } else { false } })
+        let callEvent = messages.count(where: { if case .callEvent = $0.kind { true } else { false } })
 
         if membership > 0 {
             counts.append((membership == 1 ? "membership event" : "membership events", membership))
@@ -114,15 +114,15 @@ struct CollapsedSystemEventsView: View {
     CollapsedSystemEventsView(
         messages: [
             .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                  body: "Alice joined the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Alice joined the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Alice joined the room."))),
             .init(id: "2", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                  body: "Bob joined the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Bob joined the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Bob joined the room."))),
             .init(id: "3", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
-                  body: "Charlie changed their name to Chuck.", timestamp: .now, isOutgoing: false, kind: .profileChange),
+                  body: "Charlie changed their name to Chuck.", timestamp: .now, isOutgoing: false, kind: .profileChange(AttributedString("Charlie changed their name to Chuck."))),
             .init(id: "4", senderID: "@dave:matrix.org", senderDisplayName: "Dave",
-                  body: "Dave left the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Dave left the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Dave left the room."))),
             .init(id: "5", senderID: "@eve:matrix.org", senderDisplayName: "Eve",
-                  body: "Eve joined the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Eve joined the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Eve joined the room."))),
         ],
         groupID: "1",
         expandedGroups: ExpandedGroupsState()
@@ -138,15 +138,15 @@ struct CollapsedSystemEventsView: View {
     return CollapsedSystemEventsView(
         messages: [
             .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                  body: "Alice joined the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Alice joined the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Alice joined the room."))),
             .init(id: "2", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                  body: "Bob joined the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Bob joined the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Bob joined the room."))),
             .init(id: "3", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
-                  body: "Charlie changed their name to Chuck.", timestamp: .now, isOutgoing: false, kind: .profileChange),
+                  body: "Charlie changed their name to Chuck.", timestamp: .now, isOutgoing: false, kind: .profileChange(AttributedString("Charlie changed their name to Chuck."))),
             .init(id: "4", senderID: "@dave:matrix.org", senderDisplayName: "Dave",
-                  body: "Dave left the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Dave left the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Dave left the room."))),
             .init(id: "5", senderID: "@eve:matrix.org", senderDisplayName: "Eve",
-                  body: "Eve joined the room.", timestamp: .now, isOutgoing: false, kind: .membership),
+                  body: "Eve joined the room.", timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("Eve joined the room."))),
         ],
         groupID: "1",
         expandedGroups: state
@@ -165,17 +165,17 @@ struct CollapsedSystemEventsView: View {
     return CollapsedSystemEventsView(
         messages: [
             .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                  body: "Alice joined the room.", timestamp: day1, isOutgoing: false, kind: .membership),
+                  body: "Alice joined the room.", timestamp: day1, isOutgoing: false, kind: .membership(AttributedString("Alice joined the room."))),
             .init(id: "2", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                  body: "Bob joined the room.", timestamp: day1, isOutgoing: false, kind: .membership),
+                  body: "Bob joined the room.", timestamp: day1, isOutgoing: false, kind: .membership(AttributedString("Bob joined the room."))),
             .init(id: "3", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
-                  body: "Charlie left the room.", timestamp: day2, isOutgoing: false, kind: .membership),
+                  body: "Charlie left the room.", timestamp: day2, isOutgoing: false, kind: .membership(AttributedString("Charlie left the room."))),
             .init(id: "4", senderID: "@dave:matrix.org", senderDisplayName: "Dave",
-                  body: "Dave changed their name to David.", timestamp: day2, isOutgoing: false, kind: .profileChange),
+                  body: "Dave changed their name to David.", timestamp: day2, isOutgoing: false, kind: .profileChange(AttributedString("Dave changed their name to David."))),
             .init(id: "5", senderID: "@eve:matrix.org", senderDisplayName: "Eve",
-                  body: "Eve joined the room.", timestamp: day3, isOutgoing: false, kind: .membership),
+                  body: "Eve joined the room.", timestamp: day3, isOutgoing: false, kind: .membership(AttributedString("Eve joined the room."))),
             .init(id: "6", senderID: "@frank:matrix.org", senderDisplayName: "Frank",
-                  body: "Frank joined the room.", timestamp: day3, isOutgoing: false, kind: .membership),
+                  body: "Frank joined the room.", timestamp: day3, isOutgoing: false, kind: .membership(AttributedString("Frank joined the room."))),
         ],
         groupID: "1",
         expandedGroups: state

@@ -31,6 +31,10 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     }
 
     /// The content type of a timeline message.
+    ///
+    /// Media types carry their ``MediaInfo`` and system event types carry
+    /// an ``AttributedString`` description, making impossible states
+    /// unrepresentable (e.g. a `.text` message cannot have media metadata).
     public enum Kind: Sendable, Equatable {
         /// A regular text message (optionally with Markdown formatting).
         case text
@@ -39,17 +43,17 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         /// A notice or system message (non-interactive informational text).
         case notice
         /// An image attachment.
-        case image
+        case image(MediaInfo)
         /// A video attachment.
-        case video
+        case video(MediaInfo)
         /// An audio attachment.
-        case audio
+        case audio(MediaInfo)
         /// A generic file attachment.
-        case file
+        case file(MediaInfo)
         /// A shared geographic location.
         case location
         /// A sticker image.
-        case sticker
+        case sticker(MediaInfo)
         /// A poll event.
         case poll
         /// A message that has been deleted (redacted) by a user or moderator.
@@ -61,13 +65,13 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         /// A live shared geographic location.
         case liveLocation
         /// A room membership change (user joined, left, was kicked, banned, invited, etc.).
-        case membership
+        case membership(AttributedString)
         /// A profile change (display name or avatar update).
-        case profileChange
+        case profileChange(AttributedString)
         /// A room state change (room name, topic, avatar, encryption, join rules, etc.).
-        case stateEvent
+        case stateEvent(AttributedString)
         /// A call-related event (user started, joined, or left a call).
-        case callEvent
+        case callEvent(AttributedString)
     }
 
     /// A group of emoji reactions attached to a message, aggregated by reaction key.
@@ -250,13 +254,6 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     /// The text body of the message (may contain Markdown formatting).
     public var body: String
 
-    /// A rich-text version of the message body with embedded link attributes.
-    ///
-    /// For system events (membership changes, profile updates), user names carry
-    /// `matrix.to` link attributes so they render as clickable mentions. Regular
-    /// messages leave this `nil` and use ``formattedBody`` instead.
-    public var attributedBody: AttributedString?
-
     /// The HTML-formatted body of the message, when the sender used `org.matrix.custom.html` format.
     ///
     /// When non-nil, the UI should prefer rendering this over ``body``, falling back to ``body``
@@ -272,8 +269,27 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     /// The content type of this message.
     public var kind: Kind
 
-    /// Media attachment metadata, present when ``kind`` is `.image`, `.video`, `.audio`, or `.file`.
-    public var mediaInfo: MediaInfo?
+    /// Returns the media info if this is a media message, otherwise `nil`.
+    ///
+    /// Convenience accessor that extracts the associated ``MediaInfo`` from
+    /// media ``Kind`` cases (`.image`, `.video`, `.audio`, `.file`, `.sticker`).
+    nonisolated public var mediaInfo: MediaInfo? {
+        switch kind {
+        case .image(let m), .video(let m), .audio(let m), .file(let m), .sticker(let m): m
+        default: nil
+        }
+    }
+
+    /// Returns the attributed description if this is a system event, otherwise `nil`.
+    ///
+    /// Convenience accessor that extracts the associated ``AttributedString`` from
+    /// system event ``Kind`` cases (`.membership`, `.profileChange`, `.stateEvent`, `.callEvent`).
+    nonisolated public var attributedBody: AttributedString? {
+        switch kind {
+        case .membership(let s), .profileChange(let s), .stateEvent(let s), .callEvent(let s): s
+        default: nil
+        }
+    }
 
     /// The aggregated emoji reactions on this message.
     public var reactions: [ReactionGroup]
@@ -322,12 +338,10 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     ///   - senderDisplayName: The sender's display name.
     ///   - senderAvatarURL: The sender's avatar URL.
     ///   - body: The message body text.
-    ///   - attributedBody: Rich-text body with link attributes for system events.
     ///   - formattedBody: The HTML-formatted body, if available.
     ///   - timestamp: The time the message was sent.
     ///   - isOutgoing: Whether the current user sent this message.
     ///   - kind: The content type. Defaults to `.text`.
-    ///   - mediaInfo: Media attachment metadata, if applicable.
     ///   - reactions: Aggregated reactions. Defaults to an empty array.
     ///   - isHighlighted: Whether the message mentions the current user.
     ///   - highlightedMentionUserId: The user ID whose mention pill should be highlighted.
@@ -343,12 +357,10 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         senderDisplayName: String? = nil,
         senderAvatarURL: String? = nil,
         body: String,
-        attributedBody: AttributedString? = nil,
         formattedBody: String? = nil,
         timestamp: Date,
         isOutgoing: Bool,
         kind: Kind = .text,
-        mediaInfo: MediaInfo? = nil,
         reactions: [ReactionGroup] = [],
         isHighlighted: Bool = false,
         highlightedMentionUserId: String? = nil,
@@ -364,12 +376,10 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
         self.senderDisplayName = senderDisplayName
         self.senderAvatarURL = senderAvatarURL
         self.body = body
-        self.attributedBody = attributedBody
         self.formattedBody = formattedBody
         self.timestamp = timestamp
         self.isOutgoing = isOutgoing
         self.kind = kind
-        self.mediaInfo = mediaInfo
         self.reactions = reactions
         self.isHighlighted = isHighlighted
         self.highlightedMentionUserId = highlightedMentionUserId
@@ -394,7 +404,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     nonisolated public var isSpecialType: Bool {
         switch kind {
         case .text, .emote, .notice: false
-        case .membership, .profileChange, .stateEvent, .callEvent: false
+        case .membership(_), .profileChange(_), .stateEvent(_), .callEvent(_): false
         default: true
         }
     }
@@ -403,7 +413,7 @@ public struct TimelineMessage: Identifiable, Sendable, Equatable {
     /// rather than a user-authored message.
     nonisolated public var isSystemEvent: Bool {
         switch kind {
-        case .membership, .profileChange, .stateEvent, .callEvent: true
+        case .membership(_), .profileChange(_), .stateEvent(_), .callEvent(_): true
         default: false
         }
     }

@@ -1151,12 +1151,12 @@ public final class MatrixService: MatrixServiceProtocol {
                 case .text(let c):    body = c.body; kind = .text
                 case .emote(let c):   body = c.body; kind = .emote
                 case .notice(let c):  body = c.body; kind = .notice
-                case .image:          body = "Image"; kind = .image
-                case .video:          body = "Video"; kind = .video
-                case .audio:          body = "Audio"; kind = .audio
-                case .file:           body = "File";  kind = .file
+                case .image:          body = "Image"; kind = .other
+                case .video:          body = "Video"; kind = .other
+                case .audio:          body = "Audio"; kind = .other
+                case .file:           body = "File";  kind = .other
                 case .location:       body = "Location"; kind = .location
-                case .gallery:        body = "Gallery"; kind = .image
+                case .gallery:        body = "Gallery"; kind = .other
                 case .other(_, let b): body = b; kind = .other
                 }
                 // swiftlint:enable identifier_name

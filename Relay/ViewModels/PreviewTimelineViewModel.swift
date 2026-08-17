@@ -125,7 +125,7 @@ final class PreviewTimelineViewModel: TimelineViewModelProtocol {
               ]),
         .init(id: "7b", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
               body: "joined the room.",
-              timestamp: .now.addingTimeInterval(-900), isOutgoing: false, kind: .membership),
+              timestamp: .now.addingTimeInterval(-900), isOutgoing: false, kind: .membership(AttributedString("joined the room."))),
         .init(id: "8", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
               body: "Hey everyone! Just joined. What did I miss?",
               timestamp: .now.addingTimeInterval(-600), isOutgoing: false,

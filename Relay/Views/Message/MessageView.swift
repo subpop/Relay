@@ -345,27 +345,27 @@ struct MessageView: View {
         MessageView(
             message: TimelineMessage(
                 id: "img1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "Image", timestamp: .now, isOutgoing: false, kind: .image,
-                mediaInfo: .init(
+                body: "Image", timestamp: .now, isOutgoing: false,
+                kind: .image(.init(
                     mxcURL: "mxc://matrix.org/example",
                     filename: "photo.jpg",
                     mimetype: "image/jpeg",
                     width: 800, height: 600
-                )
+                ))
             ),
             showSenderName: true
         )
         MessageView(
             message: TimelineMessage(
                 id: "img2", senderID: "@me:matrix.org",
-                body: "Check this out", timestamp: .now, isOutgoing: true, kind: .image,
-                mediaInfo: .init(
+                body: "Check this out", timestamp: .now, isOutgoing: true,
+                kind: .image(.init(
                     mxcURL: "mxc://matrix.org/example2",
                     filename: "screenshot.png",
                     mimetype: "image/png",
                     width: 400, height: 700,
                     caption: "Check this out"
-                )
+                ))
             )
         )
     }
@@ -426,48 +426,49 @@ struct MessageView: View {
         MessageView(
             message: TimelineMessage(
                 id: "v1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "vacation.mp4", timestamp: .now, isOutgoing: false, kind: .video,
-                mediaInfo: .init(
+                body: "vacation.mp4", timestamp: .now, isOutgoing: false,
+                kind: .video(.init(
                     mxcURL: "mxc://matrix.org/video1",
                     filename: "vacation.mp4",
                     mimetype: "video/mp4",
                     width: 1920, height: 1080,
                     duration: 127
-                )
+                ))
             ),
             showSenderName: true
         )
         MessageView(
             message: TimelineMessage(
                 id: "a1", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                body: "voice-note.ogg", timestamp: .now, isOutgoing: false, kind: .audio,
-                mediaInfo: .init(
+                body: "voice-note.ogg", timestamp: .now, isOutgoing: false,
+                kind: .audio(.init(
                     mxcURL: "mxc://matrix.org/audio1",
                     filename: "voice-note.ogg",
                     mimetype: "audio/ogg",
                     size: 245_000,
                     duration: 42
-                )
+                ))
             ),
             showSenderName: true
         )
         MessageView(
             message: TimelineMessage(
                 id: "a2", senderID: "@me:matrix.org",
-                body: "podcast-clip.mp3", timestamp: .now, isOutgoing: true, kind: .audio,
-                mediaInfo: .init(
+                body: "podcast-clip.mp3", timestamp: .now, isOutgoing: true,
+                kind: .audio(.init(
                     mxcURL: "mxc://matrix.org/audio2",
                     filename: "podcast-clip.mp3",
                     mimetype: "audio/mpeg",
                     size: 3_200_000,
                     duration: 185
-                )
+                ))
             )
         )
         MessageView(
             message: TimelineMessage(
                 id: "f1", senderID: "@me:matrix.org",
-                body: "File", timestamp: .now, isOutgoing: true, kind: .file
+                body: "File", timestamp: .now, isOutgoing: true,
+                kind: .file(.init(mxcURL: "mxc://matrix.org/file1", filename: "File", mimetype: "application/octet-stream"))
             )
         )
         MessageView(

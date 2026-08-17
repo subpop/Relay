@@ -42,13 +42,13 @@ struct MessageBubbleContent: View {
 
     @ViewBuilder
     private var content: some View {
-        if message.kind == .image, message.mediaInfo != nil {
+        if case .image = message.kind {
             imageContent
-        } else if message.kind == .video, message.mediaInfo != nil {
+        } else if case .video = message.kind {
             videoContent
-        } else if message.kind == .audio, message.mediaInfo != nil {
+        } else if case .audio = message.kind {
             audioContent
-        } else if message.kind == .file, message.mediaInfo != nil {
+        } else if case .file = message.kind {
             fileContent
         } else if message.kind == .emote {
             emoteContent
@@ -237,12 +237,12 @@ struct MessageBubbleContent: View {
 
     private var iconForKind: String {
         switch message.kind {
-        case .image: "photo"
-        case .video: "play.rectangle"
-        case .audio: "waveform"
-        case .file: "doc"
+        case .image(_): "photo"
+        case .video(_): "play.rectangle"
+        case .audio(_): "waveform"
+        case .file(_): "doc"
         case .location: "location"
-        case .sticker: "face.smiling"
+        case .sticker(_): "face.smiling"
         case .poll: "chart.bar"
         case .redacted: "trash"
         case .encrypted: "lock.fill"
@@ -343,36 +343,36 @@ struct MessageBubbleContent: View {
         MessageBubbleContent(
             message: TimelineMessage(
                 id: "2", senderID: "@me:matrix.org",
-                body: "Image", timestamp: .now, isOutgoing: true, kind: .image,
-                mediaInfo: .init(
+                body: "Image", timestamp: .now, isOutgoing: true,
+                kind: .image(.init(
                     mxcURL: "mxc://matrix.org/example",
                     filename: "photo.jpg", mimetype: "image/jpeg",
                     width: 800, height: 600
-                ),
+                )),
                 sendState: .sendingFailed("Media content is no longer available")
             )
         )
         MessageBubbleContent(
             message: TimelineMessage(
                 id: "3", senderID: "@me:matrix.org",
-                body: "vacation.mp4", timestamp: .now, isOutgoing: true, kind: .video,
-                mediaInfo: .init(
+                body: "vacation.mp4", timestamp: .now, isOutgoing: true,
+                kind: .video(.init(
                     mxcURL: "mxc://matrix.org/video1",
                     filename: "vacation.mp4", mimetype: "video/mp4",
                     width: 1920, height: 1080, duration: 127
-                ),
+                )),
                 sendState: .sendingFailed("Unverified devices in this room")
             )
         )
         MessageBubbleContent(
             message: TimelineMessage(
                 id: "4", senderID: "@me:matrix.org",
-                body: "voice-note.ogg", timestamp: .now, isOutgoing: true, kind: .audio,
-                mediaInfo: .init(
+                body: "voice-note.ogg", timestamp: .now, isOutgoing: true,
+                kind: .audio(.init(
                     mxcURL: "mxc://matrix.org/audio1",
                     filename: "voice-note.ogg", mimetype: "audio/ogg",
                     size: 245_000, duration: 42
-                ),
+                )),
                 sendState: .sendingFailed("Session verification required")
             )
         )
@@ -393,12 +393,12 @@ struct MessageBubbleContent: View {
         MessageBubbleContent(
             message: TimelineMessage(
                 id: "7", senderID: "@me:matrix.org",
-                body: "report.pdf", timestamp: .now, isOutgoing: true, kind: .file,
-                mediaInfo: .init(
+                body: "report.pdf", timestamp: .now, isOutgoing: true,
+                kind: .file(.init(
                     mxcURL: "mxc://matrix.org/file2",
                     filename: "report.pdf", mimetype: "application/pdf",
                     size: 1_250_000
-                ),
+                )),
                 sendState: .sendingFailed("Invalid file type: application/pdf")
             )
         )
@@ -428,12 +428,12 @@ struct MessageBubbleContent: View {
             message: TimelineMessage(
                 id: "3", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
                 body: "report.pdf",
-                timestamp: .now, isOutgoing: false, kind: .file,
-                mediaInfo: .init(
+                timestamp: .now, isOutgoing: false,
+                kind: .file(.init(
                     mxcURL: "mxc://matrix.org/file1",
                     filename: "report.pdf", mimetype: "application/pdf",
                     size: 1_250_000
-                )
+                ))
             )
         )
     }

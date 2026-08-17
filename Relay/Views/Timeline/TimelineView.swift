@@ -119,7 +119,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// Number of membership events observed in the timeline, used to trigger
     /// a member list refresh when new joins/leaves arrive.
     private var membershipEventCount: Int {
-        viewModel.messages.lazy.filter { $0.kind == .membership }.count
+        viewModel.messages.lazy.filter { if case .membership = $0.kind { true } else { false } }.count
     }
 
     @AppStorage("safety.sendReadReceipts") private var sendReadReceipts = true
@@ -810,11 +810,11 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     /// Resolves allowed UTTypes for saving a media message to disk.
     private static func contentTypes(for message: TimelineMessage) -> [UTType] {
         switch message.kind {
-        case .image:
+        case .image(_):
             return [.image]
-        case .video:
+        case .video(_):
             return [.movie, .video, .mpeg4Movie, .quickTimeMovie]
-        case .audio:
+        case .audio(_):
             return [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
         default:
             if let mime = message.mediaInfo?.mimetype, let type = UTType(mimeType: mime) {
@@ -838,9 +838,9 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         if showMembershipEvents && showStateEvents { return viewModel.messages }
         return viewModel.messages.filter { message in
             switch message.kind {
-            case .membership, .profileChange:
+            case .membership(_), .profileChange(_):
                 return showMembershipEvents
-            case .stateEvent:
+            case .stateEvent(_):
                 return showStateEvents
             default:
                 return true

@@ -382,7 +382,7 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
     previewRow(
         .init(id: "5", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
               body: "joined the room.",
-              timestamp: .now, isOutgoing: false, kind: .membership)
+              timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("joined the room.")))
     )
     .padding()
     .frame(width: 450)

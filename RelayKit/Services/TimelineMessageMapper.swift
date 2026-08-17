@@ -55,23 +55,19 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
     /// The result of extracting content from an `EventTimelineItem`.
     private struct ExtractedContent {
         var body: String
-        var attributedBody: AttributedString?
         var kind: TimelineMessage.Kind
-        var mediaInfo: TimelineMessage.MediaInfo?
         var formattedBody: String?
         var isEdited: Bool
     }
 
     // swiftlint:disable function_body_length cyclomatic_complexity
-    /// Extracts the body, kind, media info, and formatted body from an event's content.
+    /// Extracts the body, kind, and formatted body from an event's content.
     ///
     /// Returns `nil` for unsupported content types (e.g. call invites, encryption keys).
     nonisolated private static func extractContent(from event: EventTimelineItem) -> ExtractedContent? {
     // swiftlint:enable function_body_length cyclomatic_complexity
         let body: String
         let kind: TimelineMessage.Kind
-        var attributedBody: AttributedString?
-        var mediaInfo: TimelineMessage.MediaInfo?
         var formattedBody: String?
         var isEdited = false
 
@@ -101,8 +97,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                     }
                 case .image(let imageContent):
                     body = imageContent.caption ?? "Image"
-                    kind = .image
-                    mediaInfo = .init(
+                    kind = .image(.init(
                         mxcURL: imageContent.source.url(),
                         mediaSourceJSON: imageContent.source.toJson(),
                         filename: imageContent.filename,
@@ -111,11 +106,10 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         height: imageContent.info?.height,
                         size: imageContent.info?.size,
                         caption: imageContent.caption
-                    )
+                    ))
                 case .video(let videoContent):
                     body = videoContent.caption ?? videoContent.filename
-                    kind = .video
-                    mediaInfo = .init(
+                    kind = .video(.init(
                         mxcURL: videoContent.source.url(),
                         mediaSourceJSON: videoContent.source.toJson(),
                         filename: videoContent.filename,
@@ -125,11 +119,10 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         size: videoContent.info?.size,
                         caption: videoContent.caption,
                         duration: videoContent.info?.duration
-                    )
+                    ))
                 case .audio(let audioContent):
                     body = audioContent.caption ?? audioContent.filename
-                    kind = .audio
-                    mediaInfo = .init(
+                    kind = .audio(.init(
                         mxcURL: audioContent.source.url(),
                         mediaSourceJSON: audioContent.source.toJson(),
                         filename: audioContent.filename,
@@ -137,31 +130,38 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                         size: audioContent.info?.size,
                         caption: audioContent.caption,
                         duration: audioContent.info?.duration
-                    )
+                    ))
                 case .file(let fileContent):
                     body = fileContent.caption ?? fileContent.filename
-                    kind = .file
-                    mediaInfo = .init(
+                    kind = .file(.init(
                         mxcURL: fileContent.source.url(),
                         mediaSourceJSON: fileContent.source.toJson(),
                         filename: fileContent.filename,
                         mimetype: fileContent.info?.mimetype,
                         size: fileContent.info?.size,
                         caption: fileContent.caption
-                    )
+                    ))
                 case .location:
                     body = "Location"
                     kind = .location
                 case .gallery:
                     body = "Gallery"
-                    kind = .image
+                    kind = .other
                 case .other:
                     body = "Message"
                     kind = .other
                 }
-            case .sticker:
-                body = "Sticker"
-                kind = .sticker
+            case .sticker(let stickerBody, let stickerInfo, let stickerSource):
+                body = stickerBody
+                kind = .sticker(.init(
+                    mxcURL: stickerSource.url(),
+                    mediaSourceJSON: stickerSource.toJson(),
+                    filename: stickerBody,
+                    mimetype: stickerInfo.mimetype,
+                    width: stickerInfo.width,
+                    height: stickerInfo.height,
+                    size: stickerInfo.size
+                ))
             case .poll:
                 body = "Poll"
                 kind = .poll
@@ -181,8 +181,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             let name = userDisplayName ?? userId
             let attributed = membershipDescription(name: name, userId: userId, change: change)
             body = String(attributed.characters)
-            attributedBody = attributed
-            kind = .membership
+            kind = .membership(attributed)
         case .profileChange(let displayName, let prevDisplayName, let avatarUrl, let prevAvatarUrl):
             let senderInfo = extractSenderInfo(event)
             let attributed = profileChangeDescription(
@@ -194,8 +193,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 userId: event.sender
             )
             body = String(attributed.characters)
-            attributedBody = attributed
-            kind = .profileChange
+            kind = .profileChange(attributed)
         case .state(let stateKey, let content):
             let (stateBody, stateKind) = describeStateEvent(
                 content,
@@ -214,7 +212,7 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
         }
 
         return ExtractedContent(
-            body: body, attributedBody: attributedBody, kind: kind, mediaInfo: mediaInfo,
+            body: body, kind: kind,
             formattedBody: formattedBody, isEdited: isEdited
         )
     }
@@ -361,12 +359,10 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 senderDisplayName: displayName,
                 senderAvatarURL: avatarURL,
                 body: content.body,
-                attributedBody: content.attributedBody,
                 formattedBody: content.formattedBody,
                 timestamp: ts,
                 isOutgoing: event.isOwn,
                 kind: content.kind,
-                mediaInfo: content.mediaInfo,
                 reactions: context.reactions,
                 isHighlighted: context.isHighlighted,
                 highlightedMentionUserId: context.isHighlighted ? currentUserId : nil,
@@ -403,12 +399,10 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             senderDisplayName: displayName,
             senderAvatarURL: avatarURL,
             body: content.body,
-            attributedBody: content.attributedBody,
             formattedBody: content.formattedBody,
             timestamp: ts,
             isOutgoing: event.isOwn,
             kind: content.kind,
-            mediaInfo: content.mediaInfo,
             reactions: context.reactions,
             isHighlighted: context.isHighlighted,
             highlightedMentionUserId: context.isHighlighted ? currentUserId : nil,
@@ -524,12 +518,10 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
             senderDisplayName: displayName,
             senderAvatarURL: avatarURL,
             body: content.body,
-            attributedBody: content.attributedBody,
             formattedBody: content.formattedBody,
             timestamp: ts,
             isOutgoing: event.isOwn,
             kind: content.kind,
-            mediaInfo: content.mediaInfo,
             isEdited: content.isEdited,
             sendState: Self.mapSendState(event.localSendState)
         )
@@ -582,9 +574,9 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
     private static func deduplicateCallEvents(_ messages: [TimelineMessage]) -> [TimelineMessage] {
         var result: [TimelineMessage] = []
         for message in messages {
-            if message.kind == .callEvent,
+            if case .callEvent = message.kind,
                let last = result.last,
-               last.kind == .callEvent,
+               case .callEvent = last.kind,
                last.senderID == message.senderID {
                 continue
             }
@@ -725,15 +717,18 @@ struct TimelineMessageMapper: Sendable { // swiftlint:disable:this type_body_len
                 // Empty state key or one starting with "_" indicates join/leave.
                 // A non-empty content means joining; removal sends empty content
                 // which the SDK may or may not surface — treat presence of the event as a join.
-                return ("\(name) started a call", .callEvent)
+                let body = "\(name) started a call"
+                return (body, .callEvent(AttributedString(body)))
             case "io.element.call.encryption_keys":
                 // Internal key exchange — don't show in timeline.
-                return (nil, .stateEvent)
+                return (nil, .stateEvent(AttributedString()))
             default:
-                return (stateEventDescription(state), .stateEvent)
+                let body = stateEventDescription(state)
+                return (body, .stateEvent(AttributedString(body)))
             }
         }
-        return (stateEventDescription(state), .stateEvent)
+        let body = stateEventDescription(state)
+        return (body, .stateEvent(AttributedString(body)))
     }
 
     // swiftlint:disable cyclomatic_complexity

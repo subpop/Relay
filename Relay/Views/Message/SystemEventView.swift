@@ -47,13 +47,13 @@ struct SystemEventView: View {
 
     private var iconName: String {
         switch message.kind {
-        case .membership:
+        case .membership(_):
             "person.2"
-        case .profileChange:
+        case .profileChange(_):
             "person.text.rectangle"
-        case .callEvent:
+        case .callEvent(_):
             "phone.fill"
-        case .stateEvent:
+        case .stateEvent(_):
             "gearshape"
         default:
             "info.circle"
@@ -74,8 +74,8 @@ private func previewAttributedBody(_ name: String, userId: String, suffix: Strin
         message: .init(
             id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
             body: "Alice joined the room",
-            attributedBody: previewAttributedBody("Alice", userId: "@alice:matrix.org", suffix: " joined the room"),
-            timestamp: .now, isOutgoing: false, kind: .membership
+            timestamp: .now, isOutgoing: false,
+            kind: .membership(previewAttributedBody("Alice", userId: "@alice:matrix.org", suffix: " joined the room"))
         )
     )
     .padding()
@@ -87,8 +87,8 @@ private func previewAttributedBody(_ name: String, userId: String, suffix: Strin
         message: .init(
             id: "2", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
             body: "Bob updated their avatar",
-            attributedBody: previewAttributedBody("Bob", userId: "@bob:matrix.org", suffix: " updated their avatar"),
-            timestamp: .now, isOutgoing: false, kind: .profileChange
+            timestamp: .now, isOutgoing: false,
+            kind: .profileChange(previewAttributedBody("Bob", userId: "@bob:matrix.org", suffix: " updated their avatar"))
         )
     )
     .padding()
