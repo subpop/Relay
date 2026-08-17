@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 // Copyright 2026 Link Dupont
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,12 +22,13 @@ import os
 
 /// Concrete implementation of ``TimelineViewModelProtocol`` backed by the Matrix Rust SDK.
 ///
-/// ``TimelineViewModel`` manages a single room's message timeline. It subscribes to live
-/// timeline diffs from the SDK using ``SDKListener``, converts them into ``TimelineMessage``
-/// models, handles backward pagination via ``subscribeToBackPaginationStatus``, computes the
-/// unread marker position, and observes typing notifications.
+/// ``TimelineViewModel`` manages a single room's message timeline. It coordinates
+/// several collaborators:
+/// - ``TimelineDiffProcessor`` applies SDK diffs to the raw item arrays.
+/// - ``TimelineMessageRebuilder`` incrementally maps items into ``TimelineMessage`` models.
+/// - ``TimelinePaginator`` handles backward/forward pagination and auto-fill.
+/// - ``TypingNotificationObserver`` resolves typing indicators.
 @Observable
-// swiftlint:disable:next type_body_length
 public final class TimelineViewModel: TimelineViewModelProtocol {
     public private(set) var messages: [TimelineMessage] = []
     public private(set) var messagesVersion: UInt = 0
@@ -47,42 +47,20 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     /// display name, falling back to the room ID.
     private let roomLabel: String
     private let currentUserId: String?
-    private let unreadCount: Int
     private weak var activityLog: ActivityLog?
     /// The SDK timeline, exposed for use by ``MatrixService/pinnedMessages(roomId:)``.
     private(set) var sdkTimeline: Timeline?
-    private var timelineItems: [TimelineItem] = []
-    /// Pre-extracted event/transaction IDs for each item in ``timelineItems``,
-    /// maintained in parallel during ``applyDiffs``. Used to avoid FFI calls
-    /// during incremental cache lookups in the mapper.  `nil` entries
-    /// represent non-event items (e.g. date dividers) that have no ID.
-    private var timelineItemIDs: [String?] = []
     private var observationTask: Task<Void, Never>?
-    private var paginationTask: Task<Void, Never>?
-    private var typingTask: Task<Void, Never>?
     private let messageMapper: TimelineMessageMapper
     private let errorReporter: ErrorReporter
-    private var hasComputedUnreadMarker = false
     private var isSendingFullyReadReceipt = false
-    private var fetchedReplyEventIds: Set<String> = []
-    /// Set to `true` when backward pagination hits a permanent error (e.g.
-    /// corrupted event cache). Prevents the auto-pagination loop from
-    /// retrying indefinitely.
-    private var paginationPermanentlyFailed = false
 
-    /// Tracks which indices in ``timelineItems`` were modified by the latest
-    /// batch of diffs. `nil` means a full remap is required (e.g. after a
-    /// reset or clear). An empty set means nothing changed.
-    private var pendingChangedIndices: IndexSet?
+    // MARK: - Collaborators
 
-    /// Previously mapped messages keyed by event/transaction ID for O(1) reuse
-    /// during incremental rebuilds. Updated after each ``rebuildMessages()``
-    /// call so unchanged items are never re-mapped.
-    private var messageCache: [String: TimelineMessage] = [:]
-
-    /// Monotonically increasing counter used to discard stale results from
-    /// background mapping tasks that were superseded by a newer rebuild.
-    private var rebuildGeneration: UInt = 0
+    private var diffProcessor = TimelineDiffProcessor()
+    private let paginator: TimelinePaginator
+    private let rebuilder: TimelineMessageRebuilder
+    private let typingObserver: TypingNotificationObserver
 
     /// Continuation that is resumed once the first batch of timeline diffs has
     /// been received and applied.  Both the pagination-status observer (live
@@ -92,8 +70,6 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     private var initialDiffsStream: AsyncStream<Void>?
 
     @ObservationIgnored private var timelineHandle: TaskHandle?
-    @ObservationIgnored private var paginationHandle: TaskHandle?
-    @ObservationIgnored private var typingHandle: TaskHandle?
 
     /// Creates a new view model for the given room.
     ///
@@ -110,24 +86,72 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         errorReporter: ErrorReporter,
         activityLog: ActivityLog? = nil
     ) {
+        let roomId = room.id()
+        let roomLabel = room.canonicalAlias() ?? room.displayName() ?? roomId
+
         self.room = room
-        self.roomId = room.id()
-        self.roomLabel = room.canonicalAlias() ?? room.displayName() ?? room.id()
+        self.roomId = roomId
+        self.roomLabel = roomLabel
         self.currentUserId = currentUserId
-        self.unreadCount = unreadCount
         self.messageMapper = TimelineMessageMapper(
             currentUserId: currentUserId,
             notificationKeywords: notificationKeywords
         )
         self.errorReporter = errorReporter
         self.activityLog = activityLog
+        self.paginator = TimelinePaginator(roomLabel: roomLabel, roomId: roomId, activityLog: activityLog)
+        self.rebuilder = TimelineMessageRebuilder(
+            unreadCount: unreadCount,
+            roomLabel: roomLabel,
+            roomId: roomId,
+            activityLog: activityLog
+        )
+        self.typingObserver = TypingNotificationObserver(currentUserId: currentUserId)
+
+        wireCollaborators()
     }
 
     deinit {
-        let tasks = MainActor.assumeIsolated { (observationTask, paginationTask, typingTask) }
-        tasks.0?.cancel()
-        tasks.1?.cancel()
-        tasks.2?.cancel()
+        let task = MainActor.assumeIsolated { observationTask }
+        task?.cancel()
+    }
+
+    // MARK: - Collaborator Wiring
+
+    private func wireCollaborators() {
+        // Paginator → VM
+        paginator.onLoadingMoreChanged = { [weak self] loading in
+            self?.isLoadingMore = loading
+        }
+        paginator.onHasReachedStartChanged = { [weak self] hitStart in
+            self?.hasReachedStart = hitStart
+        }
+        paginator.msgLikeItemCount = { [weak self] in
+            self?.diffProcessor.countMsgLikeItems() ?? 0
+        }
+        paginator.onInitialLoadSettled = { [weak self] in
+            guard let self, self.isLoading else { return }
+            if let diffStream = self.initialDiffsStream {
+                for await _ in diffStream { break }
+            }
+            await self.performRebuild()
+            self.isLoading = false
+        }
+
+        // Rebuilder → VM
+        rebuilder.onMessagesUpdated = { [weak self] messages, version in
+            guard let self else { return }
+            self.messages = messages
+            self.messagesVersion = version
+        }
+        rebuilder.onUnreadMarkerComputed = { [weak self] messageId in
+            self?.firstUnreadMessageId = messageId
+        }
+
+        // Typing observer → VM
+        typingObserver.onTypingUsersChanged = { [weak self] users in
+            self?.typingUsers = users
+        }
     }
 
     // MARK: - Public
@@ -144,7 +168,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             try await setupTimeline(focus: .live(hideThreadedEvents: false))
             timelineFocus = .live
             hasReachedEnd = true
-            observeTypingNotifications()
+            typingObserver.observe(room: room)
         } catch {
             activityLog?.log(
                 category: .timeline, severity: .error, source: "TimelineViewModel",
@@ -176,7 +200,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             if let diffStream = initialDiffsStream {
                 for await _ in diffStream { break }
             }
-            await rebuildMessages()
+            await performRebuild()
             isLoading = false
         } catch {
             activityLog?.log(
@@ -279,13 +303,13 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         }
 
         // Wait for the diff observer to deliver initial content so
-        // `timelineItems` is populated before we clear the loading flag.
+        // the items are populated before we clear the loading flag.
         // Focused timelines don't use the pagination-status observer,
         // so this is the only gate that prevents an empty flash.
         if let diffStream = initialDiffsStream {
             for await _ in diffStream { break }
         }
-        await rebuildMessages()
+        await performRebuild()
         isLoading = false
     }
 
@@ -589,20 +613,14 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
         observationTask?.cancel()
         observationTask = nil
-        paginationTask?.cancel()
-        paginationTask = nil
-        typingTask?.cancel()
-        typingTask = nil
+        paginator.teardown()
+        typingObserver.teardown()
         timelineHandle = nil
-        paginationHandle = nil
-        typingHandle = nil
         sdkTimeline = nil
 
         // Clear raw SDK items but keep the mapped messages for instant display.
-        timelineItems = []
-        timelineItemIDs = []
-        pendingChangedIndices = IndexSet()
-        rebuildGeneration &+= 1
+        diffProcessor.clear()
+        rebuilder.invalidateGeneration()
         initialDiffsContinuation?.finish()
         initialDiffsContinuation = nil
         initialDiffsStream = nil
@@ -633,7 +651,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             try await setupTimeline(focus: .live(hideThreadedEvents: false))
             timelineFocus = .live
             hasReachedEnd = true
-            observeTypingNotifications()
+            typingObserver.observe(room: room)
             PerformanceSignposts.roomSwitch.endInterval(
                 PerformanceSignposts.RoomSwitchName.resume,
                 resumeState,
@@ -658,21 +676,15 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
     private func teardownTimeline() {
         observationTask?.cancel()
         observationTask = nil
-        paginationTask?.cancel()
-        paginationTask = nil
+        paginator.teardown()
         timelineHandle = nil
-        paginationHandle = nil
         sdkTimeline = nil
-        timelineItems = []
+        diffProcessor.clear()
         messages = []
         hasReachedStart = false
         hasReachedEnd = true
         isLoadingMore = false
-        paginationPermanentlyFailed = false
-        fetchedReplyEventIds = []
-        pendingChangedIndices = IndexSet()
-        messageCache = [:]
-        rebuildGeneration &+= 1
+        rebuilder.reset()
         initialDiffsContinuation?.finish()
         initialDiffsContinuation = nil
         initialDiffsStream = nil
@@ -715,6 +727,12 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         )
 
         sdkTimeline = tl
+
+        // Wire reply resolution to the SDK timeline.
+        rebuilder.fetchReplyDetails = { [weak tl] eventId in
+            try await tl?.fetchDetailsForEvent(eventId: eventId)
+        }
+
         observeTimeline(tl)
 
         // Subscribe to back-pagination status. This is supported on live
@@ -726,7 +744,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                     PerformanceSignposts.RoomSwitchName.paginationSubscribe,
                     "\(label)"
                 )
-                try await observePaginationStatus(tl)
+                try await paginator.observePaginationStatus(tl)
                 PerformanceSignposts.roomSwitch.endInterval(
                     PerformanceSignposts.RoomSwitchName.paginationSubscribe,
                     paginateSubState
@@ -748,7 +766,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         )
     }
 
-    // MARK: - Private
+    // MARK: - Diff Observation
 
     /// How long to wait for additional diffs before rebuilding again after
     /// a burst. Only applies when more diffs arrive while a rebuild is
@@ -782,30 +800,29 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
                 "\(label)"
             )
 
-            // Adaptive diff processing: diffs are applied to `timelineItems`
-            // immediately (cheap array mutations). The first diff triggers an
-            // immediate `rebuildMessages()` call with no delay. If more diffs
-            // arrive while a rebuild is running on the background thread, they
-            // are batched and a short coalesce timer groups them into a single
-            // follow-up rebuild. This gives instant response for isolated
-            // events (incoming message, reaction) while still batching rapid
-            // bursts (initial load, back-pagination).
+            // Adaptive diff processing: diffs are applied immediately (cheap
+            // array mutations). The first diff triggers an immediate rebuild.
+            // Subsequent diffs during a rebuild are coalesced with a short timer.
             var needsRebuild = false
             var isRebuilding = false
             var coalesceTask: Task<Void, Never>?
             var hasSignaledInitialDiffs = false
 
             for await diffs in stream {
-                self.applyDiffs(diffs)
+                self.diffProcessor.applyDiffs(
+                    diffs,
+                    roomLabel: self.roomLabel,
+                    roomId: self.roomId,
+                    activityLog: self.activityLog
+                )
 
-                // Signal that the first batch of diffs has been applied so
-                // consumers waiting on `initialDiffsStream` can proceed.
+                // Signal that the first batch of diffs has been applied.
                 if !hasSignaledInitialDiffs {
                     hasSignaledInitialDiffs = true
                     PerformanceSignposts.roomSwitch.endInterval(
                         PerformanceSignposts.RoomSwitchName.firstDiffDelivery,
                         firstDiffState,
-                        "\(diffs.count) diffs, \(self.timelineItems.count) items"
+                        "\(diffs.count) diffs, \(self.diffProcessor.timelineItems.count) items"
                     )
                     self.initialDiffsContinuation?.yield()
                     self.initialDiffsContinuation?.finish()
@@ -814,53 +831,36 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
 
                 needsRebuild = true
 
-                // If no rebuild is in progress and no coalesce timer is
-                // pending, rebuild immediately — unless the batch emptied
-                // the timeline (e.g. a clear diff). In that case, defer
-                // the rebuild to give the SDK time to deliver follow-up
-                // content diffs, preventing a momentary empty-state flash.
                 if !isRebuilding && coalesceTask == nil {
-                    if self.timelineItems.isEmpty && !self.messages.isEmpty {
+                    if self.diffProcessor.timelineItems.isEmpty && !self.messages.isEmpty {
                         // Destructive diff with no replacement content yet.
-                        // Defer the rebuild so we don't flash an empty view.
                         coalesceTask = Task { [weak self] in
                             try? await Task.sleep(for: Self.diffCoalesceInterval)
                             guard !Task.isCancelled, let self else { return }
                             while needsRebuild {
                                 needsRebuild = false
-                                await self.rebuildMessages()
+                                await self.performRebuild()
                             }
                             coalesceTask = nil
                         }
                     } else {
                         isRebuilding = true
                         needsRebuild = false
-                        await self.rebuildMessages()
+                        await self.performRebuild()
                         isRebuilding = false
 
-                        // After the rebuild, if more diffs arrived during the
-                        // background mapping pass, either rebuild immediately
-                        // (during initial load when low latency matters most)
-                        // or start a short coalesce timer to batch further
-                        // rapid-fire diffs.
                         if needsRebuild && coalesceTask == nil {
                             if self.isLoading || self.messages.count < 20 {
-                                // Still filling the initial viewport — rebuild
-                                // immediately to avoid a 200ms gap after
-                                // auto-pagination.
                                 needsRebuild = false
-                                await self.rebuildMessages()
+                                await self.performRebuild()
                             }
-                            // If yet more diffs arrived during the immediate
-                            // rebuild (or we're past the initial load), fall
-                            // back to the normal coalesce timer.
                             if needsRebuild && coalesceTask == nil {
                                 coalesceTask = Task { [weak self] in
                                     try? await Task.sleep(for: Self.diffCoalesceInterval)
                                     guard !Task.isCancelled, let self else { return }
                                     while needsRebuild {
                                         needsRebuild = false
-                                        await self.rebuildMessages()
+                                        await self.performRebuild()
                                     }
                                     coalesceTask = nil
                                 }
@@ -873,566 +873,32 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             // Flush any remaining diffs when the stream ends.
             coalesceTask?.cancel()
             if needsRebuild {
-                await self.rebuildMessages()
+                await self.performRebuild()
             }
         }
     }
 
-    /// Maximum number of retry attempts for auto-pagination when the server
-    /// is unreachable. Each attempt uses exponential backoff (1s, 2s, 4s).
-    private static let maxPaginationRetries = 3
+    // MARK: - Private Helpers
 
-    // swiftlint:disable:next identifier_name
-    private func observePaginationStatus(_ tl: Timeline) async throws {
-        let (stream, continuation) = AsyncStream<PaginationStatus>.makeStream()
-        let listener = SDKListener<PaginationStatus> { status in
-            continuation.yield(status)
-        }
-        paginationHandle = try await tl.subscribeToBackPaginationStatus(listener: listener)
-
-        paginationTask = Task { [weak self] in
-            for await status in stream {
-                guard let self else { break }
-
-                switch status {
-                case .idle(let hitStart):
-                    self.isLoadingMore = false
-                    self.hasReachedStart = hitStart
-                    self.activityLog?.log(
-                        category: .timeline, severity: .debug, source: "TimelineViewModel",
-                        summary: "Pagination idle in \(self.roomLabel) (hitStart: \(hitStart))",
-                        roomId: self.roomId
-                    )
-
-                    // Auto-paginate if we have few message-like events and
-                    // haven't hit start, ensuring enough content to fill the
-                    // viewport.  We count only msgLike event items (skipping
-                    // state events, membership changes, date dividers, etc.)
-                    // because a room with many members can easily have 20+
-                    // non-message items but zero actual messages.
-                    let msgLikeCount = self.countMsgLikeItems()
-                    if !hitStart && msgLikeCount < 20 && !self.paginationPermanentlyFailed {
-                        let autoPaginateState = PerformanceSignposts.roomSwitch.beginInterval(
-                            PerformanceSignposts.RoomSwitchName.autoPaginate,
-                            "\(self.roomLabel) (\(msgLikeCount) msgs, need 20)"
-                        )
-                        // Fetch only enough events to fill the viewport.
-                        // The threshold is 20 msgLike items, so request
-                        // slightly more to account for non-message events
-                        // (state changes, date dividers) that don't count.
-                        let needed = UInt16(max(20 - msgLikeCount, 5))
-                        let succeeded = await self.paginateBackwardsWithRetry(tl, numEvents: needed)
-                        if !succeeded {
-                            self.paginationPermanentlyFailed = true
-                        }
-                        PerformanceSignposts.roomSwitch.endInterval(
-                            PerformanceSignposts.RoomSwitchName.autoPaginate,
-                            autoPaginateState,
-                            "needed \(needed), succeeded: \(succeeded)"
-                        )
-                    }
-                    if self.isLoading && (hitStart || msgLikeCount >= 20 || self.paginationPermanentlyFailed) {
-                        // The initial auto-pagination loop has settled — either
-                        // we have enough items or hit the room start.  Wait for
-                        // the diff observer to deliver at least one batch so
-                        // `timelineItems` is populated, then rebuild messages
-                        // before clearing the loading flag.
-                        if let diffStream = self.initialDiffsStream {
-                            for await _ in diffStream { break }
-                        }
-                        await self.rebuildMessages()
-                        self.isLoading = false
-                    }
-                case .paginating:
-                    self.isLoadingMore = true
-                    self.activityLog?.log(
-                        category: .timeline, severity: .debug, source: "TimelineViewModel",
-                        summary: "Paginating backwards in \(self.roomLabel)",
-                        roomId: self.roomId
-                    )
-                }
+    /// Delegates a rebuild to the ``TimelineMessageRebuilder``, passing it the
+    /// current snapshot from the ``TimelineDiffProcessor``.
+    private func performRebuild() async {
+        await rebuilder.rebuild(
+            items: diffProcessor.timelineItems,
+            itemIDs: diffProcessor.timelineItemIDs,
+            changedIndices: diffProcessor.pendingChangedIndices,
+            mapper: messageMapper,
+            pendingIndicesResetter: { [self] in
+                diffProcessor.resetPendingChangedIndices()
             }
-        }
+        )
     }
 
-    /// Counts the number of message-like (non-state) event items currently
-    /// in ``timelineItems``.
-    private func countMsgLikeItems() -> Int {
-        timelineItems.lazy
-            .compactMap { $0.asEvent() }
-            .filter {
-                if case .msgLike = $0.content { return true }
-                return false
-            }
-            .count
-    }
-
-    /// Attempts backward pagination with retry and exponential backoff.
-    ///
-    /// On transient errors (network unreachable, connection timeout), retries
-    /// up to ``maxPaginationRetries`` times with 1s / 2s / 4s delays. On
-    /// success or permanent failure, returns without throwing.
-    ///
-    /// - Returns: `true` if pagination succeeded, `false` if it failed
-    ///   permanently (non-transient error or retries exhausted).
-    @discardableResult
-    private func paginateBackwardsWithRetry(_ timeline: Timeline, numEvents: UInt16 = 100) async -> Bool {
-        for attempt in 0 ..< Self.maxPaginationRetries {
-            do {
-                if attempt > 0 {
-                    try await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return false }
-                }
-                _ = try await timeline.paginateBackwards(numEvents: numEvents)
-                return true
-            } catch is CancellationError {
-                return false
-            } catch {
-                let isTransient = NetworkErrorClassifier.isOfflineShaped(error)
-                    || "\(error)".contains("HostUnreachable")
-                if isTransient && attempt < Self.maxPaginationRetries - 1 {
-                    let delay = Duration.seconds(1 << attempt) // 1s, 2s, 4s
-                    activityLog?.log(
-                        category: .timeline, severity: .warning, source: "TimelineViewModel",
-                        summary: "Pagination attempt \(attempt + 1) failed (transient) in \(roomLabel), retrying in \(1 << attempt)s",
-                        detail: error.localizedDescription, roomId: roomId
-                    )
-                    try? await Task.sleep(for: delay)
-                    guard !Task.isCancelled else { return false }
-                } else {
-                    activityLog?.log(
-                        category: .timeline, severity: .error, source: "TimelineViewModel",
-                        summary: "Pagination failed in \(roomLabel)",
-                        detail: "\(error)",
-                        roomId: roomId
-                    )
-                    return false
-                }
-            }
-        }
-        return false
-    }
-
-    private func observeTypingNotifications() {
-        let (stream, continuation) = AsyncStream<[String]>.makeStream()
-        let listener = SDKListener<[String]> { userIds in
-            continuation.yield(userIds)
-        }
-        typingHandle = room.subscribeToTypingNotifications(listener: listener)
-
-        typingTask = Task { [weak self] in
-            // A child task that resolves display names and avatar URLs.
-            // Cancelled and replaced each time a new typing notification
-            // arrives, so stale resolutions never block clearing the
-            // indicator when the SDK sends an empty user list.
-            var resolveTask: Task<Void, Never>?
-
-            for await userIds in stream {
-                guard let self else { break }
-                resolveTask?.cancel()
-
-                let filtered = userIds.filter { $0 != self.currentUserId }
-
-                // Debounce removal: keep the indicator visible briefly
-                // so rapid start/stop cycles don't cause timeline
-                // jumpiness. If a new typing notification arrives before
-                // the delay expires, `resolveTask?.cancel()` above will
-                // prevent the stale clear.
-                if filtered.isEmpty {
-                    resolveTask = Task {
-                        try? await Task.sleep(for: .seconds(1))
-                        if !Task.isCancelled {
-                            self.typingUsers = []
-                        }
-                    }
-                    continue
-                }
-
-                let room = self.room
-                resolveTask = Task {
-                    var users: [TypingUser] = []
-                    for userId in filtered {
-                        if Task.isCancelled { return }
-                        let name: String
-                        if let displayName = try? await room.memberDisplayName(userId: userId), !displayName.isEmpty {
-                            name = displayName
-                        } else {
-                            name = userId
-                        }
-                        let avatarURL = try? await room.memberAvatarUrl(userId: userId)
-                        if Task.isCancelled { return }
-                        users.append(TypingUser(id: userId, displayName: name, avatarURL: avatarURL))
-                    }
-                    self.typingUsers = users
-                }
-            }
-
-            resolveTask?.cancel()
-        }
-    }
-
-    /// Extracts the stable unique ID from a timeline item. This is called
-    /// once per item during `applyDiffs` (when we already have the item)
-    /// so the mapper can reuse cached messages by index lookup alone.
-    ///
-    /// Uses the SDK's `uniqueId()` which remains constant across the
-    /// local echo → server confirmation transition, preventing structural
-    /// updates in the table's diffable data source.
     /// Converts a message ID string into the SDK's ``EventOrTransactionId`` enum.
     ///
     /// Event IDs start with `$`; anything else is treated as a transaction ID
     /// (local echo that hasn't been confirmed by the server yet).
     private func eventOrTransactionId(from messageId: String) -> EventOrTransactionId {
         messageId.hasPrefix("$") ? .eventId(eventId: messageId) : .transactionId(transactionId: messageId)
-    }
-
-    private static func extractItemID(_ item: TimelineItem) -> String? {
-        guard item.asEvent() != nil else { return nil }
-        return item.uniqueId().id
-    }
-
-    // swiftlint:disable:next cyclomatic_complexity
-    private func applyDiffs(_ diffs: [TimelineDiff]) {
-        let itemCountBefore = timelineItems.count
-        let state = PerformanceSignposts.timeline.beginInterval(
-            PerformanceSignposts.TimelineName.applyDiffs,
-            "\(diffs.count) diffs, \(itemCountBefore) items"
-        )
-        for diff in diffs {
-            switch diff {
-            case .reset(let values):
-                let oldIDs = timelineItemIDs
-                let newIDs = values.map(Self.extractItemID)
-                timelineItemIDs = newIDs
-                timelineItems = values
-
-                if oldIDs.isEmpty {
-                    // First load — full remap required.
-                    pendingChangedIndices = nil
-                } else {
-                    // Diff old vs new IDs to avoid a full remap when most
-                    // items are unchanged (e.g. room resume with a few
-                    // new messages appended).
-                    markChangedIndicesForReset(oldIDs: oldIDs, newIDs: newIDs)
-                }
-
-            case .append(let values):
-                let start = timelineItems.count
-                timelineItemIDs.append(contentsOf: values.map(Self.extractItemID))
-                timelineItems.append(contentsOf: values)
-                markIndicesChanged(start ..< timelineItems.count)
-
-            case .pushBack(let value):
-                let idx = timelineItems.count
-                timelineItemIDs.append(Self.extractItemID(value))
-                timelineItems.append(value)
-                markIndexChanged(idx)
-
-            case .pushFront(let value):
-                // Inserting at 0 shifts every existing index up by 1.
-                shiftPendingIndices(by: 1, from: 0)
-                timelineItemIDs.insert(Self.extractItemID(value), at: 0)
-                timelineItems.insert(value, at: 0)
-                markIndexChanged(0)
-
-            // swiftlint:disable identifier_name
-            case .insert(let index, let value):
-                let i = Int(index)
-                if i <= timelineItems.count {
-                    shiftPendingIndices(by: 1, from: i)
-                    timelineItemIDs.insert(Self.extractItemID(value), at: i)
-                    timelineItems.insert(value, at: i)
-                    markIndexChanged(i)
-                }
-
-            case .set(let index, let value):
-                let i = Int(index)
-                if i < timelineItems.count {
-                    timelineItemIDs[i] = Self.extractItemID(value)
-                    timelineItems[i] = value
-                    markIndexChanged(i)
-                }
-
-            case .remove(let index):
-                let i = Int(index)
-                if i < timelineItems.count {
-                    timelineItemIDs.remove(at: i)
-                    timelineItems.remove(at: i)
-                    // Remove this index and shift everything above it down.
-                    pendingChangedIndices?.remove(i)
-                    shiftPendingIndices(by: -1, from: i + 1)
-                    // Mark the new occupant of this index as changed, since
-                    // it may now pair with a different neighbor for grouping.
-                    if i < timelineItems.count {
-                        markIndexChanged(i)
-                    }
-                }
-            // swiftlint:enable identifier_name
-
-            case .clear:
-                timelineItemIDs.removeAll()
-                timelineItems.removeAll()
-                pendingChangedIndices = nil
-
-            case .popBack:
-                if !timelineItems.isEmpty {
-                    timelineItemIDs.removeLast()
-                    timelineItems.removeLast()
-                    // No index to mark — the item is gone. Cache will be
-                    // pruned naturally when it's absent from the next rebuild.
-                }
-
-            case .popFront:
-                if !timelineItems.isEmpty {
-                    timelineItemIDs.removeFirst()
-                    timelineItems.removeFirst()
-                    pendingChangedIndices?.remove(0)
-                    shiftPendingIndices(by: -1, from: 1)
-                    if !timelineItems.isEmpty {
-                        markIndexChanged(0)
-                    }
-                }
-
-            case .truncate(let length):
-                let len = Int(length)
-                timelineItemIDs = Array(timelineItemIDs.prefix(len))
-                timelineItems = Array(timelineItems.prefix(len))
-                // Discard any tracked indices beyond the new length.
-                if var indices = pendingChangedIndices {
-                    indices = indices.filteredIndexSet { $0 < len }
-                    pendingChangedIndices = indices
-                }
-            }
-        }
-        let itemCountAfter = timelineItems.count
-        PerformanceSignposts.timeline.endInterval(
-            PerformanceSignposts.TimelineName.applyDiffs,
-            state,
-            "\(itemCountAfter) items after"
-        )
-
-        let diffSummary = diffs.map { diff -> String in
-            switch diff {
-            case .reset(let v): "reset(\(v.count))"
-            case .append(let v): "append(\(v.count))"
-            case .pushBack: "pushBack"
-            case .pushFront: "pushFront"
-            case .insert(let idx, _): "insert(@\(idx))"
-            case .set(let idx, _): "set(@\(idx))"
-            case .remove(let idx): "remove(@\(idx))"
-            case .clear: "clear"
-            case .popBack: "popBack"
-            case .popFront: "popFront"
-            case .truncate(let len): "truncate(\(len))"
-            }
-        }.joined(separator: ", ")
-        let changedDesc = pendingChangedIndices.map { "\($0.count) changed" } ?? "full remap"
-        activityLog?.log(
-            category: .timeline, severity: .debug, source: "TimelineViewModel",
-            summary: "\(diffs.count) diff(s) in \(roomLabel): \(itemCountBefore) → \(itemCountAfter) items",
-            detail: "Diffs: \(diffSummary)\nIndices: \(changedDesc)",
-            roomId: roomId
-        )
-    }
-
-    // MARK: - Index Tracking Helpers
-
-    /// Records a single index as changed, initializing the set if needed.
-    private func markIndexChanged(_ index: Int) {
-        if pendingChangedIndices == nil {
-            // nil means "full remap" — no point tracking individual indices.
-            return
-        }
-        pendingChangedIndices?.insert(index)
-    }
-
-    /// Records a range of indices as changed.
-    private func markIndicesChanged(_ range: Range<Int>) {
-        if pendingChangedIndices == nil { return }
-        pendingChangedIndices?.insert(integersIn: range)
-    }
-
-    /// Shifts all tracked indices >= `from` by `delta` (positive = right, negative = left).
-    private func shiftPendingIndices(by delta: Int, from start: Int) {
-        guard var indices = pendingChangedIndices else { return }
-        let affected = indices.filteredIndexSet { $0 >= start }
-        indices.subtract(affected)
-        for idx in affected {
-            let shifted = idx + delta
-            if shifted >= 0 {
-                indices.insert(shifted)
-            }
-        }
-        pendingChangedIndices = indices
-    }
-
-    /// Compares old and new item IDs after a `.reset` diff and marks only the
-    /// indices that actually changed, avoiding a full remap when most content
-    /// is unchanged (e.g. resuming a room with a few new messages).
-    ///
-    /// Falls back to a full remap (`pendingChangedIndices = nil`) when the
-    /// arrays have diverged too much to cheaply diff (shared prefix < 50%
-    /// of the smaller array).
-    private func markChangedIndicesForReset(
-        oldIDs: [String?],
-        newIDs: [String?]
-    ) {
-        // Find the longest shared prefix of identical IDs.
-        let minCount = min(oldIDs.count, newIDs.count)
-        var sharedPrefix = 0
-        while sharedPrefix < minCount && oldIDs[sharedPrefix] == newIDs[sharedPrefix] {
-            sharedPrefix += 1
-        }
-
-        // If less than half the items match, a full remap is cheaper than
-        // tracking a large changed set.
-        if sharedPrefix < minCount / 2 {
-            pendingChangedIndices = nil
-            return
-        }
-
-        // Mark every index beyond the shared prefix as changed.
-        if sharedPrefix < newIDs.count {
-            if pendingChangedIndices == nil {
-                pendingChangedIndices = IndexSet()
-            }
-            pendingChangedIndices?.insert(integersIn: sharedPrefix..<newIDs.count)
-        }
-    }
-
-    /// Performs an incremental rebuild of messages, mapping only changed items
-    /// on a background thread and reusing cached messages for unchanged items.
-    ///
-    /// This method is `async` so callers that need to wait for the result
-    /// (e.g. the initial load path) can `await` it. The throttled diff path
-    /// wraps the call in an unstructured `Task` to fire-and-forget.
-    private func rebuildMessages() async {
-        let itemCount = timelineItems.count
-        let changedCount = pendingChangedIndices?.count ?? -1
-        let rebuildState = PerformanceSignposts.timeline.beginInterval(
-            PerformanceSignposts.TimelineName.rebuildMessages,
-            "\(itemCount) items, changed: \(changedCount)"
-        )
-
-        // Capture the current state for the background mapping pass.
-        let items = timelineItems
-        let itemIDs = timelineItemIDs
-        let changedIndices = pendingChangedIndices
-        let cache = messageCache
-        let mapper = messageMapper
-
-        // Bump the generation so we can discard stale results from
-        // a superseded background task.
-        rebuildGeneration &+= 1
-        let generation = rebuildGeneration
-
-        // Reset the pending set to empty (not nil) so subsequent diffs
-        // accumulate into a fresh set while the background work runs.
-        pendingChangedIndices = IndexSet()
-
-        let mapping = await mapper.mapItemsIncrementally(
-            items,
-            itemIDs: itemIDs,
-            changedIndices: changedIndices,
-            existingMessages: cache
-        )
-
-        // Discard the result if a newer rebuild was started while we
-        // were mapping on the background thread.
-        guard generation == rebuildGeneration else {
-            PerformanceSignposts.timeline.endInterval(
-                PerformanceSignposts.TimelineName.rebuildMessages,
-                rebuildState,
-                "discarded (stale generation)"
-            )
-            activityLog?.log(
-                category: .timeline, severity: .debug, source: "TimelineViewModel",
-                summary: "Rebuild discarded in \(roomLabel) (stale generation \(generation))",
-                roomId: roomId
-            )
-            return
-        }
-
-        // Back on MainActor — apply the result.
-        applyMappingResult(mapping)
-        PerformanceSignposts.timeline.endInterval(
-            PerformanceSignposts.TimelineName.rebuildMessages,
-            rebuildState,
-            "\(mapping.messages.count) messages"
-        )
-    }
-
-    /// Applies a mapping result to the view model's published state.
-    private func applyMappingResult(_ mapping: TimelineMessageMapper.MappingResult) {
-        let applyState = PerformanceSignposts.timeline.beginInterval(
-            PerformanceSignposts.TimelineName.applyMappingResult,
-            "\(mapping.messages.count) messages"
-        )
-
-        // Update the cache with the freshly mapped messages.
-        var newCache: [String: TimelineMessage] = [:]
-        newCache.reserveCapacity(mapping.messages.count)
-        for message in mapping.messages {
-            newCache[message.id] = message
-        }
-        messageCache = newCache
-
-        // Suppress the @Observable notification when the mapped messages
-        // haven't actually changed. Without this guard, every diff batch
-        // replaces the array reference, causing a full SwiftUI body
-        // re-evaluation + messageRows rebuild + table update even when
-        // no visible data changed (e.g. a .set diff that only touches
-        // a read receipt or delivery status).
-        let currentCount = messages.count
-        let eqState = PerformanceSignposts.timeline.beginInterval(
-            PerformanceSignposts.TimelineName.equalityCheck,
-            "\(mapping.messages.count) vs \(currentCount)"
-        )
-        let changed = mapping.messages != messages
-        PerformanceSignposts.timeline.endInterval(
-            PerformanceSignposts.TimelineName.equalityCheck,
-            eqState,
-            "changed: \(changed)"
-        )
-
-        if changed {
-            messages = mapping.messages
-            messagesVersion &+= 1
-            activityLog?.log(
-                category: .timeline, severity: .debug, source: "TimelineViewModel",
-                summary: "Messages updated in \(roomLabel): \(mapping.messages.count) messages (v\(messagesVersion))",
-                roomId: roomId
-            )
-        }
-
-        computeUnreadMarkerIfNeeded(mapping.messages)
-        resolveUnfetchedReplies(mapping.unresolvedReplyEventIds)
-
-        PerformanceSignposts.timeline.endInterval(
-            PerformanceSignposts.TimelineName.applyMappingResult,
-            applyState
-        )
-    }
-
-    private func computeUnreadMarkerIfNeeded(_ result: [TimelineMessage]) {
-        guard !hasComputedUnreadMarker, unreadCount > 0, !result.isEmpty else { return }
-        hasComputedUnreadMarker = true
-        let incomingMessages = result.filter { !$0.isOutgoing }
-        if unreadCount <= incomingMessages.count {
-            let markerIndex = incomingMessages.count - unreadCount
-            firstUnreadMessageId = incomingMessages[markerIndex].id
-        }
-    }
-
-    private func resolveUnfetchedReplies(_ pendingIds: Set<String>) {
-        let newFetchIds = pendingIds.subtracting(fetchedReplyEventIds)
-        // swiftlint:disable:next identifier_name
-        guard !newFetchIds.isEmpty, let tl = sdkTimeline else { return }
-        fetchedReplyEventIds.formUnion(newFetchIds)
-        Task {
-            for eventId in newFetchIds {
-                try? await tl.fetchDetailsForEvent(eventId: eventId)
-            }
-        }
     }
 }
