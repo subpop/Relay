@@ -84,9 +84,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     @State private var isTimelineDropTargeted = false
     @State private var timelineActionsRef = TimelineActions()
     @State private var successorRoomId: String?
-    @State private var reactionPickerMessageId: String?
-    @State private var reactionPickerBubbleFrame: CGRect = .zero
-    @State private var reactionPickerIsOutgoing = false
+    @State private var reactionPickerState = ReactionPickerState()
     init(
         roomId: String,
         roomName: String,
@@ -163,28 +161,11 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .environment(\.mediaAutoReveal, shouldAutoRevealMedia)
             .environment(\.gifAnimationOverride, roomOverrides.animateGIFs)
             .overlay {
-                if !readOnly, let reply = compose.replyingTo {
-                    ZStack {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                                    compose.cancelReply()
-                                }
-                            }
-
-                        MessageView(
-                            message: reply,
-                            isLastInGroup: true,
-                            showSenderName: !reply.isOutgoing
-                        )
-                        .environment(\.timelineActions, timelineActionsRef)
-                        .allowsHitTesting(false)
-                        .padding(.horizontal, 16)
-                    }
-                    .transition(.opacity)
-                }
+                ReplyPreviewOverlay(
+                    compose: compose,
+                    actions: timelineActionsRef,
+                    readOnly: readOnly
+                )
             }
             .overlay(alignment: .bottom) {
                 if successorRoomId != nil || (!readOnly && (roomPermissions?.canSendMessages ?? true)) {
@@ -262,24 +243,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 return true
             }
             .overlay {
-                if !readOnly, isTimelineDropTargeted {
-                    ZStack {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .ignoresSafeArea()
-
-                        VStack(spacing: 8) {
-                            Image(systemName: "square.and.arrow.down")
-                                .font(.largeTitle)
-                                .foregroundStyle(.secondary)
-                            Text("Drop files to attach")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-                }
+                DropTargetOverlay(readOnly: readOnly, isTargeted: isTimelineDropTargeted)
             }
         .task {
             // Restore the compose view model from the draft store so unsent
@@ -289,10 +253,31 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 compose = composeDraftStore.draft(for: roomId)
             }
 
-            // Bind the timeline action callbacks once. The closures capture
-            // @State / @Environment references which remain valid for the
-            // lifetime of this view.
-            configureTimelineActions()
+            // Bind the timeline action callbacks once.
+            timelineActionsRef.configure(
+                viewModel: viewModel,
+                compose: compose,
+                roomPermissions: roomPermissions,
+                currentUserID: matrixService.userId(),
+                onUserTap: onUserTap,
+                onRoomTap: onRoomTap,
+                scrollToRow: { [self] id in scrollToRow(id: id) },
+                setHighlightedMessage: { [self] id in highlightedMessageId = id },
+                setFocusedMessage: { [self] id in focusedMessageId = id },
+                handleContextAction: { [self] action in handleContextAction(action) },
+                presentReactionPicker: { [self] messageId, frame, isOutgoing in
+                    reactionPickerState.bubbleFrame = frame
+                    reactionPickerState.isOutgoing = isOutgoing
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        reactionPickerState.messageId = messageId
+                    }
+                },
+                updateReactionPickerFrame: { [self] messageId, frame in
+                    guard messageId == reactionPickerState.messageId else { return }
+                    reactionPickerState.bubbleFrame = frame
+                },
+                members: compose.members
+            )
             // Cache room summary properties — avoids O(n) room scan on every body evaluation.
             let roomSummary = matrixService.rooms.first(where: { $0.id == roomId })
             isDirectRoom = roomSummary?.isDirect ?? false
@@ -528,82 +513,11 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             .overlay(alignment: .bottomTrailing) { scrollToBottomButton }
             .overlay { loadingOrEmptyOverlay }
             .overlay {
-                if reactionPickerMessageId != nil {
-                    ReactionPickerOverlay(
-                        bubbleFrame: reactionPickerBubbleFrame,
-                        isOutgoing: reactionPickerIsOutgoing,
-                        onSelect: { emoji in
-                            if let messageId = reactionPickerMessageId {
-                                RecentEmojiStore.shared.recordUsage(emoji)
-                                timelineActionsRef.toggleReaction(messageId, emoji)
-                            }
-                        },
-                        onDismiss: {
-                            withAnimation(.easeOut(duration: 0.15)) {
-                                reactionPickerMessageId = nil
-                            }
-                        }
-                    )
-                }
+                TimelineReactionPickerOverlay(
+                    state: $reactionPickerState,
+                    actions: timelineActionsRef
+                )
             }
-    }
-
-    /// Populates the stable ``TimelineActions`` instance with the current
-    /// closures and values. Called once from `.task` to bind the callbacks
-    /// that capture `@State` / `@Environment` references. Because the
-    /// instance identity is stable, re-injecting it into the environment
-    /// does not invalidate child views.
-    private func configureTimelineActions() {
-        let actions = timelineActionsRef
-        actions.toggleReaction = { messageId, key in
-            Task { await self.viewModel.toggleReaction(messageId: messageId, key: key) }
-        }
-        actions.tapReply = { eventID in
-            if let message = self.viewModel.messages.first(where: { $0.eventID == eventID }) {
-                self.scrollToRow(id: message.id)
-                self.highlightedMessageId = eventID
-            } else {
-                self.focusedMessageId = eventID
-            }
-        }
-        actions.reply = { message in
-            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                self.compose.replyingTo = message
-            }
-            self.compose.shouldFocusTextField = true
-        }
-        actions.avatarDoubleTap = { message in
-            self.onUserTap?(UserProfile(message: message))
-        }
-        actions.userTap = { userId in
-            let member = self.compose.members.first(where: { $0.userId == userId })
-            let profile = member.map { UserProfile(member: $0) }
-                ?? UserProfile(userId: userId)
-            self.onUserTap?(profile)
-        }
-        actions.roomTap = onRoomTap
-        actions.contextAction = { action in
-            self.handleContextAction(action)
-        }
-        actions.presentReactionPicker = { messageId, bubbleFrame, isOutgoing in
-            // `bubbleFrame` is in global coordinates; the overlay converts it.
-            self.reactionPickerBubbleFrame = bubbleFrame
-            self.reactionPickerIsOutgoing = isOutgoing
-            withAnimation(.easeOut(duration: 0.15)) {
-                self.reactionPickerMessageId = messageId
-            }
-        }
-        actions.updateReactionPickerFrame = { messageId, bubbleFrame in
-            // Track the bubble only while its picker is open, so the picker
-            // follows the message across layout changes (e.g. window resize).
-            guard messageId == self.reactionPickerMessageId else { return }
-            self.reactionPickerBubbleFrame = bubbleFrame
-        }
-        actions.highlightDismissed = {
-            self.highlightedMessageId = nil
-        }
-        actions.permissions = roomPermissions
-        actions.currentUserID = matrixService.userId()
     }
 
     /// Marks the room as read when the user can see the latest messages.

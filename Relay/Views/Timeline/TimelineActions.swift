@@ -124,6 +124,64 @@ final class TimelineActions: Equatable {
     init(currentUserID: String? = nil) {
         self.currentUserID = currentUserID
     }
+
+    /// Binds all interaction callbacks for a ``TimelineView``.
+    ///
+    /// Called once from `.task` to capture `@State` / `@Environment` references
+    /// that remain valid for the view's lifetime. Because the instance identity
+    /// is stable, re-injecting it into the environment does not invalidate
+    /// child views.
+    func configure(
+        viewModel: any TimelineViewModelProtocol,
+        compose: ComposeViewModel,
+        roomPermissions: RoomPermissions?,
+        currentUserID: String?,
+        onUserTap: ((UserProfile) -> Void)?,
+        onRoomTap: ((String) -> Void)?,
+        scrollToRow: @escaping (String) -> Void,
+        setHighlightedMessage: @escaping (String?) -> Void,
+        setFocusedMessage: @escaping (String?) -> Void,
+        handleContextAction: @escaping (TimelineRowContextAction) -> Void,
+        presentReactionPicker: @escaping (String, CGRect, Bool) -> Void,
+        updateReactionPickerFrame: @escaping (String, CGRect) -> Void,
+        members: [RoomMemberDetails]
+    ) {
+        self.toggleReaction = { messageId, key in
+            Task { await viewModel.toggleReaction(messageId: messageId, key: key) }
+        }
+        self.tapReply = { eventID in
+            if let message = viewModel.messages.first(where: { $0.eventID == eventID }) {
+                scrollToRow(message.id)
+                setHighlightedMessage(eventID)
+            } else {
+                setFocusedMessage(eventID)
+            }
+        }
+        self.reply = { message in
+            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                compose.replyingTo = message
+            }
+            compose.shouldFocusTextField = true
+        }
+        self.avatarDoubleTap = { message in
+            onUserTap?(UserProfile(message: message))
+        }
+        self.userTap = { userId in
+            let member = members.first(where: { $0.userId == userId })
+            let profile = member.map { UserProfile(member: $0) }
+                ?? UserProfile(userId: userId)
+            onUserTap?(profile)
+        }
+        self.roomTap = onRoomTap
+        self.contextAction = handleContextAction
+        self.presentReactionPicker = presentReactionPicker
+        self.updateReactionPickerFrame = updateReactionPickerFrame
+        self.highlightDismissed = {
+            setHighlightedMessage(nil)
+        }
+        self.permissions = roomPermissions
+        self.currentUserID = currentUserID
+    }
 }
 
 // MARK: - Environment Key
