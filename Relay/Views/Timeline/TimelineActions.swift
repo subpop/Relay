@@ -132,7 +132,7 @@ final class TimelineActions: Equatable {
     /// is stable, re-injecting it into the environment does not invalidate
     /// child views.
     func configure(
-        viewModel: any TimelineViewModelProtocol,
+        viewModel: any TimelineStateProviding,
         compose: ComposeViewModel,
         roomPermissions: RoomPermissions?,
         currentUserID: String?,
@@ -147,7 +147,8 @@ final class TimelineActions: Equatable {
         members: [RoomMemberDetails]
     ) {
         self.toggleReaction = { messageId, key in
-            Task { await viewModel.toggleReaction(messageId: messageId, key: key) }
+            guard let actionsVM = viewModel as? any TimelineActionsProviding else { return }
+            Task { await actionsVM.toggleReaction(messageId: messageId, key: key) }
         }
         self.tapReply = { eventID in
             if let message = viewModel.messages.first(where: { $0.eventID == eventID }) {

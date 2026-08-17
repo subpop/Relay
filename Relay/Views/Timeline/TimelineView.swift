@@ -41,7 +41,12 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
     var roomAvatarURL: String?
 
     /// The view model managing the room's timeline state and actions.
-    @State var viewModel: any TimelineViewModelProtocol
+    ///
+    /// Accepts ``TimelineStateProviding`` so read-only contexts (room previews)
+    /// can use VMs that don't provide write actions. When write actions are
+    /// needed (send, react, edit, etc.), the view casts to
+    /// ``TimelineActionsProviding`` at the call site.
+    @State var viewModel: any TimelineStateProviding
 
     /// A binding that, when set to a message event ID, causes the timeline to scroll
     /// to that message. Used by ``PinnedMessagesView`` to jump to pinned messages.
@@ -89,7 +94,7 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         roomId: String,
         roomName: String,
         roomAvatarURL: String? = nil,
-        viewModel: any TimelineViewModelProtocol,
+        viewModel: any TimelineStateProviding,
         focusedMessageId: Binding<String?>,
         onUserTap: ((UserProfile) -> Void)? = nil,
         onRoomTap: ((String) -> Void)? = nil,
@@ -168,10 +173,11 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 )
             }
             .overlay(alignment: .bottom) {
-                if successorRoomId != nil || (!readOnly && (roomPermissions?.canSendMessages ?? true)) {
+                if successorRoomId != nil || (!readOnly && (roomPermissions?.canSendMessages ?? true)),
+                   let actionsVM = viewModel as? any TimelineViewModelProtocol {
                     TimelineBottomBar(
                         compose: compose,
-                        viewModel: viewModel,
+                        viewModel: actionsVM,
                         roomId: roomId,
                         successorRoomId: successorRoomId,
                         onRoomTap: onRoomTap,
@@ -420,8 +426,8 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             set: { if !$0 { messageToDelete = nil } }
         )) {
             Button("Delete", role: .destructive) {
-                if let message = messageToDelete {
-                    Task { await viewModel.redact(messageId: message.eventID, reason: nil) }
+                if let message = messageToDelete, let actionsVM = viewModel as? any TimelineActionsProviding {
+                    Task { await actionsVM.redact(messageId: message.eventID, reason: nil) }
                 }
                 messageToDelete = nil
             }
@@ -773,14 +779,15 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         case .togglePin(let eventId):
+            guard let actionsVM = viewModel as? any TimelineActionsProviding else { break }
             let isPinned = matrixService.rooms
                 .first(where: { $0.id == roomId })?
                 .pinnedEventIds.contains(eventId) ?? false
             Task {
                 if isPinned {
-                    await viewModel.unpin(eventId: eventId)
+                    await actionsVM.unpin(eventId: eventId)
                 } else {
-                    await viewModel.pin(eventId: eventId)
+                    await actionsVM.pin(eventId: eventId)
                 }
             }
         case .edit(let message):

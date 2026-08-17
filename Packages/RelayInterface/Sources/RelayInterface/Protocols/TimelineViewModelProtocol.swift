@@ -22,14 +22,16 @@ public enum TimelineFocusState: Equatable, Sendable {
     case focusedOnEvent(String)
 }
 
-/// The view model protocol for displaying and interacting with a room's message timeline.
+// MARK: - Timeline State
+
+/// Observable state and navigation for a room's message timeline.
 ///
-/// ``TimelineViewModelProtocol`` defines the observable state and actions needed by the
-/// ``TimelineView`` to render messages, handle pagination, send messages and attachments,
-/// and toggle reactions. Concrete implementations include ``TimelineViewModel`` (backed
-/// by the Matrix Rust SDK) and ``PreviewTimelineViewModel`` (for SwiftUI previews).
+/// ``TimelineStateProviding`` defines the read-only observable state and navigation
+/// actions (load, paginate, focus) needed to display a timeline. Concrete
+/// implementations include ``TimelineViewModel``, ``RoomPreviewViewModel``, and
+/// ``PreviewTimelineViewModel``.
 @MainActor
-public protocol TimelineViewModelProtocol: AnyObject, Observable {
+public protocol TimelineStateProviding: AnyObject, Observable {
     /// The ordered list of messages in the timeline, from oldest to newest.
     var messages: [TimelineMessage] { get }
 
@@ -107,7 +109,16 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     ///
     /// - Parameter eventId: The event ID to mark as the furthest-read position.
     func sendFullyReadReceipt(upTo eventId: String) async
+}
 
+// MARK: - Timeline Actions
+
+/// Write operations on a room timeline (send, edit, react, redact, pin).
+///
+/// Separated from ``TimelineStateProviding`` so that read-only consumers
+/// (room previews, SwiftUI preview mocks) don't need to stub these methods.
+@MainActor
+public protocol TimelineActionsProviding: AnyObject {
     /// Sends a text message to the room, optionally as a reply to another message.
     ///
     /// - Parameters:
@@ -172,3 +183,13 @@ public protocol TimelineViewModelProtocol: AnyObject, Observable {
     /// - Parameter eventId: The Matrix event ID of the message to unpin.
     func unpin(eventId: String) async
 }
+
+// MARK: - Combined Protocol
+
+/// The full view model protocol for displaying and interacting with a room's
+/// message timeline.
+///
+/// ``TimelineViewModelProtocol`` composes ``TimelineStateProviding`` (observable
+/// state and navigation) with ``TimelineActionsProviding`` (write operations).
+/// Read-only consumers can depend on ``TimelineStateProviding`` alone.
+public typealias TimelineViewModelProtocol = TimelineStateProviding & TimelineActionsProviding

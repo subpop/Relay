@@ -17,8 +17,8 @@ import RelayInterface
 
 /// A mock implementation of ``TimelineViewModelProtocol`` for use in SwiftUI previews.
 ///
-/// All actions are no-ops. The view model is initialized with configurable sample data
-/// to allow previewing different states (loaded, loading, empty, with typing indicators, etc.).
+/// All write actions are no-ops. The view model is initialized with configurable sample
+/// data to allow previewing different states (loaded, loading, empty, with typing indicators, etc.).
 @Observable
 final class PreviewTimelineViewModel: TimelineViewModelProtocol {
     var messages: [TimelineMessage]

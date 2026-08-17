@@ -19,7 +19,7 @@ import RelayInterface
 ///
 /// Returns static sample room metadata and messages. All actions are no-ops.
 @Observable
-final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineViewModelProtocol {
+final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineStateProviding {
     var roomName: String?
     var roomTopic: String?
     var roomAvatarURL: String?
@@ -29,7 +29,7 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
     var isLoading = false
     let roomId: String
 
-    // MARK: - TimelineViewModelProtocol stubs
+    // MARK: - TimelineStateProviding
 
     var messagesVersion: UInt = 0
     var isLoadingMore = false
@@ -59,7 +59,7 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
         // No-op for previews; data is already populated.
     }
 
-    // MARK: - TimelineViewModelProtocol (no-op)
+    // MARK: - TimelineStateProviding (no-op)
 
     func loadTimeline() async {
         // Bump version so TimelineView rebuilds its cached rows from pre-populated messages.
@@ -71,13 +71,6 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineV
     func focusOnEvent(eventId: String) async {}
     func returnToLive() async {}
     func sendFullyReadReceipt(upTo eventId: String) async {}
-    func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {}
-    func sendAttachment(url: URL, caption: String?, inReplyTo: String?) async {}
-    func toggleReaction(messageId: String, key: String) async {}
-    func edit(messageId: String, newText: String, mentionedUserIds: [String]) async {}
-    func redact(messageId: String, reason: String?) async {}
-    func pin(eventId: String) async {}
-    func unpin(eventId: String) async {}
 
     static let sampleMessages: [TimelineMessage] = [
         TimelineMessage(

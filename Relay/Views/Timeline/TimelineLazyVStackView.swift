@@ -88,7 +88,7 @@ struct TimelineLazyVStackView: View {
 
     /// The view model, used by the typing indicator injector to observe
     /// typing state without invalidating the renderer's own body.
-    let viewModel: any TimelineViewModelProtocol
+    let viewModel: any TimelineStateProviding
 
     /// Extra bottom margin so content clears the compose bar overlay.
     var bottomContentMargin: CGFloat = 0

@@ -159,7 +159,7 @@ struct RoomPreviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.messages.isEmpty {
                 roomInfoPanel(viewModel)
-            } else if let timelineVM = viewModel as? any TimelineViewModelProtocol {
+            } else if let timelineVM = viewModel as? any TimelineStateProviding {
                 TimelineView(
                     roomId: room.roomId,
                     roomName: viewModel.roomName ?? room.name ?? room.roomId,
@@ -169,7 +169,7 @@ struct RoomPreviewView: View {
                     readOnly: true
                 )
             } else {
-                // Fallback for preview VMs that don't conform to TimelineViewModelProtocol.
+                // Fallback for preview VMs that don't conform to TimelineStateProviding.
                 ContentUnavailableView(
                     "Preview Unavailable",
                     systemImage: "eye.slash",
