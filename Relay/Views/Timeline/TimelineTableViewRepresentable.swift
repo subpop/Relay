@@ -20,49 +20,35 @@ import SwiftUI
 /// table view controller can create `TimelineRowView` instances with the
 /// correct closures and trigger pagination / scroll events.
 struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
-    let rows: [MessageRow]
-    let hasReachedEnd: Bool
-    let isLive: Bool
-
-    // Row configuration values passed through to TimelineRowView.
-    let showUnreadMarker: Bool
-    let firstUnreadMessageId: String?
-    let highlightedMessageId: String?
-    let showURLPreviews: Bool
+    /// Shared configuration common to both renderers.
+    let config: TimelineRendererConfig
+    /// Shared callbacks common to both renderers.
+    let callbacks: TimelineRendererCallbacks
 
     /// The consolidated timeline interaction callbacks.
     let actions: TimelineActions
 
-    /// Whether the typing indicator overlay is currently visible. Drives
-    /// the extra bottom content inset on the table view.
-    let typingIndicatorShown: Bool
-
     /// Called when a row appears on screen (for read receipt advancement).
     var onAppear: (MessageRow) -> Void
-
-    // Renderer-level callbacks (not part of TimelineActions).
-    var onNearBottomChanged: (Bool) -> Void
-    var onPaginateBackward: () -> Void
-    var onPaginateForward: () -> Void
 
     /// Proxy that the parent uses to trigger scroll actions on the table.
     var scrollProxy: TimelineTableProxy
 
     func makeNSViewController(context: Context) -> TimelineTableViewController {
         let vc = TimelineTableViewController()
-        vc.hasReachedEnd = hasReachedEnd
-        vc.isLive = isLive
+        vc.hasReachedEnd = config.hasReachedEnd
+        vc.isLive = config.isLive
         configureCallbacks(vc, context: context)
-        vc.updateRows(rows, typingIndicatorShown: typingIndicatorShown)
+        vc.updateRows(config.rows, typingIndicatorShown: config.typingIndicatorShown)
         scrollProxy.controller = vc
         return vc
     }
 
     func updateNSViewController(_ vc: TimelineTableViewController, context: Context) {
-        vc.hasReachedEnd = hasReachedEnd
-        vc.isLive = isLive
+        vc.hasReachedEnd = config.hasReachedEnd
+        vc.isLive = config.isLive
         configureCallbacks(vc, context: context)
-        vc.updateRows(rows, typingIndicatorShown: typingIndicatorShown)
+        vc.updateRows(config.rows, typingIndicatorShown: config.typingIndicatorShown)
         // Ensure the proxy always points to the current controller.
         scrollProxy.controller = vc
     }
@@ -85,10 +71,11 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
             vc?.remeasureRow(forMessageID: messageID)
         }
 
+        let config = config
         vc.callbacks = .init(
-            onNearBottomChanged: onNearBottomChanged,
-            onPaginateBackward: onPaginateBackward,
-            onPaginateForward: onPaginateForward,
+            onNearBottomChanged: callbacks.onNearBottomChanged,
+            onPaginateBackward: callbacks.onPaginateBackward,
+            onPaginateForward: callbacks.onPaginateForward,
             onMessageAppeared: onAppear,
             onSwipeReply: { row in
                 actions.reply(row.message)
@@ -97,9 +84,9 @@ struct TimelineTableViewRepresentable: NSViewControllerRepresentable {
                 TimelineRowView(
                     row: row,
                     isNewlyAppended: isNewlyAppended,
-                    isHighlighted: highlightedMessageId == row.message.eventID,
-                    isUnreadDivider: showUnreadMarker && row.message.id == firstUnreadMessageId,
-                    showURLPreviews: showURLPreviews,
+                    isHighlighted: config.highlightedMessageId == row.message.eventID,
+                    isUnreadDivider: config.showUnreadMarker && row.message.id == config.firstUnreadMessageId,
+                    showURLPreviews: config.showURLPreviews,
                     onAppear: onAppear,
                     swipeOffset: swipeOffset,
                     swipeIsLocked: swipeIsLocked,

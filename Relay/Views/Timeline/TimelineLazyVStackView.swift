@@ -32,35 +32,28 @@ import SwiftUI
 /// triggers during active user scrolling, preventing runaway re-triggers
 /// from content-size geometry updates.
 struct TimelineLazyVStackView: View {
-    let rows: [MessageRow]
+    /// Shared configuration common to both renderers.
+    let config: TimelineRendererConfig
+    /// Shared callbacks common to both renderers.
+    let callbacks: TimelineRendererCallbacks
 
-    let showUnreadMarker: Bool
-    let firstUnreadMessageId: String?
-    let highlightedMessageId: String?
-    let showURLPreviews: Bool
+    /// The consolidated timeline interaction callbacks.
+    let actions: TimelineActions
 
     // MARK: - Per-Row Bool Helpers
 
     /// Whether this row should show the unread divider marker.
     /// Pre-computed per-row so only the affected row's equality changes.
     private func isUnreadDivider(for row: MessageRow) -> Bool {
-        showUnreadMarker && row.message.id == firstUnreadMessageId
+        config.showUnreadMarker && row.message.id == config.firstUnreadMessageId
     }
 
     /// Whether this row is currently highlighted (e.g. after scrolling to
     /// a reply). Pre-computed per-row so only the highlighted row's
     /// equality changes.
     private func isHighlighted(for row: MessageRow) -> Bool {
-        highlightedMessageId == row.message.eventID
+        config.highlightedMessageId == row.message.eventID
     }
-
-    /// The consolidated timeline interaction callbacks.
-    let actions: TimelineActions
-
-    // Renderer-level callbacks (not part of TimelineActions).
-    var onNearBottomChanged: (Bool) -> Void
-    var onPaginateBackward: () -> Void
-    var onPaginateForward: () -> Void = {}
 
     /// Called when the set of visible message IDs changes, as reported by
     /// `onScrollTargetVisibilityChange`. Used for fully-read marker
@@ -78,26 +71,12 @@ struct TimelineLazyVStackView: View {
     /// pagination while the SDK is still processing a previous request.
     var isLoadingMore: Bool = false
 
-    /// Whether the timeline has loaded all future messages. When `false`,
-    /// scrolling near the bottom triggers forward pagination.
-    var hasReachedEnd: Bool = true
-
-    /// Whether the timeline is in live mode (as opposed to focused on a
-    /// specific event). Controls entry animations for new messages.
-    var isLive: Bool = true
-
     /// The view model, used by the typing indicator injector to observe
     /// typing state without invalidating the renderer's own body.
     let viewModel: any TimelineStateProviding
 
     /// Extra bottom margin so content clears the compose bar overlay.
     var bottomContentMargin: CGFloat = 0
-
-    /// Whether the typing indicator overlay is shown. Drives an animated
-    /// spacer at the bottom of the scroll content to smoothly push
-    /// messages up when the indicator appears and ease them back down
-    /// when it disappears.
-    var typingIndicatorShown = false
 
     @Binding var scrollPosition: ScrollPosition
 
@@ -136,13 +115,13 @@ struct TimelineLazyVStackView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 2) {
-                ForEach(rows) { row in
+                ForEach(config.rows) { row in
                     TimelineRowView(
                         row: row,
                         isNewlyAppended: row.id == newlyAppendedID,
                         isHighlighted: isHighlighted(for: row),
                         isUnreadDivider: isUnreadDivider(for: row),
-                        showURLPreviews: showURLPreviews,
+                        showURLPreviews: config.showURLPreviews,
                         onAppear: { _ in },
                         swipeOffset: swipeState.swipingMessageId == row.id ? swipeState.offset : 0,
                         swipeIsLocked: swipeState.swipingMessageId == row.id && swipeState.isLocked
@@ -168,8 +147,8 @@ struct TimelineLazyVStackView: View {
                 // Animated spacer that opens/closes space for the
                 // typing indicator overlay without affecting contentMargins.
                 Color.clear
-                    .frame(height: typingIndicatorShown ? 44 : 0)
-                    .animation(.easeInOut(duration: 0.25), value: typingIndicatorShown)
+                    .frame(height: config.typingIndicatorShown ? 44 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: config.typingIndicatorShown)
             }
 
         }
@@ -200,13 +179,13 @@ struct TimelineLazyVStackView: View {
             if new.nearBottom {
                 if !isNearBottomLatched {
                     isNearBottomLatched = true
-                    onNearBottomChanged(true)
+                    callbacks.onNearBottomChanged(true)
                 }
             } else if isUserScrolling {
                 // User is actively scrolling away from bottom.
                 if isNearBottomLatched {
                     isNearBottomLatched = false
-                    onNearBottomChanged(false)
+                    callbacks.onNearBottomChanged(false)
                 }
             }
             // Content growth while not scrolling: keep the latch as-is.
@@ -215,11 +194,11 @@ struct TimelineLazyVStackView: View {
             // scrolling and the SDK isn't already loading. This prevents
             // runaway re-triggers from content-size-change geometry
             // updates during pagination bursts.
-            if new.nearTop, !rows.isEmpty, !isLoadingMore, isUserScrolling {
-                onPaginateBackward()
+            if new.nearTop, !config.rows.isEmpty, !isLoadingMore, isUserScrolling {
+                callbacks.onPaginateBackward()
             }
-            if !hasReachedEnd, new.nearEnd {
-                onPaginateForward()
+            if !config.hasReachedEnd, new.nearEnd {
+                callbacks.onPaginateForward()
             }
         }
         .scrollPosition($scrollPosition, anchor: .bottom)
@@ -232,12 +211,12 @@ struct TimelineLazyVStackView: View {
         .onChange(of: visibleRowIDs) { _, newIDs in
             // Report visible IDs in row order (oldest → newest) so the
             // caller can advance the read marker to the last element.
-            let ordered = rows.compactMap { newIDs.contains($0.id) ? $0.id : nil }
+            let ordered = config.rows.compactMap { newIDs.contains($0.id) ? $0.id : nil }
             onVisibleMessagesChanged(ordered)
         }
         .onAppear {
             installSwipeMonitor()
-            swipeHandler.rows = rows
+            swipeHandler.rows = config.rows
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(300))
                 initialLoadComplete = true
@@ -245,18 +224,18 @@ struct TimelineLazyVStackView: View {
             }
         }
         .onDisappear { swipeHandler.stopMonitoring() }
-        .onChange(of: rows.count) {
-            swipeHandler.rows = rows
+        .onChange(of: config.rows.count) {
+            swipeHandler.rows = config.rows
         }
-        .onChange(of: rows.last?.id) {
+        .onChange(of: config.rows.last?.id) {
             // Deferred by one run-loop turn to avoid mutating @State
             // during the same layout pass that triggered this onChange.
             Task { @MainActor in
-                let newLastID = rows.last?.id
+                let newLastID = config.rows.last?.id
 
                 // Determine if this is a genuinely new message appended
                 // to the end (not the initial load or a pagination).
-                if isLive, initialLoadComplete,
+                if config.isLive, initialLoadComplete,
                    let newLastID, newLastID != previousLastRowID {
                     newlyAppendedID = newLastID
 

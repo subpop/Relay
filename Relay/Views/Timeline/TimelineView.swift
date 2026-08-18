@@ -533,25 +533,40 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
         Task { await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts) }
     }
 
+    private var rendererConfig: TimelineRendererConfig {
+        TimelineRendererConfig(
+            rows: cachedMessageRows,
+            showUnreadMarker: showUnreadMarker,
+            firstUnreadMessageId: viewModel.firstUnreadMessageId,
+            highlightedMessageId: highlightedMessageId,
+            showURLPreviews: showURLPreviews,
+            hasReachedEnd: viewModel.hasReachedEnd,
+            isLive: viewModel.timelineFocus == .live,
+            typingIndicatorShown: isTypingRevealed
+        )
+    }
+
+    private var rendererCallbacks: TimelineRendererCallbacks {
+        TimelineRendererCallbacks(
+            onNearBottomChanged: { nearBottom in
+                isNearBottom = nearBottom
+                markAsReadIfNeeded()
+            },
+            onPaginateBackward: {
+                guard !viewModel.isLoadingMore, !viewModel.hasReachedStart else { return }
+                Task { await viewModel.loadMoreHistory() }
+            },
+            onPaginateForward: { Task { await viewModel.loadMoreFuture() } }
+        )
+    }
+
     @ViewBuilder
     private var timelineRenderer: some View {
         if timelineUseLazyVStack {
             TimelineLazyVStackView(
-                rows: cachedMessageRows,
-                showUnreadMarker: showUnreadMarker,
-                firstUnreadMessageId: viewModel.firstUnreadMessageId,
-                highlightedMessageId: highlightedMessageId,
-                showURLPreviews: showURLPreviews,
+                config: rendererConfig,
+                callbacks: rendererCallbacks,
                 actions: timelineActionsRef,
-                onNearBottomChanged: { nearBottom in
-                    isNearBottom = nearBottom
-                    markAsReadIfNeeded()
-                },
-                onPaginateBackward: {
-                    guard !viewModel.isLoadingMore, !viewModel.hasReachedStart else { return }
-                    Task { await viewModel.loadMoreHistory() }
-                },
-                onPaginateForward: { Task { await viewModel.loadMoreFuture() } },
                 onVisibleMessagesChanged: { visibleIDs in
                     guard let newestVisibleID = visibleIDs.last,
                           let row = cachedMessageRows.first(where: { $0.id == newestVisibleID })
@@ -560,34 +575,16 @@ struct TimelineView: View { // swiftlint:disable:this type_body_length
                 },
                 onScrollSettled: { markAsReadIfNeeded() },
                 isLoadingMore: viewModel.isLoadingMore,
-                hasReachedEnd: viewModel.hasReachedEnd,
-                isLive: viewModel.timelineFocus == .live,
                 viewModel: viewModel,
                 bottomContentMargin: composeBarHeight + 4,
-                typingIndicatorShown: isTypingRevealed,
                 scrollPosition: $lazyVStackScrollPosition
             )
         } else {
             TimelineTableViewRepresentable(
-                rows: cachedMessageRows,
-                hasReachedEnd: viewModel.hasReachedEnd,
-                isLive: viewModel.timelineFocus == .live,
-                showUnreadMarker: showUnreadMarker,
-                firstUnreadMessageId: viewModel.firstUnreadMessageId,
-                highlightedMessageId: highlightedMessageId,
-                showURLPreviews: showURLPreviews,
+                config: rendererConfig,
+                callbacks: rendererCallbacks,
                 actions: timelineActionsRef,
-                typingIndicatorShown: isTypingRevealed,
                 onAppear: { row in advanceFullyReadMarker(to: row.message.eventID) },
-                onNearBottomChanged: { nearBottom in
-                    isNearBottom = nearBottom
-                    markAsReadIfNeeded()
-                },
-                onPaginateBackward: {
-                    guard !viewModel.isLoadingMore, !viewModel.hasReachedStart else { return }
-                    Task { await viewModel.loadMoreHistory() }
-                },
-                onPaginateForward: { Task { await viewModel.loadMoreFuture() } },
                 scrollProxy: tableProxy
             )
             .ignoresSafeArea()
