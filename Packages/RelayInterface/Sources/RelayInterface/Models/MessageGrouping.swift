@@ -13,26 +13,25 @@
 // limitations under the License.
 
 import Foundation
-import RelayInterface
 
 // MARK: - Grouping Info
 
 /// Precomputed layout metadata for a single message within the timeline.
 /// Built once per body evaluation by ``MessageRowBuilder/buildRows(for:hasReachedStart:)``
 /// so the `ForEach` body doesn't need index-based lookups.
-struct MessageGroupInfo: Equatable, Sendable {
-    var isFirst = false
-    var showDateHeader = false
-    var showGroupSpacer = false
-    var isLastInGroup = true
-    var showSenderName = false
+public struct MessageGroupInfo: Equatable, Sendable {
+    public var isFirst = false
+    public var showDateHeader = false
+    public var showGroupSpacer = false
+    public var isLastInGroup = true
+    public var showSenderName = false
 
     /// Whether this message's reply-to target is the immediately preceding
     /// message in the timeline. When `true`, the reply preview bubble can
     /// be omitted since the original message is already visible directly above.
-    var replyIsAdjacentAbove = false
+    public var replyIsAdjacentAbove = false
 
-    nonisolated static func == (lhs: MessageGroupInfo, rhs: MessageGroupInfo) -> Bool {
+    nonisolated public static func == (lhs: MessageGroupInfo, rhs: MessageGroupInfo) -> Bool {
         lhs.isFirst == rhs.isFirst
             && lhs.showDateHeader == rhs.showDateHeader
             && lhs.showGroupSpacer == rhs.showGroupSpacer
@@ -41,32 +40,48 @@ struct MessageGroupInfo: Equatable, Sendable {
             && lhs.replyIsAdjacentAbove == rhs.replyIsAdjacentAbove
     }
 
-    static let `default` = MessageGroupInfo()
+    public static let `default` = MessageGroupInfo()
+
+    public init(
+        isFirst: Bool = false,
+        showDateHeader: Bool = false,
+        showGroupSpacer: Bool = false,
+        isLastInGroup: Bool = true,
+        showSenderName: Bool = false,
+        replyIsAdjacentAbove: Bool = false
+    ) {
+        self.isFirst = isFirst
+        self.showDateHeader = showDateHeader
+        self.showGroupSpacer = showGroupSpacer
+        self.isLastInGroup = isLastInGroup
+        self.showSenderName = showSenderName
+        self.replyIsAdjacentAbove = replyIsAdjacentAbove
+    }
 }
 
 /// A message bundled with its precomputed layout metadata, used as the
 /// element type for the `ForEach` to avoid capturing the full groupInfo
 /// dictionary or messages array in each row's closure.
-struct MessageRow: Identifiable, Equatable {
-    let message: TimelineMessage
-    let info: MessageGroupInfo
-    let isPaginationTrigger: Bool
+public struct MessageRow: Identifiable, Equatable {
+    public let message: TimelineMessage
+    public let info: MessageGroupInfo
+    public let isPaginationTrigger: Bool
 
     /// When non-nil, this row represents a collapsed group of consecutive
     /// system events. The ``message`` field holds the first event in the
     /// run (used for ID stability and date header computation).
-    let collapsedSystemEvents: [TimelineMessage]?
+    public let collapsedSystemEvents: [TimelineMessage]?
 
-    init(message: TimelineMessage, info: MessageGroupInfo, isPaginationTrigger: Bool, collapsedSystemEvents: [TimelineMessage]? = nil) {
+    public init(message: TimelineMessage, info: MessageGroupInfo, isPaginationTrigger: Bool, collapsedSystemEvents: [TimelineMessage]? = nil) {
         self.message = message
         self.info = info
         self.isPaginationTrigger = isPaginationTrigger
         self.collapsedSystemEvents = collapsedSystemEvents
     }
 
-    var id: String { message.id }
+    public var id: String { message.id }
 
-    nonisolated static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
+    nonisolated public static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.message == rhs.message
             && lhs.info == rhs.info
             && lhs.isPaginationTrigger == rhs.isPaginationTrigger
@@ -77,10 +92,10 @@ struct MessageRow: Identifiable, Equatable {
 // MARK: - Row Builder
 
 /// Namespace for timeline row construction and system event collapsing.
-enum MessageRowBuilder {
+public enum MessageRowBuilder {
     /// The minimum number of consecutive system events required to collapse
     /// them into an expandable group.
-    static let systemEventCollapseThreshold = 4
+    public static let systemEventCollapseThreshold = 4
 
     /// Builds an array of ``MessageRow`` values, pairing each message with its
     /// precomputed grouping metadata. The result is passed to the table view
@@ -90,7 +105,7 @@ enum MessageRowBuilder {
     /// ``systemEventCollapseThreshold`` are merged into a single row with
     /// ``MessageRow/collapsedSystemEvents`` populated. Date boundaries split
     /// runs so that each collapsed group stays within a single date section.
-    static func buildRows(
+    public static func buildRows(
         for messages: [TimelineMessage],
         hasReachedStart: Bool
     ) -> [MessageRow] {

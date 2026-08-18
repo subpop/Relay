@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import RelayInterface
 
 /// Shared configuration values that both timeline renderers
 /// (``TimelineTableViewRepresentable`` and ``TimelineLazyVStackView``) need.
@@ -37,17 +38,6 @@ struct TimelineRendererConfig: Equatable {
     let isLive: Bool
     /// Whether the typing indicator overlay is currently visible.
     let typingIndicatorShown: Bool
-
-    nonisolated static func == (lhs: TimelineRendererConfig, rhs: TimelineRendererConfig) -> Bool {
-        lhs.rows == rhs.rows
-            && lhs.showUnreadMarker == rhs.showUnreadMarker
-            && lhs.firstUnreadMessageId == rhs.firstUnreadMessageId
-            && lhs.highlightedMessageId == rhs.highlightedMessageId
-            && lhs.showURLPreviews == rhs.showURLPreviews
-            && lhs.hasReachedEnd == rhs.hasReachedEnd
-            && lhs.isLive == rhs.isLive
-            && lhs.typingIndicatorShown == rhs.typingIndicatorShown
-    }
 }
 
 /// Shared callbacks that both timeline renderers invoke to communicate
