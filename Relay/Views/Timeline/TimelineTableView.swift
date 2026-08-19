@@ -440,9 +440,6 @@ final class TimelineTableViewController: NSViewController {
             object: scrollView
         )
 
-        // Link previews use a fixed-size card, so no height re-measurement
-        // is needed when metadata loads.
-
         // Re-render and re-measure every row when the message text-zoom changes.
         NotificationCenter.default.addObserver(
             self,
@@ -477,9 +474,8 @@ final class TimelineTableViewController: NSViewController {
             } else {
                 hostView = NSHostingView(rootView: rowView)
                 hostView.identifier = reuseID
-                hostView.sizingOptions = [.standardBounds]
+                hostView.sizingOptions = []
                 hostView.autoresizingMask = [.width, .height]
-                hostView.setContentHuggingPriority(.required, for: .vertical)
             }
 
             // Notify that this row appeared (for fully-read marker advancement
@@ -905,6 +901,14 @@ final class TimelineTableViewController: NSViewController {
         guard !indices.isEmpty else { return }
 
         preservingScrollAnchor {
+            // Discard the shared measurement host so heightOfRow builds a
+            // fresh one. An NSHostingController can return a stale
+            // sizeThatFits result when the view's @State-driven content
+            // (e.g. a resolved link-preview card read from the shared cache)
+            // changes without an external rootView reassignment at a
+            // different width. A fresh host evaluates the new content from
+            // scratch.
+            measurementHost = nil
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0
                 context.allowsImplicitAnimation = false
