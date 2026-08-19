@@ -36,6 +36,9 @@ struct MessageView: View {
     /// timeline, allowing the reply preview bubble to be omitted.
     var replyIsAdjacentAbove: Bool = false
 
+    /// Whether to show URL previews for text messages that contain a link.
+    var showURLPreviews: Bool = false
+
     /// Reports the bubble's global frame as it changes, so the enclosing row
     /// can anchor the reaction picker to the precise bubble (not the whole
     /// row, which would include the avatar gutter).
@@ -134,6 +137,7 @@ struct MessageView: View {
     private var messageBubble: some View {
         MessageBubbleContent(
             message: message,
+            showURLPreviews: showURLPreviews,
             onPresentReactionPicker: {
                 presentReactionPickerForBubble()
             }

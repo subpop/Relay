@@ -28,6 +28,9 @@ struct MessageBubbleContent: View {
     /// The timeline message to render.
     let message: TimelineMessage
 
+    /// Whether to show URL previews for text messages that contain a link.
+    var showURLPreviews: Bool = false
+
     /// Called to present the emoji reaction picker from within rich text context menus.
     var onPresentReactionPicker: (() -> Void)?
 
@@ -69,7 +72,7 @@ struct MessageBubbleContent: View {
 
     private var textContent: some View {
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 MessageTextView(
                     attributedString: parsedBody,
                     isOutgoing: style.usesWhiteText,
@@ -82,9 +85,17 @@ struct MessageBubbleContent: View {
                     highlightedUserId: message.highlightedMentionUserId,
                     highlightKeywords: message.highlightKeywords
                 )
+                .padding(.horizontal, BubbleStyle.horizontalPadding)
+                .padding(.vertical, BubbleStyle.verticalPadding)
+
+                if showURLPreviews, message.kind == .text,
+                   let url = URLPreviewExtractor.firstPreviewURL(in: message.body) {
+                    LinkPreviewView(url: url, isOutgoing: message.isOutgoing, messageID: message.id)
+                        .id(url)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
+                }
             }
-            .padding(.horizontal, BubbleStyle.horizontalPadding)
-            .padding(.vertical, BubbleStyle.verticalPadding)
             .background(style.backgroundColor)
             .clipShape(BubbleStyle.shape)
 
@@ -435,6 +446,30 @@ struct MessageBubbleContent: View {
                     size: 1_250_000
                 ))
             )
+        )
+    }
+    .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .padding()
+    .frame(width: 450)
+}
+
+#Preview("Link Preview") {
+    VStack(spacing: 6) {
+        MessageBubbleContent(
+            message: TimelineMessage(
+                id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
+                body: "Check out https://matrix.org",
+                timestamp: .now, isOutgoing: false
+            ),
+            showURLPreviews: true
+        )
+        MessageBubbleContent(
+            message: TimelineMessage(
+                id: "2", senderID: "@me:matrix.org",
+                body: "Take a look at https://matrix.org",
+                timestamp: .now, isOutgoing: true
+            ),
+            showURLPreviews: true
         )
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))

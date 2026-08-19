@@ -164,6 +164,7 @@ struct TimelineRowView: View, Equatable {
                 isLastInGroup: info.isLastInGroup,
                 showSenderName: info.showSenderName,
                 replyIsAdjacentAbove: info.replyIsAdjacentAbove,
+                showURLPreviews: showURLPreviews,
                 // Track the precise bubble frame (MessageView is the single
                 // source — capturing here would report the whole row including
                 // the avatar gutter and fight the bubble's own updates).
@@ -177,17 +178,6 @@ struct TimelineRowView: View, Equatable {
             }
             .messageHighlight(isHighlighted) {
                 actions.highlightDismissed()
-            }
-
-            if showURLPreviews, message.kind == .text,
-               let url = URLPreviewExtractor.firstPreviewURL(in: message.body) {
-                LinkPreviewView(url: url, isOutgoing: message.isOutgoing, messageID: message.id)
-                    // Bind identity to the URL so a recycled cell reused for a
-                    // different-URL message gets fresh state instead of bleeding
-                    // the previous URL's cached aspect ratio.
-                    .id(url)
-                    .padding(.leading, message.isOutgoing ? 0 : 34)
-                    .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
             }
         }
     }
