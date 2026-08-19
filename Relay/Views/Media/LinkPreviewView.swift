@@ -97,6 +97,7 @@ struct LinkPreviewView: View {
     /// row re-measure once the card's presentation is known.
     let messageID: String
 
+    @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
     @Environment(\.timelineActions) private var actions
 
     @State private var title: String?
@@ -229,12 +230,11 @@ struct LinkPreviewView: View {
         }
     }
 
+    /// Whether the bubble uses white (light-on-dark) text.
+    private var usesWhiteText: Bool { isOutgoing || coloredBubbles }
+
     private var textArea: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Reserve two lines regardless of the actual title length so the
-            // text area height is deterministic — the detached measurement
-            // host (which has no title yet) reserves the same space the live
-            // cell uses for a wrapped two-line title.
             Text(title ?? url.host() ?? url.absoluteString)
                 .font(.callout)
                 .bold()
@@ -243,13 +243,15 @@ struct LinkPreviewView: View {
 
             Text(url.host() ?? url.absoluteString)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .opacity(0.7)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .foregroundStyle(usesWhiteText ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
     }
 
     private func loadMetadata() async {
