@@ -66,7 +66,6 @@ struct ComposeTextView: NSViewRepresentable {
             .font: MessageTextScale.baseFont,
             .foregroundColor: NSColor.textColor,
         ]
-        textView.placeholderString = "Message"
         textView.delegate = context.coordinator
         textView.keyDelegate = context.coordinator
 
@@ -444,7 +443,7 @@ struct ComposeTextView: NSViewRepresentable {
                     return
                 }
 
-                if scalar == "@" {
+                if scalar == Unicode.Scalar("@") {
                     // '@' must be at start or preceded by whitespace
                     let precededBySpace = i == 0 || {
                         guard let prev = Unicode.Scalar(string.character(at: i - 1)) else { return false }
@@ -500,7 +499,7 @@ struct ComposeTextView: NSViewRepresentable {
             while i >= 0 {
                 let char = nsString.character(at: i)
                 guard let scalar = Unicode.Scalar(char) else { i -= 1; continue }
-                if scalar == "@" {
+                if scalar == Unicode.Scalar("@") {
                     let precededBySpace = i == 0 || {
                         guard let prev = Unicode.Scalar(nsString.character(at: i - 1)) else { return false }
                         return CharacterSet.whitespacesAndNewlines.contains(prev)
@@ -578,7 +577,6 @@ final class ComposeScrollView: NSScrollView {
 /// placeholder drawing, and auto-sizing.
 final class ComposeInputTextView: NSTextView {
     weak var keyDelegate: ComposeInputKeyDelegate?
-    var placeholderString: String?
 
     /// Cached content height, updated after every text change.
     /// Initialized to a sensible single-line height (lineHeight + insets).
@@ -642,22 +640,6 @@ final class ComposeInputTextView: NSTextView {
             }
         }
         super.doCommand(by: selector)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        // Draw placeholder when empty.
-        if string.isEmpty, let placeholder = placeholderString {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: font ?? .systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: NSColor.placeholderTextColor,
-            ]
-            let insets = textContainerInset
-            let padding = textContainer?.lineFragmentPadding ?? 0
-            let origin = NSPoint(x: insets.width + padding, y: insets.height)
-            (placeholder as NSString).draw(at: origin, withAttributes: attrs)
-        }
     }
 
     override func viewDidMoveToWindow() {

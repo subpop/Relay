@@ -168,6 +168,17 @@ private struct ComposeBarContent: View {
                 shouldFocus: $compose.shouldFocusTextField
             )
             .frame(height: textViewHeight)
+            .overlay(alignment: .topLeading) {
+                if compose.text.isEmpty {
+                    // Placeholder positioned to match textContainerInset (8, 10)
+                    // plus lineFragmentPadding (4).
+                    Text("Message")
+                        .foregroundStyle(.placeholder)
+                        .padding(.leading, 12)
+                        .padding(.top, 10)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .glassEffect(
             in: .rect(cornerRadius: !compose.attachments.isEmpty ? 16 : 20)
