@@ -613,11 +613,19 @@ final class TimelineTableViewController: NSViewController {
             return
         }
 
-        // Structural update — purge cache entries for removed message IDs.
+        // Structural update — clear the entire height cache. Pagination
+        // changes which messages surround each row, which changes
+        // MessageGroupInfo (date headers, group spacers, sender names).
+        // A row that previously showed a date header may stop showing it
+        // once an older message is paginated in above it, or vice versa.
+        // The cache is keyed by (messageID, width) and does not account
+        // for these context-dependent layout changes, so keeping stale
+        // entries causes persistent whitespace gaps or clipping after
+        // pagination.
         let removedIDs = Set(oldIDs).subtracting(newIDs)
-        for id in removedIDs {
-            invalidateHeight(for: id)
-        }
+        heightCache.removeAll()
+        cachedWidthsByMessageID.removeAll()
+        measurementHost = nil
 
         // Detect messages appended at the bottom (newest end) while in live
         // mode after the initial load.  These IDs are exposed to row views
