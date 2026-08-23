@@ -35,6 +35,9 @@ Relay is a native macOS app built with SwiftUI and Xcode.
 
    Open `Secrets.xcconfig` and fill in your values:
 
+   - **`BUNDLE_PREFIX`** -- a custom prefix for the app bundle. Xcode *will*
+     try to register the bundle identifier to your account and they're 
+     globally unique.
    - **`DEVELOPMENT_TEAM`** -- Your Apple Developer Team ID. Find it in
      Xcode under **Settings > Accounts**, or at
      <https://developer.apple.com/account>.

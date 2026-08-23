@@ -6,7 +6,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.46UKXDYHHC.app.subpop.Relay</string>
+		<string>group.$(DEVELOPMENT_TEAM).$(BUNDLE_PREFIX).Relay</string>
 	</array>
 </dict>
 </plist>
