@@ -491,12 +491,13 @@
 /* Begin XCBuildConfiguration section */
 		3B11E08E2F9A3F600051F7B3 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.RelayTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_PREFIX).RelayTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -509,12 +510,13 @@
 		};
 		3B11E08F2F9A3F600051F7B3 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.RelayTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_PREFIX).RelayTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -824,7 +826,7 @@
 					"@loader_path/Frameworks",
 				);
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.RelayKit;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_PREFIX).RelayKit";
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -855,7 +857,7 @@
 					"@loader_path/Frameworks",
 				);
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.RelayKit;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_PREFIX).RelayKit";
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
