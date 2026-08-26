@@ -133,6 +133,14 @@ struct MessageTextView: NSViewRepresentable {
         view.textContainer?.widthTracksTextView = false
         view.textContainer?.lineFragmentPadding = 0
         view.clipsToBounds = false
+        // Prevent NSTextView from flattening subviews into its own layer.
+        // NSHostingView (used by NSTextAttachmentViewProvider for pills and
+        // quote icons) manages its own backing layer. When the text view is
+        // embedded in SwiftUI's layer-backed hierarchy,
+        // canDrawSubviewsIntoLayer can default to true, which causes the
+        // text view's drawing pass to overwrite the hosting views' layer
+        // content — attachment views render briefly then go blank.
+        view.canDrawSubviewsIntoLayer = false
         view.isEditable = false
         view.isSelectable = true
         view.drawsBackground = false
