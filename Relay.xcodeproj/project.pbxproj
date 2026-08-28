@@ -91,6 +91,13 @@
 			);
 			target = 3B4AFD882F638A35001F0EA1 /* Relay */;
 		};
+		3BRK00232FC00023001F0EA1 /* Exceptions for "RelayKit" folder in "RelayKit" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3BRK00102FC00010001F0EA1 /* RelayKit */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
