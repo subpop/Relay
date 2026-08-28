@@ -91,7 +91,9 @@ class ShareViewController: NSViewController {
         // bundle ID to avoid the URL-based dispatch that creates a new window.
         writeLatestShareId(share.id)
 
-        let bundleId = "app.subpop.Relay"
+        guard let bundleId = Bundle.main.object(forInfoDictionaryKey: "RelayMainAppBundleIdentifier") as? String else {
+            fatalError("RelayMainAppBundleIdentifier missing from RelayShareExtension's Info.plist")
+        }
         if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
             app.activate()
         } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {

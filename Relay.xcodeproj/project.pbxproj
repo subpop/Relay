@@ -99,6 +99,13 @@
 			);
 			target = 3B4AFD882F638A35001F0EA1 /* Relay */;
 		};
+		3BRK00232FC00023001F0EA1 /* Exceptions for "RelayKit" folder in "RelayKit" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3BRK00102FC00010001F0EA1 /* RelayKit */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -126,6 +133,9 @@
 		};
 		3BRK00112FC00011001F0EA1 /* RelayKit */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3BRK00232FC00023001F0EA1 /* Exceptions for "RelayKit" folder in "RelayKit" target */,
+			);
 			path = RelayKit;
 			sourceTree = "<group>";
 		};
@@ -818,6 +828,7 @@
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				ENABLE_MODULE_VERIFIER = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RelayKit/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -849,6 +860,7 @@
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				ENABLE_MODULE_VERIFIER = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RelayKit/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
