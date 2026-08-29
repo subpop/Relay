@@ -316,44 +316,6 @@ struct TimelineHeightMeasurementTests {
         )
     }
 
-    // MARK: - 3b. Safe-area-aware effective content width
-
-    /// The ordinary case: the column is wider than the combined insets, so
-    /// the effective width is simply the difference.
-    @Test func effectiveContentWidthSubtractsSafeAreaInsets() {
-        let width = TimelineTableViewController.effectiveContentWidth(
-            columnWidth: 610, safeAreaInsets: NSEdgeInsets(top: 0, left: 170, bottom: 0, right: 0)
-        )
-        #expect(width == 440)
-    }
-
-    /// A narrow window with the overlay sidebar's safe-area inset open can
-    /// drive the raw subtraction to zero or negative — the exact scenario
-    /// this branch's root-cause fix targets. `effectiveContentWidth` itself
-    /// reports the (possibly negative) raw value; callers are responsible
-    /// for their own floor/skip behavior on top of it. This guards the
-    /// primitive `heightOfRow`'s `max(1, ...)` floor and
-    /// `scheduleRemeasureIfEffectiveWidthChanged`'s `> 1` skip guard both
-    /// build on, so a regression in either caller's clamp shows up as this
-    /// raw value going unexpectedly non-negative instead.
-    @Test func effectiveContentWidthCanGoNonPositiveWhenInsetsExceedColumn() {
-        let width = TimelineTableViewController.effectiveContentWidth(
-            columnWidth: 150, safeAreaInsets: NSEdgeInsets(top: 0, left: 170, bottom: 0, right: 0)
-        )
-        #expect(width <= 0, "Expected a non-positive raw width when insets exceed the column, got \(width).")
-    }
-
-    /// Regression guard for the specific floor `heightOfRow` applies: a
-    /// negative effective width must never reach the measurement host as
-    /// anything less than 1pt.
-    @Test func flooredEffectiveContentWidthNeverGoesBelowOnePoint() {
-        let raw = TimelineTableViewController.effectiveContentWidth(
-            columnWidth: 100, safeAreaInsets: NSEdgeInsets(top: 0, left: 170, bottom: 0, right: 0)
-        )
-        #expect(raw < 1)
-        #expect(max(1, raw) == 1)
-    }
-
     // MARK: - 4. Link-preview card height determinism
 
     /// A variable-height link card must derive its height synchronously from the
@@ -417,9 +379,7 @@ struct TimelineHeightMeasurementTests {
 
     // MARK: - Hosting Measurement Helper
 
-    /// The height a detached `NSHostingController` reports for `view` at `width`
-    /// — the same measurement path `TimelineTableViewController` uses for row
-    /// heights (its `measurementHost`).
+    /// The height a detached `NSHostingController` reports for `view` at `width`.
     private func measuredHeight(_ view: some View, width: CGFloat) -> CGFloat {
         let host = NSHostingController(rootView: view)
         return host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height

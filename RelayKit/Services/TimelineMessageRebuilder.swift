@@ -44,8 +44,16 @@ final class TimelineMessageRebuilder {
     private let roomId: String
     private weak var activityLog: ActivityLog?
 
+    /// Debounce task for row rebuilds. Collapses rapid successive
+    /// `applyMappingResult()` calls into a single row swap so the
+    /// `LazyVStack` only re-layouts once per batch.
+    private var rowRebuildTask: Task<Void, Never>?
+
     /// Called when the messages array has been updated.
     var onMessagesUpdated: ((_ messages: [TimelineMessage], _ version: UInt) -> Void)?
+
+    /// Called when the message rows have been rebuilt.
+    var onMessageRowsUpdated: ((_ rows: [MessageRow], _ version: UInt) -> Void)?
 
     /// Called when the unread marker position is first computed.
     var onUnreadMarkerComputed: ((String) -> Void)?
@@ -59,6 +67,22 @@ final class TimelineMessageRebuilder {
 
     /// The most recently produced messages array.
     private(set) var messages: [TimelineMessage] = []
+
+    /// Pre-computed message rows with grouping metadata, ready for rendering.
+    private(set) var messageRows: [MessageRow] = []
+
+    /// Version counter for messageRows, bumped each time rows are rebuilt.
+    private(set) var messageRowsVersion: UInt = 0
+
+    /// Whether to show membership events (joins, leaves, etc.) in the timeline.
+    var showMembershipEvents = true
+
+    /// Whether to show state events (room name, topic, etc.) in the timeline.
+    var showStateEvents = true
+
+    /// Whether backward pagination has reached the beginning of the room's history.
+    /// Passed through to `MessageRowBuilder.buildRows` for pagination trigger computation.
+    var hasReachedStart = false
 
     init(unreadCount: Int, roomLabel: String, roomId: String, activityLog: ActivityLog?) {
         self.unreadCount = unreadCount
@@ -81,6 +105,20 @@ final class TimelineMessageRebuilder {
         hasComputedUnreadMarker = false
         messages = []
         messagesVersion = 0
+        messageRows = []
+        messageRowsVersion = 0
+        rowRebuildTask?.cancel()
+        rowRebuildTask = nil
+    }
+
+    /// Updates the event-filtering preferences and rebuilds message rows
+    /// from the current messages. Called when the user toggles membership
+    /// or state event visibility in room settings.
+    func updateFilterPreferences(showMembership: Bool, showState: Bool) {
+        guard showMembership != showMembershipEvents || showState != showStateEvents else { return }
+        showMembershipEvents = showMembership
+        showStateEvents = showState
+        rebuildMessageRows()
     }
 
     /// Performs an incremental rebuild of messages, mapping only changed items
@@ -189,6 +227,9 @@ final class TimelineMessageRebuilder {
                 roomId: roomId
             )
             onMessagesUpdated?(messages, messagesVersion)
+
+            // Rebuild message rows from the filtered messages.
+            rebuildMessageRows()
         }
 
         computeUnreadMarkerIfNeeded(mapping.messages)
@@ -198,6 +239,37 @@ final class TimelineMessageRebuilder {
             PerformanceSignposts.TimelineName.applyMappingResult,
             applyState
         )
+    }
+
+    /// Rebuilds message rows from the current messages with filtering applied.
+    /// Debounced: rapid successive calls collapse into a single emission so the
+    /// `LazyVStack` only re-layouts once per batch.
+    private func rebuildMessageRows() {
+        rowRebuildTask?.cancel()
+        rowRebuildTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Use a longer debounce during initial load (few messages, many
+            // rapid diffs from the SDK) and a shorter one for incremental
+            // updates once the timeline is populated.
+            let delay: Duration = messages.count < 20 ? .milliseconds(300) : .milliseconds(50)
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            let filtered = messages.filter { message in
+                switch message.kind {
+                case .membership, .profileChange:
+                    return showMembershipEvents
+                case .stateEvent:
+                    return showStateEvents
+                default:
+                    return true
+                }
+            }
+            let newRows = MessageRowBuilder.buildRows(for: filtered, hasReachedStart: hasReachedStart)
+            guard newRows != messageRows else { return }
+            messageRows = newRows
+            messageRowsVersion &+= 1
+            onMessageRowsUpdated?(messageRows, messageRowsVersion)
+        }
     }
 
     private func computeUnreadMarkerIfNeeded(_ result: [TimelineMessage]) {

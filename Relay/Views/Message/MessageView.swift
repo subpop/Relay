@@ -18,9 +18,6 @@ import SwiftUI
 /// Renders a single chat message row with avatar, sender name, bubble content,
 /// reply context, reactions, and emoji picker. This is the full "chrome" wrapper
 /// around ``MessageBubbleContent``.
-///
-/// For contexts that only need the bubble content without interactive chrome
-/// (e.g. pinned messages, search results), use ``MessageBubbleContent`` directly.
 struct MessageView: View {
     /// The timeline message to render.
     let message: TimelineMessage

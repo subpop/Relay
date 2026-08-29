@@ -41,6 +41,16 @@ public protocol TimelineStateProviding: AnyObject, Observable {
     /// every SwiftUI body evaluation.
     var messagesVersion: UInt { get }
 
+    /// Pre-computed message rows with grouping metadata, ready for direct
+    /// rendering in a `ForEach`. Built from ``messages`` with sender grouping,
+    /// date headers, and system event collapsing applied.
+    var messageRows: [MessageRow] { get }
+
+    /// A monotonically increasing counter bumped each time ``messageRows``
+    /// is updated. Use this in `onChange` to detect row-level changes without
+    /// an O(n) array comparison.
+    var messageRowsVersion: UInt { get }
+
     /// Whether the timeline is performing its initial load (before any messages are available).
     var isLoading: Bool { get }
 
@@ -109,6 +119,12 @@ public protocol TimelineStateProviding: AnyObject, Observable {
     ///
     /// - Parameter eventId: The event ID to mark as the furthest-read position.
     func sendFullyReadReceipt(upTo eventId: String) async
+
+    /// Updates which system events are shown in the timeline.
+    ///
+    /// Read-only consumers (previews) can ignore this; the default
+    /// implementation is a no-op.
+    func updateEventFiltering(showMembership: Bool, showState: Bool)
 }
 
 // MARK: - Timeline Actions
@@ -193,3 +209,10 @@ public protocol TimelineActionsProviding: AnyObject {
 /// state and navigation) with ``TimelineActionsProviding`` (write operations).
 /// Read-only consumers can depend on ``TimelineStateProviding`` alone.
 public typealias TimelineViewModelProtocol = TimelineStateProviding & TimelineActionsProviding
+
+// MARK: - Default Implementations
+
+extension TimelineStateProviding {
+    /// Read-only consumers (previews) don't filter system events; ignore the request.
+    public func updateEventFiltering(showMembership: Bool, showState: Bool) {}
+}

@@ -24,11 +24,8 @@ final class ExpandedGroupsState {
     var expandedIDs: Set<String> = []
 
     /// Invoked after a group's expansion state changes, with the group's ID.
-    /// The table-backed renderer (``TimelineTableViewController``) uses this to
-    /// re-measure the affected row: expanding/collapsing changes the row's
-    /// content height without changing the underlying message data, so the
-    /// height cache would otherwise keep the stale (collapsed) value and clip
-    /// the expanded content.
+    /// The renderer uses this to re-measure the affected row: expanding/collapsing
+    /// changes the row's content height without changing the underlying message data.
     @ObservationIgnored var onToggle: ((String) -> Void)?
 
     func isExpanded(_ groupID: String) -> Bool {
@@ -53,9 +50,8 @@ final class ExpandedGroupsState {
 /// identity (`===`). As long as the same instance is injected, child views
 /// are not invalidated when a parent re-evaluates its body.
 ///
-/// Injected once at the renderer level (``TimelineTableViewRepresentable`` or
-/// ``TimelineLazyVStackView``) and read by any descendant view that needs to
-/// dispatch a user action.
+/// Injected once at the renderer level (``TimelineScrollView``)
+/// and read by any descendant view that needs to dispatch a user action.
 final class TimelineActions: Equatable {
     nonisolated static func == (lhs: TimelineActions, rhs: TimelineActions) -> Bool {
         lhs === rhs

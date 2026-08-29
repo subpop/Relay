@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AppKit
 import RelayInterface
 import SwiftUI
 
-/// Observable state for the swipe-to-reply gesture shared by both timeline
-/// renderers. Each `TimelineRowView` reads its own message ID to check
-/// whether it is being swiped.
+/// Observable state for the swipe-to-reply gesture. Each ``TimelineRowView``
+/// reads its own message ID to check whether it is being swiped.
 @Observable
 final class TimelineSwipeState {
     /// The message ID of the row currently being swiped, or `nil`.
@@ -28,15 +28,11 @@ final class TimelineSwipeState {
     var isLocked = false
 }
 
-/// Shared swipe-to-reply gesture logic used by both the `NSTableView` and
-/// `LazyVStack` timeline renderers.
+/// Shared swipe-to-reply gesture logic used by the SwiftUI timeline renderer.
 ///
-/// Each renderer detects scroll-wheel events in its own platform-specific
-/// way (override `scrollWheel` vs. `NSEvent` monitor) and delegates to this
+/// ``SwipeScrollHandler`` detects scroll-wheel events and delegates to this
 /// controller for axis locking, offset clamping, swipe-end evaluation, and
-/// action bar dismissal. This eliminates the duplicated constants and
-/// threshold logic that previously lived in both `BottomAnchoredTableView`
-/// and `SwipeScrollHandler`.
+/// action bar dismissal.
 @MainActor
 enum TimelineSwipeController {
 
@@ -102,5 +98,188 @@ enum TimelineSwipeController {
             try? await Task.sleep(for: .milliseconds(250))
             swipeState.swipingMessageId = nil
         }
+    }
+}
+
+/// Monitors local scroll wheel events for horizontal two-finger swipe
+/// gestures. When a horizontal swipe is detected, it drives the
+/// ``TimelineSwipeState`` for swipe-to-reply; vertical scrolls are ignored
+/// (passed through to the underlying `ScrollView`).
+///
+/// When the handler locks onto a horizontal gesture, it synthesizes a
+/// `.cancelled` scroll wheel event and dispatches it to the window's
+/// first responder so the underlying `NSScrollView` cleanly exits its
+/// tracking loop. Subsequent horizontal events are consumed (returned
+/// as `nil` from the monitor) so they never reach the scroll view.
+@MainActor
+final class SwipeScrollHandler {
+    var swipeState = TimelineSwipeState()
+    var hoveredRowID: String?
+    var rows: [MessageRow] = [] {
+        didSet { rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.message.id, $0) }) }
+    }
+    private var rowsByID: [String: MessageRow] = [:]
+    var onReply: (TimelineMessage) -> Void = { _ in }
+    var onDismiss: () -> Void = {}
+
+    private var scrollMonitor: Any?
+
+    private enum GestureAxis { case undecided, horizontal, vertical }
+    private var gestureAxis: GestureAxis = .undecided
+    private var accumulatedDeltaX: CGFloat = 0
+    private var swipingMessageID: String?
+
+    func startMonitoring() {
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else { return event }
+            return self.handleScrollWheel(event)
+        }
+    }
+
+    func stopMonitoring() {
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
+        }
+        scrollMonitor = nil
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            stopMonitoring()
+        }
+    }
+
+    /// Returns `nil` to consume the event, or the event itself to pass it through.
+    private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
+        switch event.phase {
+        case .began:
+            gestureAxis = .undecided
+            swipingMessageID = hoveredRowID
+            // If the row is already locked, seed the accumulated delta from
+            // the current offset so the swipe resumes rather than snapping
+            // back to zero.
+            if swipeState.isLocked, swipingMessageID == swipeState.swipingMessageId {
+                accumulatedDeltaX = swipeState.offset
+            } else {
+                accumulatedDeltaX = 0
+            }
+            return event
+
+        case .changed:
+            guard swipingMessageID != nil else { return event }
+
+            switch gestureAxis {
+            case .undecided:
+                let absX = abs(event.scrollingDeltaX)
+                let absY = abs(event.scrollingDeltaY)
+                guard absX + absY >= TimelineSwipeController.axisLockThreshold else { return event }
+
+                let locked = swipeState.isLocked
+                if absX > absY && (event.scrollingDeltaX > 0 || locked) {
+                    gestureAxis = .horizontal
+                    accumulatedDeltaX = max(0, accumulatedDeltaX + event.scrollingDeltaX)
+                    if locked && event.scrollingDeltaX < 0 {
+                        onDismiss()
+                        gestureAxis = .undecided
+                        return nil
+                    }
+                    applyDelta()
+                    // Cancel the ScrollView's active tracking so it doesn't
+                    // fight with our horizontal gesture.
+                    sendCancellation(for: event)
+                    return nil
+                } else {
+                    gestureAxis = .vertical
+                    return event
+                }
+
+            case .horizontal:
+                accumulatedDeltaX += event.scrollingDeltaX
+                accumulatedDeltaX = max(0, accumulatedDeltaX)
+                applyDelta()
+                return nil
+
+            case .vertical:
+                return event
+            }
+
+        case .ended, .cancelled:
+            let wasHorizontal = gestureAxis == .horizontal
+            if wasHorizontal { handleSwipeEnd() }
+            resetGesture()
+            if wasHorizontal {
+                // Send a cancellation so the ScrollView doesn't linger in
+                // an active tracking state.
+                sendCancellation(for: event)
+                return nil
+            }
+            return event
+
+        default:
+            return event
+        }
+    }
+
+    /// Synthesizes a `.cancelled` scroll wheel event with zeroed deltas and
+    /// dispatches it directly to the key window so the underlying
+    /// `NSScrollView` cleanly exits any active scroll tracking.
+    private func sendCancellation(for original: NSEvent) {
+        guard let cgEvent = original.cgEvent?.copy(),
+              let window = original.window else { return }
+        // Phase 4 = kCGScrollPhaseCancelled.
+        cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: 4)
+        cgEvent.setDoubleValueField(.scrollWheelEventDeltaAxis1, value: 0)
+        cgEvent.setDoubleValueField(.scrollWheelEventDeltaAxis2, value: 0)
+        cgEvent.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
+        cgEvent.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: 0)
+        cgEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+        cgEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: 0)
+        if let cancelEvent = NSEvent(cgEvent: cgEvent) {
+            window.sendEvent(cancelEvent)
+        }
+    }
+
+    private func applyDelta() {
+        guard let id = swipingMessageID else { return }
+        let row = rowsByID[id]
+        guard row?.message.isSystemEvent != true else { return }
+
+        if swipeState.isLocked {
+            swipeState.isLocked = false
+        }
+        swipeState.swipingMessageId = id
+        swipeState.offset = TimelineSwipeController.clampedOffset(accumulatedDeltaX)
+    }
+
+    private func handleSwipeEnd() {
+        guard let id = swipingMessageID else {
+            onDismiss()
+            return
+        }
+        guard let row = rowsByID[id],
+              !row.message.isSystemEvent else {
+            onDismiss()
+            return
+        }
+
+        switch TimelineSwipeController.evaluateSwipeEnd(offset: swipeState.offset) {
+        case .reply:
+            onDismiss()
+            onReply(row.message)
+        case .lock:
+            withAnimation(.snappy(duration: 0.2)) {
+                swipeState.offset = TimelineSwipeController.lockThreshold
+                swipeState.isLocked = true
+            }
+        case .dismiss:
+            onDismiss()
+        }
+    }
+
+    private func resetGesture() {
+        gestureAxis = .undecided
+        accumulatedDeltaX = 0
+        swipingMessageID = nil
     }
 }

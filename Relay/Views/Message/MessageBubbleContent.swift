@@ -20,10 +20,9 @@ import SwiftUI
 /// content variant based on the message kind. This view applies bubble styling
 /// (background, shape, padding) consistently across all message types.
 ///
-/// ``MessageBubbleContent`` is the reusable core of message rendering. It can be
-/// composed into ``MessageView`` (which adds avatar, sender name, reactions, and
-/// interactive chrome) or used standalone in contexts like ``PinnedMessagesView``
-/// where only the bubble content is needed.
+/// ``MessageBubbleContent`` is the reusable bubble core, composed into
+/// ``MessageView`` (which adds avatar, sender name, reactions, and interactive
+/// chrome).
 struct MessageBubbleContent: View {
     /// The timeline message to render.
     let message: TimelineMessage

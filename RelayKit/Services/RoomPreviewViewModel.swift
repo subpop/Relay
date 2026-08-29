@@ -44,6 +44,8 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineS
     // MARK: - TimelineStateProviding
 
     public var messagesVersion: UInt = 0
+    public var messageRows: [MessageRow] = []
+    public var messageRowsVersion: UInt = 0
     public var isLoadingMore: Bool = false
     public var hasReachedStart: Bool = true
     public var hasReachedEnd: Bool = true
@@ -208,6 +210,8 @@ public final class RoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineS
         let mapping = messageMapper.mapItems(timelineItems)
         messages = mapping.messages
         messagesVersion &+= 1
+        messageRows = MessageRowBuilder.buildRows(for: messages, hasReachedStart: hasReachedStart)
+        messageRowsVersion &+= 1
     }
 
     // MARK: - TimelineStateProviding (no-op navigation)

@@ -32,6 +32,8 @@ import os
 public final class TimelineViewModel: TimelineViewModelProtocol {
     public private(set) var messages: [TimelineMessage] = []
     public private(set) var messagesVersion: UInt = 0
+    public private(set) var messageRows: [MessageRow] = []
+    public private(set) var messageRowsVersion: UInt = 0
     public private(set) var isLoading = true
     public private(set) var isLoadingMore = false
     public private(set) var hasReachedStart = false
@@ -125,6 +127,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         }
         paginator.onHasReachedStartChanged = { [weak self] hitStart in
             self?.hasReachedStart = hitStart
+            self?.rebuilder.hasReachedStart = hitStart
         }
         paginator.msgLikeItemCount = { [weak self] in
             self?.diffProcessor.countMsgLikeItems() ?? 0
@@ -143,6 +146,11 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             guard let self else { return }
             self.messages = messages
             self.messagesVersion = version
+        }
+        rebuilder.onMessageRowsUpdated = { [weak self] rows, version in
+            guard let self else { return }
+            self.messageRows = rows
+            self.messageRowsVersion = version
         }
         rebuilder.onUnreadMarkerComputed = { [weak self] messageId in
             self?.firstUnreadMessageId = messageId
@@ -194,6 +202,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
             guard let sdkTimeline else { return }
             let hitStart = try await sdkTimeline.paginateBackwards(numEvents: 100)
             hasReachedStart = hitStart
+            rebuilder.hasReachedStart = hitStart
 
             // Wait for the diff observer to process the paginated items,
             // then rebuild messages and clear the loading flag.
@@ -587,6 +596,17 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // MARK: - Filtering
+
+    /// Updates the event-filtering preferences and triggers a row rebuild.
+    ///
+    /// Call this when the user toggles membership or state event visibility.
+    /// The rebuilder will filter messages and rebuild rows without re-mapping
+    /// from SDK items.
+    public func updateEventFiltering(showMembership: Bool, showState: Bool) {
+        rebuilder.updateFilterPreferences(showMembership: showMembership, showState: showState)
+    }
+
     // MARK: - Timeline Lifecycle
 
     /// Whether the timeline has been suspended to save resources while off-screen.
@@ -681,6 +701,7 @@ public final class TimelineViewModel: TimelineViewModelProtocol {
         sdkTimeline = nil
         diffProcessor.clear()
         messages = []
+        rebuilder.hasReachedStart = false
         hasReachedStart = false
         hasReachedEnd = true
         isLoadingMore = false

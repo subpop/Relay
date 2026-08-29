@@ -111,7 +111,7 @@ struct LinkPreviewView: View {
     ///
     /// This is the linchpin that lets link-preview cards be **variable height**
     /// (sized to their image, iMessage-style) without the timeline clipping them.
-    /// Row heights in ``TimelineTableViewController`` are measured by a *detached*
+    /// Row heights in the timeline are measured by a *detached*
     /// `NSHostingController` whose SwiftUI `.task` never runs, so it cannot observe
     /// a per-view `@State` image loaded asynchronously. By publishing the resolved
     /// card here, both the live cell **and** the detached measurement host compute

@@ -36,7 +36,6 @@ struct PreviewTimeline: View {
                 ForEach(rows) { row in
                     TimelineRowView(
                         row: row,
-                        isNewlyAppended: false,
                         isHighlighted: false,
                         isUnreadDivider: showUnreadMarker && row.message.id == viewModel.firstUnreadMessageId,
                         showURLPreviews: true,

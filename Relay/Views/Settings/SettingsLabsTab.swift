@@ -16,19 +16,13 @@ import SwiftUI
 
 /// The Labs tab of the Settings window, providing opt-in experimental features.
 struct SettingsLabsTab: View {
-    @AppStorage("labs.timelineUseLazyVStack") private var timelineUseLazyVStack = false
-
     var body: some View {
         Form {
             Section {
-                Toggle("Use LazyVStack Timeline Renderer", isOn: $timelineUseLazyVStack)
+                Text("No experiments available.")
+                    .foregroundStyle(.secondary)
             } header: {
                 Text("Timeline Experiments")
-            } footer: {
-                Text(
-                    "Switches timeline rendering from NSTableView to a SwiftUI LazyVStack. "
-                        + "This experiment is off by default and may have performance regressions."
-                )
             }
         }
         .formStyle(.grouped)

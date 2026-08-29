@@ -83,9 +83,8 @@ enum MessageTextScale {
     /// Persists `newValue` (clamped) and notifies observers. A no-op when the
     /// clamped value is unchanged, so hitting the limit doesn't churn the
     /// timeline. Cache invalidation is left to the observer that owns the
-    /// affected cache (``TimelineTableViewController``) rather than done here,
-    /// so this Utilities-layer type doesn't need to know about a specific
-    /// Views-layer cache.
+    /// affected cache rather than done here, so this Utilities-layer type
+    /// doesn't need to know about a specific Views-layer cache.
     @MainActor private static func apply(_ newValue: CGFloat) {
         let clamped = clamp(newValue)
         guard abs(clamped - scale) > 0.001 else { return }

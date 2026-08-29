@@ -30,7 +30,6 @@ struct TypingIndicatorRowView: View {
             avatarStack
             typingBubble
         }
-        .frame(maxWidth: 500, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .frame(maxWidth: .infinity, alignment: .leading)

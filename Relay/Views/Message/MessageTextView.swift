@@ -64,6 +64,19 @@ struct MessageTextView: NSViewRepresentable {
         isOutgoing ? .messageWhiteText : .messageDefault
     }
 
+    /// Applies the bubble color, link color, and pill substitutions to a parsed
+    /// attributed string using the current message styling.
+    private func resolved(for source: NSAttributedString) -> NSAttributedString {
+        Self.applyColorOverrides(
+            source,
+            foreground: foregroundColor,
+            linkColor: linkColor,
+            pillStyle: pillStyle,
+            highlightedUserId: highlightedUserId,
+            highlightKeywords: highlightKeywords
+        )
+    }
+
     // MARK: - Coordinator
 
     /// Caches the last resolved `NSAttributedString` so that `updateNSView`
@@ -127,8 +140,10 @@ struct MessageTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> MessageTextContent {
         // Default NSTextView init creates a TextKit 2 stack (NSTextLayoutManager),
         // enabling NSTextAttachmentViewProvider for live SwiftUI pill rendering.
+        // The frame height is a placeholder — SwiftUI sizes the view via
+        // `sizeThatFits`. A non-finite height is invalid view geometry.
         let view = MessageTextContent(
-            frame: NSRect(x: 0, y: 0, width: 200, height: CGFloat.greatestFiniteMagnitude)
+            frame: NSRect(x: 0, y: 0, width: 200, height: 10_000)
         )
         view.textContainer?.widthTracksTextView = false
         view.textContainer?.lineFragmentPadding = 0
@@ -159,11 +174,7 @@ struct MessageTextView: NSViewRepresentable {
         // the text storage is empty and sizeThatFits returns .zero,
         // causing the hosting controller to compute incorrect row heights.
         let coordinator = context.coordinator
-        let resolved = Self.applyColorOverrides(
-            attributedString, foreground: foregroundColor, linkColor: linkColor,
-            pillStyle: pillStyle, highlightedUserId: highlightedUserId,
-            highlightKeywords: highlightKeywords
-        )
+        let resolved = resolved(for: attributedString)
         coordinator.lastAttributedString = attributedString
         coordinator.lastIsOutgoing = isOutgoing
         coordinator.lastHighlightedUserId = highlightedUserId
@@ -196,14 +207,7 @@ struct MessageTextView: NSViewRepresentable {
         }()
 
         if inputsChanged {
-            let resolved = Self.applyColorOverrides(
-                attributedString,
-                foreground: foregroundColor,
-                linkColor: linkColor,
-                pillStyle: pillStyle,
-                highlightedUserId: highlightedUserId,
-                highlightKeywords: highlightKeywords
-            )
+            let resolved = resolved(for: attributedString)
             coordinator.lastAttributedString = attributedString
             coordinator.lastIsOutgoing = isOutgoing
             coordinator.lastHighlightedUserId = highlightedUserId
@@ -316,6 +320,251 @@ struct MessageTextView: NSViewRepresentable {
 
 }
 
+// MARK: - MessageTextContent (NSTextView subclass)
+
+/// A read-only `NSTextView` subclass for rendering rich message text, defined
+/// alongside its ``MessageTextView`` representable wrapper.
+///
+/// Provides native link hover behaviour (pointing-hand cursor and underline on
+/// hover) and text selection. Designed to be extended for Matrix-specific
+/// features such as mention pills and `matrix.to` links.
+final class MessageTextContent: NSTextView {
+
+    /// Called when the user clicks a `matrix.to` user mention link, with the Matrix user ID.
+    var onUserTap: ((String) -> Void)?
+
+    /// Called when the user clicks a `matrix.to` room link, with the room ID or alias.
+    var onRoomTap: ((String) -> Void)?
+
+    /// Timeline message for contextual actions (reply, pin, …). Set by ``MessageTextView``.
+    var contextMessage: TimelineMessage?
+
+    /// Delivers the same actions as the SwiftUI row context menu.
+    var onMessageContextAction: ((TimelineRowContextAction) -> Void)?
+
+    /// Opens the emoji reaction picker (popover host lives in ``MessageView``/``MessageBubbleContent``).
+    var onPresentReactionPicker: (() -> Void)?
+
+    /// The current user's room-level permissions for gating context menu actions.
+    var permissions: RoomPermissions?
+
+    // MARK: - Link Click Interception
+
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        if let url = link as? URL, let uri = MatrixURI(url: url) {
+            switch uri {
+            case .user(let id):
+                onUserTap?(id)
+            case .room(let alias, _):
+                onRoomTap?(alias)
+            case .roomId(let id, _):
+                onRoomTap?(id)
+            case .event(let roomId, _, _):
+                onRoomTap?(roomId)
+            }
+            return
+        }
+        super.clicked(onLink: link, at: charIndex)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // swiftlint:disable:next identifier_name
+        if let textContainer, newSize.width > 0 {
+            textContainer.size = NSSize(width: newSize.width, height: CGFloat.greatestFiniteMagnitude)
+        }
+    }
+
+    // MARK: - Hover State
+
+    private var isHoveringLink = false
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp],
+            owner: self
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if linkRange(at: point) != nil {
+            isHoveringLink = true
+            NSCursor.pointingHand.set()
+        } else {
+            if isHoveringLink { isHoveringLink = false }
+            super.mouseMoved(with: event)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHoveringLink = false
+        super.mouseExited(with: event)
+    }
+
+    func resetHoverState() {
+        isHoveringLink = false
+    }
+
+    private func linkRange(at point: NSPoint) -> NSRange? {
+        guard let textLayoutManager,
+              let textContentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
+              let textStorage else { return nil }
+        let origin = textContainerOrigin
+        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+
+        guard let fragment = textLayoutManager.textLayoutFragment(for: local) else { return nil }
+        let fragmentLocal = NSPoint(
+            x: local.x - fragment.layoutFragmentFrame.origin.x,
+            y: local.y - fragment.layoutFragmentFrame.origin.y
+        )
+
+        guard let lineFragment = fragment.textLineFragment(
+            forVerticalOffset: fragmentLocal.y, requiresExactMatch: false
+        ) else { return nil }
+
+        let lineLocal = NSPoint(
+            x: fragmentLocal.x - lineFragment.typographicBounds.origin.x,
+            y: fragmentLocal.y - lineFragment.typographicBounds.origin.y
+        )
+        let localCharIndex = lineFragment.characterIndex(for: lineLocal)
+
+        guard let fragStart = fragment.textElement?.elementRange?.location else { return nil }
+        let fragOffset = textContentStorage.offset(
+            from: textLayoutManager.documentRange.location, to: fragStart
+        )
+        guard fragOffset >= 0, localCharIndex >= 0 else { return nil }
+        let charIndex = fragOffset + localCharIndex
+        guard charIndex >= 0, charIndex < textStorage.length else { return nil }
+
+        var effectiveRange = NSRange()
+        guard textStorage.attribute(.link, at: charIndex, effectiveRange: &effectiveRange) != nil
+        else { return nil }
+        return effectiveRange
+    }
+
+    // MARK: - Context Menu (merge Relay actions + system text menu)
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let baseMenu = super.menu(for: event)?.copy() as? NSMenu else {
+            return super.menu(for: event)
+        }
+
+        guard let message = contextMessage, onMessageContextAction != nil else {
+            return baseMenu
+        }
+
+        let entries = TimelineMessageContextMenu.entries(for: message, permissions: permissions)
+        var insertIndex = 0
+        for entry in entries {
+            switch entry {
+            case .reply:
+                baseMenu.insertItem(
+                    menuItem(title: "Reply", symbol: "arrowshape.turn.up.left", action: #selector(contextReply)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            case .copyMessage:
+                baseMenu.insertItem(
+                    menuItem(title: "Copy Message", symbol: "doc.on.doc", action: #selector(contextCopyMessage)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            case .saveMedia:
+                baseMenu.insertItem(
+                    menuItem(title: "Save as…", symbol: "square.and.arrow.down", action: #selector(contextSaveMedia)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            case .addReaction:
+                guard onPresentReactionPicker != nil else { continue }
+                baseMenu.insertItem(
+                    menuItem(title: "Add Reaction…", symbol: "face.smiling", action: #selector(contextAddReaction)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            case .togglePin:
+                baseMenu.insertItem(
+                    menuItem(title: "Pin/Unpin", symbol: "pin", action: #selector(contextTogglePin)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            case .edit:
+                baseMenu.insertItem(
+                    menuItem(title: "Edit Message", symbol: "pencil", action: #selector(contextEdit)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            case .separatorBeforeDelete:
+                baseMenu.insertItem(.separator(), at: insertIndex)
+                insertIndex += 1
+            case .delete:
+                let item = menuItem(title: "Delete Message", symbol: "trash", action: #selector(contextDelete))
+                item.attributedTitle = NSAttributedString(
+                    string: "Delete Message",
+                    attributes: [.foregroundColor: NSColor.systemRed]
+                )
+                baseMenu.insertItem(item, at: insertIndex)
+                insertIndex += 1
+            }
+        }
+
+        if insertIndex > 0 {
+            baseMenu.insertItem(.separator(), at: insertIndex)
+        }
+
+        return baseMenu
+    }
+
+    private func menuItem(title: String, symbol: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: title) {
+            item.image = img
+        }
+        return item
+    }
+
+    @objc private func contextReply() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.reply(message))
+    }
+
+    @objc private func contextCopyMessage() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.copy(message.body))
+    }
+
+    @objc private func contextSaveMedia() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.saveMedia(message))
+    }
+
+    @objc private func contextAddReaction() {
+        onPresentReactionPicker?()
+    }
+
+    @objc private func contextTogglePin() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.togglePin(message.eventID))
+    }
+
+    @objc private func contextEdit() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.edit(message))
+    }
+
+    @objc private func contextDelete() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.delete(message))
+    }
+}
+
 // MARK: - Previews
 
 private struct BubblePreview: View {
@@ -367,25 +616,6 @@ private struct HTMLBubblePreview: View {
     .frame(width: 500)
 }
 
-#Preview("Links") {
-    VStack(alignment: .leading, spacing: 12) {
-        BubblePreview(
-            text: "Check out https://matrix.org for more info",
-            isOutgoing: false
-        )
-        BubblePreview(
-            text: "https://youtube.com/shorts/SDzKgqU35Eo\nWow these Neo ads are cute",
-            isOutgoing: false
-        )
-        BubblePreview(
-            text: "I sent you the link https://example.com/path already",
-            isOutgoing: true
-        )
-    }
-    .padding()
-    .frame(width: 500)
-}
-
 #Preview("Markdown Formatting") {
     VStack(alignment: .leading, spacing: 12) {
         BubblePreview(text: "This is **bold** text", isOutgoing: false)
@@ -403,307 +633,6 @@ private struct HTMLBubblePreview: View {
     }
     .padding()
     .frame(width: 500)
-}
-
-#Preview("HTML Inline Formatting") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: "This is <b>bold</b> and <strong>strong</strong> text",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "This is <i>italic</i> and <em>emphasized</em> text",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "This is <u>underlined</u> text",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "This is <s>strikethrough</s> and <del>deleted</del> text",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "Here is <code>inline code</code> in a sentence",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "Water is H<sub>2</sub>O and E=mc<sup>2</sup>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "Check out <a href=\"https://matrix.org\">Matrix</a> for more info",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<b>Bold</b>, <i>italic</i>, <code>code</code>, and <s>struck</s> all at once",
-                isOutgoing: true
-            )
-            HTMLBubblePreview(
-                // swiftlint:disable:next line_length
-                html: "Text with <span data-mx-color=\"#ff0000\">red</span> and <span data-mx-color=\"#00aa00\">green</span> colors",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "This has a <span data-mx-spoiler>secret spoiler</span> hidden",
-                isOutgoing: false
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
-}
-
-#Preview("HTML Block Elements") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: "<h1>Heading 1</h1><p>Paragraph after heading</p>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<h3>Heading 3</h3><p>Some text here</p>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<blockquote>This is a blockquote</blockquote><p>And normal text after</p>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                // swiftlint:disable:next line_length
-                html: "<blockquote>This is a longer blockquote that should wrap to multiple lines to test trailing edge alignment</blockquote>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<blockquote><blockquote>This is a nested blockquote that should wrap to multiple lines to test trailing edge alignment</blockquote></blockquote>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<blockquote>Outgoing blockquote text here</blockquote><p>My reply</p>",
-                isOutgoing: true
-            )
-            HTMLBubblePreview(
-                html: "<pre><code>func hello() {\n    print(\"Hello, world!\")\n}</code></pre>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<p>Line above</p><hr><p>Line below</p>",
-                isOutgoing: false
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
-}
-
-#Preview("HTML Lists") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: "<ul><li>First item</li><li>Second item</li><li>Third item</li></ul>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<ol><li>Step one</li><li>Step two</li><li>Step three</li></ol>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<ol start=\"5\"><li>Item five</li><li>Item six</li><li>Item seven</li></ol>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                // swiftlint:disable:next line_length
-                html: "<ul><li>Outer item<ul><li>Nested item 1</li><li>Nested item 2</li></ul></li><li>Back to outer</li></ul>",
-                isOutgoing: false
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
-}
-
-#Preview("HTML Tables") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: """
-                <table><tr><td>A</td><td>B</td><td>C</td></tr>\
-                <tr><td>1</td><td>2</td><td>3</td></tr>\
-                <tr><td>X</td><td>Y</td><td>Z</td></tr></table>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <table>\
-                <caption>Server Status</caption>\
-                <thead><tr><th>Host</th><th>Status</th><th>Uptime</th></tr></thead>\
-                <tbody>\
-                <tr><td>alpha</td><td>OK</td><td>99.9%</td></tr>\
-                <tr><td>beta</td><td>WARN</td><td>98.1%</td></tr>\
-                <tr><td>gamma</td><td>DOWN</td><td>0%</td></tr>\
-                </tbody></table>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: "<p>Here is a table:</p><table><tr><th>Name</th><th>Value</th></tr><tr><td>foo</td><td>42</td></tr></table><p>End of table.</p>",
-                isOutgoing: true
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
-}
-
-#Preview("HTML Nested Blockquotes") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: """
-                <blockquote><blockquote><p>Original message</p></blockquote>\
-                <p>First reply</p></blockquote>\
-                <p>Second reply</p>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <blockquote><blockquote><blockquote>\
-                <p>Deep nested quote</p></blockquote>\
-                <p>Middle reply</p></blockquote>\
-                <p>Outer reply</p></blockquote>\
-                <p>My response</p>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <blockquote><blockquote><p>They said this</p></blockquote>\
-                <p>And I replied with <b>emphasis</b></p></blockquote>\
-                <p>Outgoing nested quote</p>
-                """,
-                isOutgoing: true
-            )
-            HTMLBubblePreview(
-                // swiftlint:disable:next line_length
-                html: "<p>Some context before the quote:</p><blockquote><p>This is the quoted text that spans multiple lines and should wrap nicely within the blockquote bar</p></blockquote><p>And here is the follow-up paragraph after the quote.</p>",
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <blockquote><blockquote>\
-                <p>Alice: Has anyone tried the new SDK release?</p>\
-                <p>It has some breaking changes.</p>\
-                </blockquote>\
-                <p>Bob: Yes, I migrated yesterday. The new async API is much cleaner.</p>\
-                </blockquote>\
-                <p>Carol: Thanks for the heads up, I'll update today.</p>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <blockquote><blockquote><blockquote>\
-                <p>How do I install it?</p>\
-                </blockquote>\
-                <p>Check the <a href="https://example.com">docs</a>, \
-                it's under <code>Getting Started</code>.</p>\
-                </blockquote>\
-                <p>That worked, thanks! I also had to run:</p>\
-                <pre><code>swift package update</code></pre>\
-                </blockquote>\
-                <p>Glad you got it sorted.</p>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <blockquote><blockquote>\
-                <p>Are we still meeting at 3pm?</p>\
-                </blockquote>\
-                <p>Moved to 4pm, check the calendar.</p>\
-                </blockquote>\
-                <p>Got it, see you then!</p>
-                """,
-                isOutgoing: true
-            )
-            HTMLBubblePreview(
-                html: """
-                Per your email:
-                <blockquote>
-                <blockquote>
-                On Tuesday, we are planning on releasing our newest product. We are planning a live stream announcement to talk about it.
-                </blockquote>
-                Which product is that?
-                </blockquote>
-                """,
-                isOutgoing: true
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
-}
-
-#Preview("HTML Paragraph Spacing") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: """
-                <p>Testing quote behaviour</p>\
-                <blockquote><p>I am a quote. Cool.</p></blockquote>\
-                <p>I am not a quote</p>\
-                <blockquote><p>I'm another quote and this time I'm many many many many \
-                many many many many many many many many many many many lines</p></blockquote>\
-                <p>I am no longer a quote and I, too am many many many many many many many \
-                many many many many many many many many many many many many lines</p>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <p>Testing quote behaviour</p>\
-                <blockquote><p>I am a quote. Cool.</p></blockquote>\
-                <p>I am not a quote</p>\
-                <blockquote><p>I'm another quote and this time I'm many many many many \
-                many many many many many many many many many many many lines</p></blockquote>\
-                <p>I am no longer a quote and I, too am many many many many many many many \
-                many many many many many many many many many many many many lines</p>
-                """,
-                isOutgoing: true
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
-}
-
-#Preview("HTML Mixed Content") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HTMLBubblePreview(
-                html: """
-                <p>Here is a <b>complex</b> message with <i>mixed</i> content:</p>
-                <blockquote>Someone said something <em>important</em></blockquote>
-                <p>And then a list:</p>
-                <ol><li>First</li><li>Second with <code>code</code></li></ol>
-                <p>Followed by a <a href="https://example.com">link</a>.</p>
-                """,
-                isOutgoing: false
-            )
-            HTMLBubblePreview(
-                html: """
-                <mx-reply><blockquote>Original message</blockquote></mx-reply>
-                <p>This reply should have the mx-reply stripped</p>
-                """,
-                isOutgoing: true
-            )
-        }
-        .padding()
-        .frame(width: 500)
-    }
 }
 
 #Preview("Mention Pills") {

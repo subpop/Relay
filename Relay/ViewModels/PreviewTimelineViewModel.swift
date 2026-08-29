@@ -23,6 +23,8 @@ import RelayInterface
 final class PreviewTimelineViewModel: TimelineViewModelProtocol {
     var messages: [TimelineMessage]
     var messagesVersion: UInt = 0
+    var messageRows: [MessageRow] = []
+    var messageRowsVersion: UInt = 0
     var isLoading: Bool
     var isLoadingMore = false
     var hasReachedStart: Bool
@@ -43,6 +45,11 @@ final class PreviewTimelineViewModel: TimelineViewModelProtocol {
         self.hasReachedStart = hasReachedStart
         self.firstUnreadMessageId = firstUnreadMessageId
         self.typingUsers = typingUsers
+        self.messageRows = MessageRowBuilder.buildRows(
+            for: messages ?? Self.sampleMessages,
+            hasReachedStart: hasReachedStart
+        )
+        self.messageRowsVersion = 1
     }
 
     func loadTimeline() async {}

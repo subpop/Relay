@@ -51,7 +51,6 @@ extension EnvironmentValues {
 /// the ``TimelineActions`` environment value, injected by the renderer.
 struct TimelineRowView: View, Equatable {
     let row: MessageRow
-    let isNewlyAppended: Bool
     let isHighlighted: Bool
     let isUnreadDivider: Bool
     let showURLPreviews: Bool
@@ -78,10 +77,6 @@ struct TimelineRowView: View, Equatable {
 
     private var actions: TimelineActions { injectedActions ?? environmentActions }
 
-    /// Drives the entry animation for newly appended messages. Starts
-    /// `false` for new messages and is set to `true` on appear.
-    @State private var didAppear = false
-
     /// The bubble frame captured from ``MessageView``, used when presenting
     /// the reaction picker from the context menu.
     @State private var lastBubbleFrame: CGRect = .zero
@@ -90,7 +85,6 @@ struct TimelineRowView: View, Equatable {
         lhs.row.message == rhs.row.message
             && lhs.row.info == rhs.row.info
             && lhs.row.isPaginationTrigger == rhs.row.isPaginationTrigger
-            && lhs.isNewlyAppended == rhs.isNewlyAppended
             && lhs.swipeOffset == rhs.swipeOffset
             && lhs.swipeIsLocked == rhs.swipeIsLocked
             && lhs.isHighlighted == rhs.isHighlighted
@@ -101,9 +95,6 @@ struct TimelineRowView: View, Equatable {
     private var message: TimelineMessage { row.message }
     private var info: MessageGroupInfo { row.info }
 
-    /// Whether this row should animate in.
-    private var shouldAnimate: Bool { isNewlyAppended && !didAppear }
-
     var body: some View {
         VStack(spacing: 0) {
             rowContent
@@ -112,16 +103,6 @@ struct TimelineRowView: View, Equatable {
         .environment(\.timelineActions, injectedActions ?? environmentActions)
         .environment(\.swipeOffset, swipeOffset)
         .environment(\.swipeIsLocked, swipeIsLocked)
-        .opacity(shouldAnimate ? 0 : 1)
-        .animation(
-            isNewlyAppended ? .easeOut(duration: 0.1) : nil,
-            value: didAppear
-        )
-        .onAppear {
-            if isNewlyAppended && !didAppear {
-                didAppear = true
-            }
-        }
     }
 
     @ViewBuilder
@@ -284,7 +265,6 @@ func dateSectionLabel(for date: Date) -> String {
 private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .default) -> some View {
     TimelineRowView(
         row: .init(message: message, info: info, isPaginationTrigger: false),
-        isNewlyAppended: false,
         isHighlighted: false,
         isUnreadDivider: false,
         showURLPreviews: true,
@@ -302,7 +282,6 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
             ForEach(rows) { row in
                 TimelineRowView(
                     row: row,
-                    isNewlyAppended: false,
                     isHighlighted: false,
                     isUnreadDivider: false,
                     showURLPreviews: true,
@@ -387,7 +366,6 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
             ForEach(rows) { row in
                 TimelineRowView(
                     row: row,
-                    isNewlyAppended: false,
                     isHighlighted: false,
                     isUnreadDivider: row.message.id == "5",
                     showURLPreviews: true,
@@ -411,7 +389,6 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
                 info: .init(isLastInGroup: true, showSenderName: true),
                 isPaginationTrigger: false
             ),
-            isNewlyAppended: false,
             isHighlighted: false,
             isUnreadDivider: false,
             showURLPreviews: true,
@@ -427,7 +404,6 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
                 info: .init(isLastInGroup: true),
                 isPaginationTrigger: false
             ),
-            isNewlyAppended: false,
             isHighlighted: false,
             isUnreadDivider: false,
             showURLPreviews: true,
@@ -443,7 +419,6 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
                 info: .init(isLastInGroup: true),
                 isPaginationTrigger: false
             ),
-            isNewlyAppended: false,
             isHighlighted: false,
             isUnreadDivider: false,
             showURLPreviews: true,

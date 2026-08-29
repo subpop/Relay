@@ -32,6 +32,8 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineS
     // MARK: - TimelineStateProviding
 
     var messagesVersion: UInt = 0
+    var messageRows: [MessageRow] = []
+    var messageRowsVersion: UInt = 0
     var isLoadingMore = false
     var hasReachedStart = true
     var hasReachedEnd = true
@@ -53,6 +55,11 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineS
         self.canonicalAlias = canonicalAlias
         self.memberCount = memberCount
         self.messages = messages ?? Self.sampleMessages
+        self.messageRows = MessageRowBuilder.buildRows(
+            for: messages ?? Self.sampleMessages,
+            hasReachedStart: true
+        )
+        self.messageRowsVersion = 1
     }
 
     func loadPreview() async {
@@ -64,6 +71,8 @@ final class PreviewRoomPreviewViewModel: RoomPreviewViewModelProtocol, TimelineS
     func loadTimeline() async {
         // Bump version so TimelineView rebuilds its cached rows from pre-populated messages.
         messagesVersion &+= 1
+        messageRows = MessageRowBuilder.buildRows(for: messages, hasReachedStart: hasReachedStart)
+        messageRowsVersion &+= 1
     }
     func loadThreadTimeline(rootEventId: String) async {}
     func loadMoreHistory() async {}
