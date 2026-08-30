@@ -54,8 +54,8 @@ struct MessageReactionBadges: View {
                 expandedContent
                     .transition(expandTransition)
             } else {
-                expandButton
-                    .background(Circle().fill(.ultraThickMaterial))
+                collapsedPreview
+                    .background(Capsule().fill(.ultraThickMaterial))
                     .transition(expandTransition)
             }
         }
@@ -120,6 +120,36 @@ struct MessageReactionBadges: View {
         .scale(scale: 0.5, anchor: isOutgoing ? .topLeading : .topTrailing)
             .combined(with: .opacity)
     }
+    
+    /// Collapsed state: shows up to 3 of the actual reaction emojis stacked together
+    private var collapsedPreview: some View {
+        Group {
+            if reactions.isEmpty {
+                expandButton
+            } else {
+                Button(action: { isExpanded.toggle() }) {
+                    HStack(spacing: 2) {
+                        ForEach(reactions.prefix(3)) { reaction in
+                            Text(reaction.key)
+                                .font(.system(size: 12))
+                        }
+                        if reactions.count > 3 {
+                            Text("+\(reactions.count - 3)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(.secondary, in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: Self.badgeSize)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
 }
 
 /// A single reaction badge: emoji in a small circle with optional count and border.
@@ -129,6 +159,7 @@ struct MessageReactionBadges: View {
 /// their own color. Otherwise a neutral gray is used.
 private struct ReactionBadge: View {
     let reaction: TimelineMessage.ReactionGroup
+    let author: TimlineMessage.ReactionGroup
     let coloredBubbles: Bool
     let onToggle: () -> Void
 
@@ -164,6 +195,8 @@ private struct ReactionBadge: View {
         }
         .buttonStyle(.plain)
     }
+    
+    
 }
 
 // MARK: - Previews
@@ -247,4 +280,6 @@ private let sampleReactions: [TimelineMessage.ReactionGroup] = [
     }
     .padding(40)
 }
+
+
 
