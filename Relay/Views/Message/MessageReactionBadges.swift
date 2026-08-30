@@ -159,9 +159,10 @@ struct MessageReactionBadges: View {
 /// their own color. Otherwise a neutral gray is used.
 private struct ReactionBadge: View {
     let reaction: TimelineMessage.ReactionGroup
-    let author: TimlineMessage.ReactionGroup
     let coloredBubbles: Bool
     let onToggle: () -> Void
+    @State private var isHovering = false
+    @State private var showSheet = false
 
     private static let size: CGFloat = 22
 
@@ -173,31 +174,59 @@ private struct ReactionBadge: View {
     }
 
     var body: some View {
-        Button(action: onToggle) {
-            ZStack {
-                Circle()
-                    .fill(reaction.highlightedByCurrentUser ? fillColor : .clear)
-                    .frame(width: Self.size, height: Self.size)
-
-                Text(reaction.key)
-                    .font(.system(size: 12))
+        HStack(spacing: 4) {
+                    Button(action: onToggle) {
+                        Text(reaction.key)
+                            .font(.system(size: 13))
+                    }
+                    .buttonStyle(.plain)
+                        Text("\(reaction.count)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(reaction.highlightedByCurrentUser ? .white : .secondary)
+                            .onHover{
+                                hovering in isHovering = hovering
+                            }
+                            .popover(isPresented: $isHovering, arrowEdge: .top) {
+                                       ReactionAuthors(reaction: reaction)
+                                           .padding(8)
+                                   }
+                    }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(reaction.highlightedByCurrentUser ? fillColor : .secondary.opacity(0.15))
+                )
             }
-            .overlay(alignment: .topTrailing) {
-                if reaction.count > 1 {
-                    Text("\(reaction.count)")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(.secondary, in: Capsule())
+}
+
+/// Shows the authors of each reaction up to maxShown.
+private struct ReactionAuthors: View {
+    let reaction: TimelineMessage.ReactionGroup
+    let maxShown = 5
+    var body: some View {
+        VStack(spacing: 2) {
+            if reaction.senderIDs.count <= maxShown {
+                ForEach(reaction.senderIDs, id: \.self) { senderID in
+                    Text(senderID)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            } else {
+                ForEach(reaction.senderIDs.prefix(maxShown), id: \.self) { senderID in
+                    Text(senderID)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("and \(reaction.senderIDs.count - maxShown) more")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .italic()
             }
         }
-        .buttonStyle(.plain)
     }
-    
-    
 }
+
+
 
 // MARK: - Previews
 
