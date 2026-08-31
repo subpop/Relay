@@ -54,8 +54,8 @@ struct MessageReactionBadges: View {
                 expandedContent
                     .transition(expandTransition)
             } else {
-                expandButton
-                    .background(Circle().fill(.ultraThickMaterial))
+                collapsedPreview
+                    .background(Capsule().fill(.ultraThickMaterial))
                     .transition(expandTransition)
             }
         }
@@ -120,6 +120,36 @@ struct MessageReactionBadges: View {
         .scale(scale: 0.5, anchor: isOutgoing ? .topLeading : .topTrailing)
             .combined(with: .opacity)
     }
+    
+    /// Collapsed state: shows up to 3 of the actual reaction emojis stacked together
+    private var collapsedPreview: some View {
+        Group {
+            if reactions.isEmpty {
+                expandButton
+            } else {
+                Button(action: { isExpanded.toggle() }) {
+                    HStack(spacing: 2) {
+                        ForEach(reactions.prefix(3)) { reaction in
+                            Text(reaction.key)
+                                .font(.system(size: 12))
+                        }
+                        if reactions.count > 3 {
+                            Text("+\(reactions.count - 3)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(.secondary, in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: Self.badgeSize)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
 }
 
 /// A single reaction badge: emoji in a small circle with optional count and border.
@@ -131,6 +161,7 @@ private struct ReactionBadge: View {
     let reaction: TimelineMessage.ReactionGroup
     let coloredBubbles: Bool
     let onToggle: () -> Void
+    @State private var isHovering = false
 
     private static let size: CGFloat = 22
 
@@ -142,27 +173,49 @@ private struct ReactionBadge: View {
     }
 
     var body: some View {
-        Button(action: onToggle) {
-            ZStack {
-                Circle()
-                    .fill(reaction.highlightedByCurrentUser ? fillColor : .clear)
-                    .frame(width: Self.size, height: Self.size)
-
-                Text(reaction.key)
-                    .font(.system(size: 12))
+        HStack(spacing: 4) {
+                    Button(action: onToggle) {
+                        Text(reaction.key)
+                            .font(.system(size: 13))
+                    }
+                    .buttonStyle(.plain)
+                        Text("\(reaction.count)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(reaction.highlightedByCurrentUser ? .white : .secondary)
+                            .onHover{
+                                hovering in isHovering = hovering
+                            }
+                            .popover(isPresented: $isHovering, arrowEdge: .top) {
+                                       ReactionAuthors(reaction: reaction)
+                                           .padding(8)
+                                   }
+                    }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(reaction.highlightedByCurrentUser ? fillColor : .secondary.opacity(0.15))
+                )
             }
-            .overlay(alignment: .topTrailing) {
-                if reaction.count > 1 {
-                    Text("\(reaction.count)")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(.secondary, in: Capsule())
-                }
+}
+
+/// Shows the authors of each reaction up to maxShown.
+private struct ReactionAuthors: View {
+    let reaction: TimelineMessage.ReactionGroup
+    let maxShown = 5
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(reaction.senderIDs.prefix(maxShown), id:\.self){
+                senderId in Text(senderId)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if reaction.senderIDs.count > maxShown{
+                    Text("and \(reaction.senderIDs.count - maxShown) more")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .italic()
             }
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -247,4 +300,3 @@ private let sampleReactions: [TimelineMessage.ReactionGroup] = [
     }
     .padding(40)
 }
-
