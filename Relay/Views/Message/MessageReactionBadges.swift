@@ -162,7 +162,6 @@ private struct ReactionBadge: View {
     let coloredBubbles: Bool
     let onToggle: () -> Void
     @State private var isHovering = false
-    @State private var showSheet = false
 
     private static let size: CGFloat = 22
 
@@ -205,22 +204,16 @@ private struct ReactionAuthors: View {
     let maxShown = 5
     var body: some View {
         VStack(spacing: 2) {
-            if reaction.senderIDs.count <= maxShown {
-                ForEach(reaction.senderIDs, id: \.self) { senderID in
-                    Text(senderID)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                ForEach(reaction.senderIDs.prefix(maxShown), id: \.self) { senderID in
-                    Text(senderID)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text("and \(reaction.senderIDs.count - maxShown) more")
+            ForEach(reaction.senderIDs.prefix(maxShown), id:\.self){
+                senderId in Text(senderId)
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .italic()
+                    .foregroundStyle(.secondary)
+                if reaction.senderIDs.count > maxShown{
+                    Text("and \(reaction.senderIDs.count - maxShown) more")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .italic()
+                }
             }
         }
     }
@@ -309,6 +302,3 @@ private let sampleReactions: [TimelineMessage.ReactionGroup] = [
     }
     .padding(40)
 }
-
-
-
