@@ -149,7 +149,6 @@ struct MessageView: View {
         .overlay(alignment: message.isOutgoing ? .topLeading : .topTrailing) {
             if !message.reactions.isEmpty {
                 MessageReactionBadges(
-                    
                     reactions: message.reactions,
                     isOutgoing: message.isOutgoing,
                     coloredBubbles: coloredBubbles,

@@ -208,18 +208,16 @@ private struct ReactionAuthors: View {
                 senderId in Text(senderId)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if reaction.senderIDs.count > maxShown{
+            }
+            if reaction.senderIDs.count > maxShown{
                     Text("and \(reaction.senderIDs.count - maxShown) more")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .italic()
-                }
             }
         }
     }
 }
-
-
 
 // MARK: - Previews
 
