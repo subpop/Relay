@@ -141,9 +141,7 @@ struct TimelineView: View {
                             let changed = height != previous
                             composeBarHeight = height
                             if changed, height > previous, isNearEnd {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    scroller.position.scrollTo(edge: .bottom)
-                                }
+                                scroller.scrollToEnd()
                             }
                         }
                     )

@@ -26,11 +26,6 @@ final class TimelineScroller {
     /// The scroll position binding backing `ScrollView.scrollPosition(_:)`.
     var position = ScrollPosition(idType: String.self, edge: .bottom)
 
-    /// Suppresses the scroll animation on the first scroll after the view
-    /// appears (e.g. room switch), so the timeline lands at its initial
-    /// position immediately rather than animating there.
-    private var suppressAnimation = true
-
     private let scrollDuration: Double = 0.3
 
     // MARK: - Initial-load gating
@@ -70,42 +65,36 @@ final class TimelineScroller {
     }
 
     /// Scrolls to the newest message (bottom of the timeline).
-    /// Clamps out the animation on the very first scroll after appearance.
     /// During the initial load, the scroll is deferred until content is
     /// scrollable (strictly initial load, accounting for `bottomInset`).
-    func scrollToEnd(animated: Bool = true) {
-        if isInitialLoad && !isScrollable {
-            return
-        }
-        let animate = animated && !suppressAnimation
-        // Only clear suppression after a real scroll could happen.
-        suppressAnimation = false
-        if isInitialLoad {
-            isInitialLoad = false
-        }
-        if animate {
+    ///
+    /// The actual `ScrollPosition` mutation is always deferred to the next
+    /// main-actor turn. This prevents recursive layout loops when called
+    /// during a SwiftUI view-graph update (e.g. from `onChange` while new
+    /// `LazyVStack` rows are being inserted).
+    func scrollToEnd() {
+        guard !isInitialLoad || isScrollable else { return }
+        let completedInitialLoad = isInitialLoad
+        Task {
+            if completedInitialLoad { isInitialLoad = false }
             withAnimation(.easeOut(duration: scrollDuration)) {
                 position.scrollTo(edge: .bottom)
             }
-        } else {
-            position.scrollTo(edge: .bottom)
         }
     }
 
     /// Scrolls a specific message row to the center of the viewport.
-    func scrollToRow(id: String, animated: Bool = true, force: Bool = false) {
-        if isInitialLoad && !isScrollable && !force {
-            return
-        }
-        if isInitialLoad && isScrollable {
-            isInitialLoad = false
-        }
-        if animated {
+    ///
+    /// The actual `ScrollPosition` mutation is always deferred to the next
+    /// main-actor turn, matching ``scrollToEnd``.
+    func scrollToRow(id: String) {
+        guard !isInitialLoad || isScrollable else { return }
+        let completedInitialLoad = isInitialLoad
+        Task {
+            if completedInitialLoad { isInitialLoad = false }
             withAnimation(.easeOut(duration: scrollDuration)) {
                 position.scrollTo(id: id, anchor: .center)
             }
-        } else {
-            position.scrollTo(id: id, anchor: .center)
         }
     }
 }
