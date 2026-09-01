@@ -13,10 +13,8 @@
 // limitations under the License.
 
 import Foundation
-import OSLog
 import RelayInterface
 
-private let logger = Logger(subsystem: "RelayKit", category: "GiphyService")
 
 /// A concrete ``GIFSearchServiceProtocol`` implementation backed by the GIPHY API.
 ///
@@ -66,6 +64,14 @@ public final class GiphyService: GIFSearchServiceProtocol {
             throw GiphyError.invalidURL
         }
 
+        await ActivityLog.shared.log(
+            category: .media,
+            severity: .info,
+            source: "GiphyService",
+            summary: "Searched GIFs: \"\(query)\"",
+            metadata: ["offset": String(offset), "limit": String(limit)]
+        )
+
         return try await fetchGIFs(from: url)
     }
 
@@ -82,6 +88,14 @@ public final class GiphyService: GIFSearchServiceProtocol {
             throw GiphyError.invalidURL
         }
 
+        await ActivityLog.shared.log(
+            category: .media,
+            severity: .info,
+            source: "GiphyService",
+            summary: "Fetched trending GIFs",
+            metadata: ["offset": String(offset), "limit": String(limit)]
+        )
+
         return try await fetchGIFs(from: url)
     }
 
@@ -96,11 +110,20 @@ public final class GiphyService: GIFSearchServiceProtocol {
 
         do {
             let (_, _) = try await session.data(from: pingbackURL)
+            await ActivityLog.shared.log(
+                category: .media,
+                severity: .debug,
+                source: "GiphyService",
+                summary: "Registered GIF action"
+            )
         } catch {
-            await logger
-                .debug(
-                    "Analytics pingback failed: \(error.localizedDescription)"
-                )
+            await ActivityLog.shared.log(
+                category: .media,
+                severity: .debug,
+                source: "GiphyService",
+                summary: "GIF action pingback failed",
+                detail: error.localizedDescription
+            )
         }
     }
 
@@ -109,8 +132,22 @@ public final class GiphyService: GIFSearchServiceProtocol {
 
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
+            await ActivityLog.shared.log(
+                category: .media,
+                severity: .error,
+                source: "GiphyService",
+                summary: "GIF download failed"
+            )
             throw GiphyError.downloadFailed
         }
+
+        await ActivityLog.shared.log(
+            category: .media,
+            severity: .info,
+            source: "GiphyService",
+            summary: "Downloaded GIF",
+            detail: "\(data.count) bytes"
+        )
 
         return data
     }
@@ -125,8 +162,12 @@ public final class GiphyService: GIFSearchServiceProtocol {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            await logger
-                .error("GIPHY API returned status \(httpResponse.statusCode)")
+            await ActivityLog.shared.log(
+                category: .media,
+                severity: .warning,
+                source: "GiphyService",
+                summary: "GIPHY API error: HTTP \(httpResponse.statusCode)"
+            )
             throw GiphyError.httpError(statusCode: httpResponse.statusCode)
         }
 
