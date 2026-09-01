@@ -4,6 +4,10 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>RelayAppGroupIdentifier</key>
+	<string>group.$(DEVELOPMENT_TEAM).$(BUNDLE_PREFIX).Relay</string>
+	<key>RelayMainAppBundleIdentifier</key>
+	<string>$(BUNDLE_PREFIX).Relay</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

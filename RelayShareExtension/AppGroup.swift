@@ -15,7 +15,12 @@
 import Foundation
 
 enum AppGroup {
-    static let identifier = "group.46UKXDYHHC.app.subpop.Relay"
+    static let identifier: String = {
+        guard let identifier = Bundle.main.object(forInfoDictionaryKey: "RelayAppGroupIdentifier") as? String else {
+            fatalError("RelayAppGroupIdentifier missing from RelayShareExtension's Info.plist")
+        }
+        return identifier
+    }()
 
     static var containerURL: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
