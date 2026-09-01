@@ -17,6 +17,11 @@ Relay is a native macOS app built with SwiftUI and Xcode.
 
 - macOS 26.0 (Tahoe) or later
 - Xcode 26.0 or later
+- An Apple ID added to Xcode (**Settings > Accounts**). A free account is
+  enough -- no paid Apple Developer Program membership required. This is
+  needed because Relay's app sandbox and app group entitlements require a
+  real development certificate; there's no way to build and run the app
+  without signing in to at least a free "Personal Team".
 
 ### Steps
 
@@ -39,7 +44,8 @@ Relay is a native macOS app built with SwiftUI and Xcode.
      try to register the bundle identifier to your account and they're 
      globally unique.
    - **`DEVELOPMENT_TEAM`** -- Your Apple Developer Team ID. Find it in
-     Xcode under **Settings > Accounts**, or at
+     Xcode under **Settings > Accounts** (select your Apple ID, then your
+     team -- a free "Personal Team" works fine), or at
      <https://developer.apple.com/account>.
    - **`GIPHY_API_KEY`** -- Required for GIF search functionality. Create
      one at <https://developers.giphy.com/dashboard/>.
