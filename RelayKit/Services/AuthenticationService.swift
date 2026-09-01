@@ -68,7 +68,6 @@ enum RestoreOutcome {
 final class AuthenticationService {
 
     private let networkMonitor: NetworkMonitor
-    var activityLog: ActivityLog?
 
     init(networkMonitor: NetworkMonitor) {
         self.networkMonitor = networkMonitor
@@ -132,7 +131,6 @@ final class AuthenticationService {
         // from an old client are silently dropped.
         sessionDelegate.invalidate()
         sessionDelegate = KeychainSessionDelegate()
-        sessionDelegate.activityLog = activityLog
 
         return ClientBuilderProxy()
             .sessionPaths(
@@ -161,7 +159,7 @@ final class AuthenticationService {
         guard let data = KeychainService.load(),
               let stored = try? JSONDecoder().decode(StoredSession.self, from: data)
         else {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .info, source: "AuthenticationService",
                 summary: "No saved session in keychain"
             )
@@ -172,7 +170,7 @@ final class AuthenticationService {
         // discovery would just fail. Skip straight to offline-restore so
         // the user sees their cached data instead of the login screen.
         guard networkMonitor.isConnected else {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .info, source: "AuthenticationService",
                 summary: "Restoring session offline",
                 metadata: ["userId": stored.userId]
@@ -184,7 +182,7 @@ final class AuthenticationService {
         }
 
         do {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .debug, source: "AuthenticationService",
                 summary: "Restoring session",
                 metadata: ["userId": stored.userId]
@@ -206,7 +204,7 @@ final class AuthenticationService {
             try await client.restoreSession(session: session)
 
             let clientProxy = try ClientProxy(client: client)
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .info, source: "AuthenticationService",
                 summary: "Session restored from keychain",
                 metadata: ["userId": stored.userId]
@@ -214,7 +212,7 @@ final class AuthenticationService {
             return .restored(clientProxy, userId: stored.userId)
         } catch {
             if NetworkErrorClassifier.isOfflineShaped(error) {
-                activityLog?.log(
+                ActivityLog.shared.log(
                     category: .auth, severity: .warning, source: "AuthenticationService",
                     summary: "Session restore deferred — homeserver unreachable",
                     detail: error.localizedDescription
@@ -224,7 +222,7 @@ final class AuthenticationService {
                     homeserverUrl: stored.homeserverUrl
                 )
             }
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .error, source: "AuthenticationService",
                 summary: "Session restore failed",
                 detail: error.localizedDescription
@@ -260,7 +258,7 @@ final class AuthenticationService {
         saveSession(session)
 
         let clientProxy = try ClientProxy(client: client)
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .auth, severity: .info, source: "AuthenticationService",
             summary: "Password login succeeded",
             metadata: ["userId": session.userId]
@@ -298,7 +296,7 @@ final class AuthenticationService {
 
         let loginDetails = await client.homeserverLoginDetails()
         guard loginDetails.supportsOauthLogin() else {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .warning, source: "AuthenticationService",
                 summary: "Homeserver does not support OIDC",
                 metadata: ["homeserver": homeserver]
@@ -329,7 +327,7 @@ final class AuthenticationService {
             throw RelayError.oauthInvalidURL
         }
 
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .auth, severity: .info, source: "AuthenticationService",
             summary: "OAuth login flow started"
         )
@@ -342,7 +340,7 @@ final class AuthenticationService {
         saveSession(session)
 
         let clientProxy = try ClientProxy(client: client)
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .auth, severity: .info, source: "AuthenticationService",
             summary: "OAuth login succeeded",
             metadata: ["userId": session.userId]
@@ -358,7 +356,7 @@ final class AuthenticationService {
         sessionDelegate.invalidate()
         KeychainService.delete()
         Self.resetLocalSessionData()
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .auth, severity: .info, source: "AuthenticationService",
             summary: "Session cleared"
         )
@@ -377,12 +375,12 @@ final class AuthenticationService {
         )
         if let encoded = try? JSONEncoder().encode(stored) {
             KeychainService.save(encoded)
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .debug, source: "AuthenticationService",
                 summary: "Session saved to keychain"
             )
         } else {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .warning, source: "AuthenticationService",
                 summary: "Failed to encode session for keychain"
             )
@@ -401,13 +399,6 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
     /// overwriting the new session's tokens in the keychain.
     private var isValid = true
 
-    /// Activity log reference for reporting keychain operations.
-    ///
-    /// Set by ``AuthenticationService/makeBuilder()`` when creating a new delegate.
-    /// Because this class is `nonisolated`, all activity log calls dispatch
-    /// to `@MainActor`.
-    weak var activityLog: ActivityLog?
-
     /// Marks this delegate as invalid so all future callbacks are ignored.
     func invalidate() {
         isValid = false
@@ -415,8 +406,8 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
 
     func retrieveSessionFromKeychain(userId: String) throws -> Session {
         guard isValid else {
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .debug, source: "KeychainSessionDelegate",
                     summary: "Stale session retrieve callback ignored"
                 )
@@ -424,8 +415,8 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
             throw KeychainSessionError.sessionNotFound
         }
         guard let data = KeychainService.load() else {
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .warning, source: "KeychainSessionDelegate",
                     summary: "Keychain load returned no data"
                 )
@@ -433,8 +424,8 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
             throw KeychainSessionError.sessionNotFound
         }
         guard let stored = try? JSONDecoder().decode(StoredSession.self, from: data) else {
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .error, source: "KeychainSessionDelegate",
                     summary: "Failed to decode session from keychain"
                 )
@@ -442,8 +433,8 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
             throw KeychainSessionError.sessionNotFound
         }
         guard stored.userId == userId else {
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .error, source: "KeychainSessionDelegate",
                     summary: "Keychain userId mismatch",
                     metadata: ["expected": userId, "actual": stored.userId]
@@ -464,8 +455,8 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
 
     func saveSessionInKeychain(session: Session) {
         guard isValid else {
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .debug, source: "KeychainSessionDelegate",
                     summary: "Stale session save callback ignored"
                 )
@@ -482,15 +473,15 @@ final class KeychainSessionDelegate: ClientSessionDelegate, @unchecked Sendable 
         )
         if let data = try? JSONEncoder().encode(stored) {
             KeychainService.save(data)
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .debug, source: "KeychainSessionDelegate",
                     summary: "Token refresh saved to keychain"
                 )
             }
         } else {
-            Task { @MainActor [activityLog] in
-                activityLog?.log(
+            Task { @MainActor in
+                ActivityLog.shared.log(
                     category: .auth, severity: .error, source: "KeychainSessionDelegate",
                     summary: "Failed to encode refreshed session"
                 )

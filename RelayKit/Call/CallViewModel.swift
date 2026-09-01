@@ -227,11 +227,6 @@ public final class CallViewModel: CallViewModelProtocol {
     /// The Matrix room ID for this call, used for activity log context.
     @ObservationIgnored
     private var roomID: String?
-    /// Activity log for surfacing call lifecycle events in the Activity Log window.
-    @ObservationIgnored
-    weak var activityLog: ActivityLog? {
-        didSet { encryptionService?.activityLog = activityLog }
-    }
 
     /// Creates a call view model without E2EE. Use ``init(encryptionContext:)``
     /// for encrypted calls that interoperate with Element Call.
@@ -291,8 +286,7 @@ public final class CallViewModel: CallViewModelProtocol {
             userID: encryptionContext.userID,
             deviceID: encryptionContext.deviceID,
             roomID: encryptionContext.roomID,
-            sdkRoom: encryptionContext.matrixRoom,
-            activityLog: nil  // Set after activityLog is wired by MatrixService
+            sdkRoom: encryptionContext.matrixRoom
         )
 
         if encryptionContext.isRoomEncrypted {
@@ -325,7 +319,7 @@ public final class CallViewModel: CallViewModelProtocol {
     public func connect(url: String, token: String, sfuServiceURL: String = "") async throws {
         state = .connecting
         connectingPhase = "Joining call server…"
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .info, source: "CallViewModel",
             summary: "Connecting to call",
             detail: "E2EE: \(isE2eeEnabled ? "enabled" : "disabled")",
@@ -353,14 +347,14 @@ public final class CallViewModel: CallViewModelProtocol {
                 let kdfDetail = hkdfKeyProviderInstalled
                     ? "HKDF-SHA256 key derivation active (Element Call interop path)."
                     : "WARNING: HKDF swap failed — using default PBKDF2. Element Call peers will produce different AES keys from the same IKM and frames will fail to decrypt."
-                activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: hkdfKeyProviderInstalled ? .debug : .warning, source: "CallViewModel",
                     summary: "LiveKit E2EE enabled",
                     detail: "GCM frame encryption active. \(kdfDetail)",
                     roomId: roomID
                 )
             } else {
-                activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .debug, source: "CallViewModel",
                     summary: "LiveKit E2EE disabled",
                     detail: "Unencrypted Matrix room — frames sent in the clear to the SFU.",
@@ -387,7 +381,7 @@ public final class CallViewModel: CallViewModelProtocol {
             )
             connectingPhase = "Preparing encryption…"
             localParticipantID = room.localParticipant.identity?.stringValue
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .debug, source: "CallViewModel",
                 summary: "Connected to LiveKit",
                 detail: "Local identity: \(localParticipantID ?? "unknown"). Peers reading our `m.call.member` event expect this to match `${sender}:${device_id}` for legacy session events.",
@@ -408,14 +402,13 @@ public final class CallViewModel: CallViewModelProtocol {
                         isRoomEncrypted: true,
                         keyProvider: self.keyProvider
                     )
-                    bridge.activityLog = self.activityLog
                     bridge.onCallMemberStateChanged = { [weak self] in
                         self?.redistributeKeyOnMembershipChange()
                     }
                     bridge.start()
                     self.widgetBridge = bridge
                 } catch {
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .error, source: "CallViewModel",
                         summary: "Failed to create CallWidgetBridge",
                         detail: "E2EE key exchange will not work; remote tiles will stay black. Error: \(error.localizedDescription)",
@@ -456,7 +449,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 if let livekitIdentity = self.localParticipantID,
                    let matrixSidIdentity,
                    livekitIdentity != matrixSidIdentity {
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .warning, source: "CallViewModel",
                         summary: "LiveKit identity mismatch — frame encryption may misroute",
                         detail: "LiveKit: \(livekitIdentity), peers expect: \(matrixSidIdentity)",
@@ -465,7 +458,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 }
                 let keyIndex = self.localKeyIndex
                 guard let livekitIdentity = self.localParticipantID, !livekitIdentity.isEmpty else {
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .error, source: "CallViewModel",
                         summary: "LiveKit assigned no local identity",
                         detail: "Cannot install local E2EE key; outbound frames will be undecodable.",
@@ -480,7 +473,7 @@ public final class CallViewModel: CallViewModelProtocol {
                     index: Int32(keyIndex)
                 )
                 let failureNote = setKeyFailure.map { " setRawKey failure: \($0)." } ?? ""
-                activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: setKeyFailure == nil ? .debug : .error, source: "CallViewModel",
                     summary: "Local E2EE key installed",
                     detail: "Index: \(keyIndex), participantId: \(livekitIdentity). Frame cryptor will use this key for outbound frames before camera/mic publish.\(failureNote)",
@@ -538,7 +531,6 @@ public final class CallViewModel: CallViewModelProtocol {
                     encryptionService: encryptionService,
                     sfuServiceURL: sfuServiceURL,
                     membershipId: membershipId,
-                    activityLog: self.activityLog,
                     roomID: self.roomID
                 )
 
@@ -554,7 +546,7 @@ public final class CallViewModel: CallViewModelProtocol {
                     let targets = await encryptionService.fetchCallTargets()
                     self.callMembers = targets
                     let targetList = targets.keys.sorted().joined(separator: ", ")
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .debug, source: "CallViewModel",
                         summary: "Distributing E2EE key to \(targets.count) user(s) before media publish",
                         detail: "Recipients: \(targetList.isEmpty ? "(none)" : targetList).",
@@ -569,7 +561,7 @@ public final class CallViewModel: CallViewModelProtocol {
                         // Success entry — including fp — already written by
                         // CallWidgetBridge.sendEncryptionKey.
                     } catch {
-                        activityLog?.log(
+                        ActivityLog.shared.log(
                             category: .call, severity: .warning, source: "CallViewModel",
                             summary: "E2EE key distribution failed",
                             detail: "Tried sending to \(targets.count) user(s): \(targetList). Peers will see `missing_key` and our media will appear as black tiles to them. Error: \(error.localizedDescription)",
@@ -627,7 +619,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 }
             }
 
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .info, source: "CallViewModel",
                 summary: "Connected to call",
                 detail: "Existing remote participants: \(room.remoteParticipants.count).",
@@ -647,7 +639,7 @@ public final class CallViewModel: CallViewModelProtocol {
 
             state = .failed(message)
             connectingPhase = nil
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .error, source: "CallViewModel",
                 summary: "Call connection failed",
                 detail: error.localizedDescription,
@@ -658,7 +650,7 @@ public final class CallViewModel: CallViewModelProtocol {
     }
 
     public func disconnect() async {
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .info, source: "CallViewModel",
             summary: "Disconnected from call",
             roomId: roomID
@@ -710,7 +702,6 @@ public final class CallViewModel: CallViewModelProtocol {
         encryptionService: CallEncryptionService,
         sfuServiceURL: String,
         membershipId: String?,
-        activityLog: ActivityLog?,
         roomID: String?
     ) -> Task<Void, Never> {
         Task.detached(priority: .background) {
@@ -731,7 +722,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 } catch {
                     let description = error.localizedDescription
                     await MainActor.run {
-                        activityLog?.log(
+                        ActivityLog.shared.log(
                             category: .call, severity: .warning, source: "CallViewModel",
                             summary: "Call membership heartbeat refresh failed",
                             detail: "Other participants may treat us as having left when our event expires. Error: \(description)",
@@ -814,7 +805,7 @@ public final class CallViewModel: CallViewModelProtocol {
             }
             videoTrackRevision += 1
         }
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .info, source: "CallViewModel",
             summary: "Camera input selected",
             detail: "Camera: \(device.name) [\(device.kind)]",
@@ -891,7 +882,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 .first(where: { $0.deviceId == deviceId }) else { return }
             AudioManager.shared.inputDevice = avDevice
         }.value
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .info, source: "CallViewModel",
             summary: "Audio input selected",
             detail: "Microphone: \(device.name)",
@@ -950,7 +941,7 @@ public final class CallViewModel: CallViewModelProtocol {
             },
             onLog: { [weak self] severity, summary, detail in
                 Task { @MainActor [weak self] in
-                    self?.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: severity, source: "CaptionTranscriber",
                         summary: summary, detail: detail, roomId: self?.roomID
                     )
@@ -964,7 +955,7 @@ public final class CallViewModel: CallViewModelProtocol {
             do {
                 try await transcriber.start()
             } catch {
-                activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .warning, source: "CallViewModel",
                     summary: "Caption transcriber start failed",
                     detail: "Identity: \(identity). Error: \(error.localizedDescription)",
@@ -1075,7 +1066,7 @@ public final class CallViewModel: CallViewModelProtocol {
 
         // Speech content stays out of the log — record only the metadata so we
         // can verify the audio→speech pipeline without leaking captions.
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .debug, source: "CallViewModel",
             summary: "Caption update",
             detail: "Identity: \(participantId), isFinal: \(isFinal), chars: \(trimmed.count)",
@@ -1217,7 +1208,7 @@ public final class CallViewModel: CallViewModelProtocol {
         } else {
             detail = "Without a successful call membership state event, peers can't see you as a call participant and won't send you E2EE keys. Raw error: \(description)"
         }
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .error, source: "CallViewModel",
             summary: summary,
             detail: detail,
@@ -1260,7 +1251,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 )
                 await MainActor.run {
                     self.callMembers = targets
-                    self.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .debug, source: "CallViewModel",
                         summary: "Redistributed E2EE key on m.call.member change",
                         detail: "Recipients: \(targetList). Index: \(index).",
@@ -1270,7 +1261,7 @@ public final class CallViewModel: CallViewModelProtocol {
             } catch {
                 let description = error.localizedDescription
                 await MainActor.run {
-                    self.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .warning, source: "CallViewModel",
                         summary: "E2EE key redistribution failed (m.call.member trigger)",
                         detail: "Targets: \(targetList). Error: \(description)",
@@ -1293,7 +1284,7 @@ public final class CallViewModel: CallViewModelProtocol {
             let targets = await encryptionService.fetchCallTargets()
             guard !targets.isEmpty else {
                 await MainActor.run {
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .debug, source: "CallViewModel",
                         summary: "No call targets to redistribute key to",
                         detail: "Trigger: new participant \(participantIdentity). `fetchCallTargets` returned an empty map.",
@@ -1313,7 +1304,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 // CallWidgetBridge.sendEncryptionKey.
             } catch {
                 await MainActor.run {
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .warning, source: "CallViewModel",
                         summary: "E2EE key redistribution failed",
                         detail: "Trigger: new participant \(participantIdentity). Targets: \(targetList). Error: \(error.localizedDescription)",
@@ -1407,14 +1398,14 @@ public final class CallViewModel: CallViewModelProtocol {
                     if viewModel.state == .connected {
                         viewModel.state = .disconnected
                     }
-                    viewModel.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .warning, source: "CallViewModel",
                         summary: "LiveKit connection disconnected",
                         detail: "Previous state: \(Self.describe(oldValue))",
                         roomId: viewModel.roomID
                     )
                 case .reconnecting:
-                    viewModel.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .warning, source: "CallViewModel",
                         summary: "Call reconnecting",
                         roomId: viewModel.roomID
@@ -1432,7 +1423,7 @@ public final class CallViewModel: CallViewModelProtocol {
             let description = error?.localizedDescription ?? "no error reported"
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .error, source: "CallViewModel",
                     summary: "LiveKit connection rejected",
                     detail: description,
@@ -1450,14 +1441,14 @@ public final class CallViewModel: CallViewModelProtocol {
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
                 if let description {
-                    viewModel.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .error, source: "CallViewModel",
                         summary: "LiveKit connection lost",
                         detail: description,
                         roomId: viewModel.roomID
                     )
                 } else {
-                    viewModel.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .debug, source: "CallViewModel",
                         summary: "LiveKit disconnected cleanly",
                         roomId: viewModel.roomID
@@ -1497,7 +1488,7 @@ public final class CallViewModel: CallViewModelProtocol {
                 let identityStr = participant.identity?.stringValue ?? "(none)"
                 let sidStr = participant.sid?.stringValue ?? "(none)"
                 let displayName = participant.name ?? "(none)"
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .debug, source: "CallViewModel",
                     summary: "Remote participant connected",
                     detail: "Identity: \(identityStr), sid: \(sidStr), name: \(displayName)",
@@ -1517,7 +1508,7 @@ public final class CallViewModel: CallViewModelProtocol {
             let sid = publication.sid
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .debug, source: "CallViewModel",
                     summary: "Subscribed to remote \(kind) track",
                     detail: "Identity: \(identityStr), trackSid: \(sid)",
@@ -1542,7 +1533,7 @@ public final class CallViewModel: CallViewModelProtocol {
             let description = error.localizedDescription
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .error, source: "CallViewModel",
                     summary: "Failed to subscribe to remote track",
                     detail: "Identity: \(identityStr), trackSid: \(trackSid), error: \(description)",
@@ -1555,7 +1546,7 @@ public final class CallViewModel: CallViewModelProtocol {
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
                 let identityStr = participant.identity?.stringValue ?? "(none)"
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .debug, source: "CallViewModel",
                     summary: "Remote participant disconnected",
                     detail: "Identity: \(identityStr)",
@@ -1586,7 +1577,7 @@ public final class CallViewModel: CallViewModelProtocol {
             let sid = publication.sid
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .debug, source: "CallViewModel",
                     summary: "Published local \(kind) track",
                     detail: "trackSid: \(sid)",
@@ -1602,7 +1593,7 @@ public final class CallViewModel: CallViewModelProtocol {
             let sid = publication.sid
             Task { @MainActor [weak viewModel] in
                 guard let viewModel else { return }
-                viewModel.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .call, severity: .debug, source: "CallViewModel",
                     summary: "Remote published \(kind) track",
                     detail: "Identity: \(identityStr), trackSid: \(sid)",
@@ -1629,14 +1620,14 @@ public final class CallViewModel: CallViewModelProtocol {
                 case .ok, .new, .key_ratcheted:
                     return
                 case .missing_key:
-                    viewModel.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .warning, source: "CallViewModel",
                         summary: "E2EE missing key for \(trackKind) track",
                         detail: "trackSid: \(trackSid). Remote peer's encryption key hasn't been received yet or was rejected.",
                         roomId: viewModel.roomID
                     )
                 case .encryption_failed, .decryption_failed, .internal_error:
-                    viewModel.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .call, severity: .error, source: "CallViewModel",
                         summary: "E2EE failure on \(trackKind) track",
                         detail: "State: \(stateLabel), trackSid: \(trackSid)",

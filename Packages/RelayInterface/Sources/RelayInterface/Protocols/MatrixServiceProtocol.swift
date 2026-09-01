@@ -130,9 +130,6 @@ public struct IncomingVerificationRequest: Sendable, Identifiable {
 /// that SwiftUI views can react to state changes.
 @MainActor
 public protocol MatrixServiceProtocol: AnyObject, Observable {
-    /// The diagnostic activity log, capturing service-level events for debugging.
-    var activityLog: any ActivityLogProtocol { get }
-
     /// The current authentication state of the client.
     var authState: AuthState { get }
 

@@ -90,7 +90,7 @@ struct RelayApp: App {
         Window("Activity Log", id: "activity-log") {
             ActivityLogView()
                 .environment(\.matrixService, matrixService)
-                .environment(\.activityLog, matrixService.activityLog)
+                .environment(\.activityLog, ActivityLog.shared)
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
         .defaultSize(width: 900, height: 600)

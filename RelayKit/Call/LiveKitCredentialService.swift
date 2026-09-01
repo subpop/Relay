@@ -43,15 +43,13 @@ struct LiveKitCredentialService {
     /// Used for `.well-known` lookups, which must query the server name domain,
     /// not the delegated homeserver URL (e.g. `fedora.ems.host`).
     let serverName: String
-    /// Activity log for surfacing credential exchange events in the Activity Log window.
-    let activityLog: ActivityLog?
 
     // MARK: - Public Entry Point
 
     /// Returns `(livekitWebSocketURL, livekitJWT, sfuServiceURL)` for the given Matrix room.
     /// The `sfuServiceURL` is the SFU service URL from discovery, used in call member events.
     func credentials(for roomID: String) async throws -> (url: String, token: String, sfuServiceURL: String) {
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .info, source: "LiveKitCredentialService",
             summary: "Fetching call credentials",
             detail: "Room: \(roomID)",
@@ -59,27 +57,27 @@ struct LiveKitCredentialService {
         )
         do {
             let sfuURL = try await discoverSFUURL(roomID: roomID)
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .debug, source: "LiveKitCredentialService",
                 summary: "SFU URL discovered",
                 detail: "SFU: \(sfuURL)",
                 roomId: roomID
             )
             let openIDToken = try await requestOpenIDToken()
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .debug, source: "LiveKitCredentialService",
                 summary: "OpenID token obtained",
                 roomId: roomID
             )
             let (url, jwt) = try await fetchLiveKitToken(sfuURL: sfuURL, roomID: roomID, openIDToken: openIDToken)
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .info, source: "LiveKitCredentialService",
                 summary: "Call credentials obtained",
                 roomId: roomID
             )
             return (url, jwt, sfuURL)
         } catch {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .error, source: "LiveKitCredentialService",
                 summary: "Failed to fetch call credentials",
                 detail: error.localizedDescription,
@@ -222,7 +220,7 @@ struct LiveKitCredentialService {
         guard let oldest = candidates.min(by: { $0.createdTs < $1.createdTs }) else {
             throw LiveKitCredentialError.sfuURLNotFound
         }
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .debug, source: "LiveKitCredentialService",
             summary: "Joining existing call SFU (oldest_membership)",
             detail: "SFU: \(oldest.sfuURL). Picked from \(candidates.count) active member(s)."
@@ -293,7 +291,7 @@ struct LiveKitCredentialService {
         } else {
             detail = error.localizedDescription
         }
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .warning, source: "LiveKitCredentialService",
             summary: "Legacy /sfu/get rejected; trying v2",
             detail: detail
@@ -340,7 +338,7 @@ struct LiveKitCredentialService {
             )
         }
         let decoded = try JSONDecoder().decode(LiveKitTokenResponse.self, from: data)
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .debug, source: "LiveKitCredentialService",
             summary: "Credentials obtained via v2 /get_token",
             detail: "LiveKit URL: \(decoded.url)",
@@ -379,7 +377,7 @@ struct LiveKitCredentialService {
             )
         }
         let decoded = try JSONDecoder().decode(LiveKitTokenResponse.self, from: data)
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .debug, source: "LiveKitCredentialService",
             summary: "Credentials obtained via legacy /sfu/get",
             detail: "LiveKit URL: \(decoded.url)",

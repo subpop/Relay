@@ -42,9 +42,6 @@ final class NetworkMonitor {
     /// ``settlingInterval``.
     private(set) var isConnected: Bool = true
 
-    /// The diagnostic activity log for capturing network state changes.
-    weak var activityLog: ActivityLog?
-
     /// How long the raw path status must remain stable before
     /// ``isConnected`` is updated. Symmetric for both directions
     /// (going offline and coming online).
@@ -84,7 +81,7 @@ final class NetworkMonitor {
         }
 
         pathMonitor.start(queue: monitorQueue)
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .network, severity: .debug, source: "NetworkMonitor",
             summary: "Network monitoring started"
         )
@@ -98,7 +95,7 @@ final class NetworkMonitor {
         monitor?.cancel()
         monitor = nil
         isConnected = true
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .network, severity: .debug, source: "NetworkMonitor",
             summary: "Network monitoring stopped"
         )
@@ -122,12 +119,12 @@ final class NetworkMonitor {
             self.isConnected = satisfied
 
             if satisfied {
-                self.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .network, severity: .info, source: "NetworkMonitor",
                     summary: "Network connectivity restored"
                 )
             } else {
-                self.activityLog?.log(
+                ActivityLog.shared.log(
                     category: .network, severity: .warning, source: "NetworkMonitor",
                     summary: "Network connectivity lost"
                 )
@@ -138,7 +135,7 @@ final class NetworkMonitor {
         // differs from the last settled value but may not survive the
         // debounce window.
         if satisfied != isConnected {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .network, severity: .debug, source: "NetworkMonitor",
                 summary: "Path status change pending",
                 detail: "Raw: \(satisfied ? "satisfied" : "unsatisfied"), settling for \(Self.settlingInterval)"

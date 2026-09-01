@@ -26,6 +26,9 @@ import RelayInterface
 /// dropped to make room for new ones.
 @Observable
 public final class ActivityLog: ActivityLogProtocol {
+    /// The shared app-wide instance used by all services and the Activity Log window.
+    public static let shared = ActivityLog()
+
     /// The maximum number of events retained in the ring buffer.
     private let capacity: Int
 

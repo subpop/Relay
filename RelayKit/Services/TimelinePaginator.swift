@@ -38,7 +38,6 @@ final class TimelinePaginator {
 
     private let roomLabel: String
     private let roomId: String
-    private weak var activityLog: ActivityLog?
 
     /// Called when ``isLoadingMore`` changes.
     var onLoadingMoreChanged: ((Bool) -> Void)?
@@ -51,10 +50,9 @@ final class TimelinePaginator {
     /// whether more auto-pagination is needed.
     var msgLikeItemCount: (() -> Int)?
 
-    init(roomLabel: String, roomId: String, activityLog: ActivityLog?) {
+    init(roomLabel: String, roomId: String) {
         self.roomLabel = roomLabel
         self.roomId = roomId
-        self.activityLog = activityLog
     }
 
     // MARK: - Observation
@@ -77,7 +75,7 @@ final class TimelinePaginator {
                 case .idle(let hitStart):
                     self.onLoadingMoreChanged?(false)
                     self.onHasReachedStartChanged?(hitStart)
-                    self.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .timeline, severity: .debug, source: "TimelinePaginator",
                         summary: "Pagination idle in \(self.roomLabel) (hitStart: \(hitStart))",
                         roomId: self.roomId
@@ -109,7 +107,7 @@ final class TimelinePaginator {
                     }
                 case .paginating:
                     self.onLoadingMoreChanged?(true)
-                    self.activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .timeline, severity: .debug, source: "TimelinePaginator",
                         summary: "Paginating backwards in \(self.roomLabel)",
                         roomId: self.roomId
@@ -127,7 +125,7 @@ final class TimelinePaginator {
         do {
             _ = try await timeline.paginateBackwards(numEvents: 100)
         } catch {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .timeline, severity: .error, source: "TimelinePaginator",
                 summary: "Failed to load earlier messages in \(roomLabel)",
                 detail: error.localizedDescription, roomId: roomId
@@ -144,7 +142,7 @@ final class TimelinePaginator {
         do {
             return try await timeline.paginateForwards(numEvents: 40)
         } catch {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .timeline, severity: .error, source: "TimelinePaginator",
                 summary: "Failed to load newer messages in \(roomLabel)",
                 detail: error.localizedDescription, roomId: roomId
@@ -180,7 +178,7 @@ final class TimelinePaginator {
                     || "\(error)".contains("HostUnreachable")
                 if isTransient && attempt < Self.maxPaginationRetries - 1 {
                     let delay = Duration.seconds(1 << attempt) // 1s, 2s, 4s
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .timeline, severity: .warning, source: "TimelinePaginator",
                         summary: "Pagination attempt \(attempt + 1) failed (transient) in \(roomLabel), retrying in \(1 << attempt)s",
                         detail: error.localizedDescription, roomId: roomId
@@ -188,7 +186,7 @@ final class TimelinePaginator {
                     try? await Task.sleep(for: delay)
                     guard !Task.isCancelled else { return false }
                 } else {
-                    activityLog?.log(
+                    ActivityLog.shared.log(
                         category: .timeline, severity: .error, source: "TimelinePaginator",
                         summary: "Pagination failed in \(roomLabel)",
                         detail: "\(error)",

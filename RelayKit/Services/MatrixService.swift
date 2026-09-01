@@ -96,18 +96,12 @@ public final class MatrixService: MatrixServiceProtocol {
     private let media = MediaService()
     private let directorySearch = DirectorySearchService()
     private let intentDonation = IntentDonationService()
-    private let _activityLog = ActivityLog()
-
-    public var activityLog: any ActivityLogProtocol { _activityLog }
 
     /// Creates a new ``MatrixService``. Call ``restoreSession()`` after initialization to
     /// attempt automatic sign-in from a previously saved keychain session.
     public init() {
         auth = AuthenticationService(networkMonitor: networkMonitor)
-        auth.activityLog = _activityLog
-        syncManager = SyncManager(networkMonitor: networkMonitor, activityLog: _activityLog)
-        networkMonitor.activityLog = _activityLog
-        roomListManager.activityLog = _activityLog
+        syncManager = SyncManager(networkMonitor: networkMonitor)
     }
 
     // MARK: - Session Restore
@@ -121,7 +115,7 @@ public final class MatrixService: MatrixServiceProtocol {
         switch await auth.restoreSession() {
         case .noSavedSession:
             authState = .loggedOut
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .info, source: "MatrixService",
                 summary: "No saved session found"
             )
@@ -130,7 +124,7 @@ public final class MatrixService: MatrixServiceProtocol {
             client = restoredClient
             await restoredClient.loadProfile()
             authState = .loggedIn(userId: userId)
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .info, source: "MatrixService",
                 summary: "Session restored",
                 metadata: ["userId": userId]
@@ -138,7 +132,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
         case .offlineWithSavedSession(let userId, _):
             authState = .loggedIn(userId: userId)
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .warning, source: "MatrixService",
                 summary: "Offline with saved session — deferring sync",
                 metadata: ["userId": userId]
@@ -150,7 +144,7 @@ public final class MatrixService: MatrixServiceProtocol {
 
         case .failed(let error):
             authState = .error(error.localizedDescription)
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .error, source: "MatrixService",
                 summary: "Session restore failed",
                 detail: error.localizedDescription
@@ -292,7 +286,7 @@ public final class MatrixService: MatrixServiceProtocol {
     private func performSync() async {
         guard let client = currentClient else { return }
 
-        _activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .info, source: "MatrixService",
             summary: "Starting sync pipeline"
         )
@@ -309,7 +303,7 @@ public final class MatrixService: MatrixServiceProtocol {
             // the login screen.
             syncManager.onAuthenticationFailure = { [weak self] in
                 guard let self else { return }
-                self._activityLog.log(
+                ActivityLog.shared.log(
                     category: .auth, severity: .error, source: "MatrixService",
                     summary: "Session invalidated — logging out"
                 )
@@ -349,7 +343,7 @@ public final class MatrixService: MatrixServiceProtocol {
             }
 
             try await syncManager.startSync(client: client)
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .info, source: "MatrixService",
                 summary: "Sync manager started, starting client observation"
             )
@@ -361,14 +355,14 @@ public final class MatrixService: MatrixServiceProtocol {
             observeVerificationState(client: client)
             if let syncService = syncManager.syncService {
                 try await roomListManager.start(syncService: syncService)
-                _activityLog.log(
+                ActivityLog.shared.log(
                     category: .sync, severity: .info, source: "MatrixService",
                     summary: "Room list manager started"
                 )
             }
             observeSpaceDescendants()
             await spaceListManager.start(client: client)
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .info, source: "MatrixService",
                 summary: "Space list manager started — sync pipeline complete"
             )
@@ -378,7 +372,7 @@ public final class MatrixService: MatrixServiceProtocol {
         } catch is CancellationError {
             // Logout cancelled the sync — don't overwrite state
         } catch {
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .error, source: "MatrixService",
                 summary: "Sync failed", detail: error.localizedDescription
             )
@@ -413,7 +407,7 @@ public final class MatrixService: MatrixServiceProtocol {
                 }
                 guard !Task.isCancelled else { return }
                 if case .receivedRequest(let details) = flowState, !isVerificationFlowActive {
-                    _activityLog.log(
+                    ActivityLog.shared.log(
                         category: .auth, severity: .info, source: "MatrixService",
                         summary: "Incoming verification request from device \(details.deviceId)"
                     )
@@ -550,7 +544,7 @@ public final class MatrixService: MatrixServiceProtocol {
     /// Use in non-throwing methods where a nil client indicates an unexpected state.
     private var currentClient: ClientProxy? {
         guard let client else {
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .auth, severity: .warning, source: "MatrixService",
                 summary: "Operation attempted without an active client"
             )
@@ -610,8 +604,7 @@ public final class MatrixService: MatrixServiceProtocol {
             room: room, currentUserId: userId(),
             unreadCount: Int(unreadCount),
             notificationKeywords: cachedNotificationKeywords,
-            errorReporter: errorReporter,
-            activityLog: _activityLog
+            errorReporter: errorReporter
         )
         timelineViewModels[roomId] = vm
         touchTimelineAccessOrder(roomId)
@@ -627,8 +620,7 @@ public final class MatrixService: MatrixServiceProtocol {
         return TimelineViewModel(
             room: room,
             currentUserId: userId(),
-            errorReporter: errorReporter,
-            activityLog: _activityLog
+            errorReporter: errorReporter
         )
     }
 
@@ -644,7 +636,7 @@ public final class MatrixService: MatrixServiceProtocol {
         // Rust runtime to drop its internal resources.  There is no explicit
         // unsubscribe API on RoomListService -- the server-side sliding sync
         // window is managed automatically by the SDK.
-        _activityLog.log(
+        ActivityLog.shared.log(
             category: .timeline, severity: .info, source: "MatrixService",
             summary: "Suspended timeline VM", roomId: roomId
         )
@@ -691,7 +683,7 @@ public final class MatrixService: MatrixServiceProtocol {
                 vm.suspend()
             }
             timelineViewModels.removeValue(forKey: candidateId)
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .timeline, severity: .info, source: "MatrixService",
                 summary: "Evicted timeline VM", roomId: candidateId
             )
@@ -1117,7 +1109,7 @@ public final class MatrixService: MatrixServiceProtocol {
     // swiftlint:disable:next cyclomatic_complexity
     public func pinnedMessages(roomId: String) async -> [TimelineMessage] {
         guard let room = room(id: roomId) else {
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .timeline, severity: .warning, source: "MatrixService",
                 summary: "Pinned messages: room not found", roomId: roomId
             )
@@ -1178,7 +1170,7 @@ public final class MatrixService: MatrixServiceProtocol {
                     kind: kind
                 ))
             } catch {
-                _activityLog.log(
+                ActivityLog.shared.log(
                     category: .timeline, severity: .warning, source: "MatrixService",
                     summary: "Pinned messages: failed to fetch event \(eventId)",
                     detail: error.localizedDescription, roomId: roomId
@@ -1525,7 +1517,7 @@ public final class MatrixService: MatrixServiceProtocol {
         isVerificationFlowActive = true
         let viewModel = SessionVerificationViewModel(
             controller: controller, service: self,
-            errorReporter: errorReporter, activityLog: _activityLog,
+            errorReporter: errorReporter,
             acceptingIncomingRequest: acceptingIncomingRequest
         )
         // Reset the flag when the view model is deallocated (sheet dismissed).
@@ -1562,8 +1554,7 @@ public final class MatrixService: MatrixServiceProtocol {
                 matrixRoom: sdkRoom
             )
             let viewModel = CallViewModel(encryptionContext: context)
-            viewModel.activityLog = _activityLog
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .info, source: "MatrixService",
                 summary: "Created call view model",
                 detail: "E2EE: \(isEncrypted ? "enabled" : "disabled")",
@@ -1571,13 +1562,12 @@ public final class MatrixService: MatrixServiceProtocol {
             )
             return viewModel
         } catch {
-            _activityLog.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .warning, source: "MatrixService",
                 summary: "Falling back to unencrypted call",
                 detail: error.localizedDescription, roomId: roomId
             )
             let viewModel = CallViewModel()
-            viewModel.activityLog = _activityLog
             return viewModel
         }
     }
@@ -1595,8 +1585,7 @@ public final class MatrixService: MatrixServiceProtocol {
             accessToken: session.accessToken,
             userID: client.userID,
             deviceID: client.deviceID,
-            serverName: serverName,
-            activityLog: _activityLog
+            serverName: serverName
         )
         let result = try await service.credentials(for: roomId)
         return (livekitURL: result.url, token: result.token, sfuServiceURL: result.sfuServiceURL)

@@ -65,9 +65,6 @@ final class RoomListManager {
     /// Debounce task for re-sorting after room info updates.
     private var resortTask: Task<Void, Never>?
 
-    /// The diagnostic activity log for capturing service-level events.
-    var activityLog: ActivityLog?
-
     /// Callback invoked when a room has new notification-worthy activity.
     ///
     /// The app layer uses this to post system notifications.
@@ -183,7 +180,7 @@ final class RoomListManager {
             }
         }
 
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .roomList, severity: .info, source: "RoomListManager",
             summary: "Room list restarted with new sync service",
             detail: "Preserving \(roomEntries.count) existing room entries"
@@ -232,7 +229,6 @@ final class RoomListManager {
     private func makeEntry(room: Room) -> RoomEntry {
         RoomEntry(
             room: room,
-            activityLog: activityLog,
             onInfoUpdated: { [weak self] in self?.scheduleResort() },
             onNotificationEvent: { [weak self] event in self?.onNotificationEvent?(event) },
             highlightContextProvider: { [weak self] in
@@ -352,7 +348,7 @@ final class RoomListManager {
             case .reset(let v): "reset(\(v.count))"
             }
         }.joined(separator: ", ")
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .roomList, severity: .debug, source: "RoomListManager",
             summary: "\(updates.count) entry update(s): \(entryCountBefore) → \(entryCountAfter) entries",
             detail: diffSummary
@@ -381,7 +377,7 @@ final class RoomListManager {
             state,
             "\(roomCount) rooms"
         )
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .roomList, severity: .debug, source: "RoomListManager",
             summary: "Room list rebuilt: \(roomCount) rooms sorted"
         )
@@ -414,8 +410,6 @@ private final class RoomEntry: Identifiable {
     @ObservationIgnored private var roomInfoHandle: TaskHandle?
     @ObservationIgnored private var listenerTask: Task<Void, Never>?
     @ObservationIgnored private var onInfoUpdated: (() -> Void)?
-    @ObservationIgnored private weak var activityLog: ActivityLog?
-
     @ObservationIgnored private var onNotificationEvent: ((RoomNotificationEvent) -> Void)?
     @ObservationIgnored private var highlightContextProvider: (() -> (userId: String?, keywords: [String]))?
     /// The timestamp (ms) of the last event we fired a notification for.
@@ -429,14 +423,12 @@ private final class RoomEntry: Identifiable {
 
     init(
         room: Room,
-        activityLog: ActivityLog? = nil,
         onInfoUpdated: (() -> Void)? = nil,
         onNotificationEvent: ((RoomNotificationEvent) -> Void)? = nil,
         highlightContextProvider: (() -> (userId: String?, keywords: [String]))? = nil
     ) {
         self.id = room.id()
         self.room = room
-        self.activityLog = activityLog
         self.onInfoUpdated = onInfoUpdated
         self.onNotificationEvent = onNotificationEvent
         self.highlightContextProvider = highlightContextProvider
@@ -585,7 +577,7 @@ private final class RoomEntry: Identifiable {
             if let alias = summary.canonicalAlias {
                 meta["roomAlias"] = alias
             }
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .roomList, severity: .debug, source: "RoomEntry",
                 summary: "Room info updated: \(summary.canonicalAlias ?? summary.name)",
                 detail: "Notifications: \(previousNotifications) → \(summary.notificationCount), highlights: \(summary.highlightCount)",

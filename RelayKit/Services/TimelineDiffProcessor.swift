@@ -62,13 +62,11 @@ struct TimelineDiffProcessor {
     ///   - diffs: The diff batch from the SDK.
     ///   - roomLabel: A human-readable room label for activity log entries.
     ///   - roomId: The room ID for activity log entries.
-    ///   - activityLog: Optional activity log for recording diff summaries.
     // swiftlint:disable:next cyclomatic_complexity
     mutating func applyDiffs(
         _ diffs: [TimelineDiff],
         roomLabel: String,
-        roomId: String,
-        activityLog: ActivityLog?
+        roomId: String
     ) {
         let itemCountBefore = timelineItems.count
         let state = PerformanceSignposts.timeline.beginInterval(
@@ -204,7 +202,7 @@ struct TimelineDiffProcessor {
             }
         }.joined(separator: ", ")
         let changedDesc = pendingChangedIndices.map { "\($0.count) changed" } ?? "full remap"
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .timeline, severity: .debug, source: "TimelineDiffProcessor",
             summary: "\(diffs.count) diff(s) in \(roomLabel): \(itemCountBefore) → \(itemCountAfter) items",
             detail: "Diffs: \(diffSummary)\nIndices: \(changedDesc)",

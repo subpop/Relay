@@ -47,8 +47,6 @@ struct CallEncryptionService {
     /// The Matrix SDK room, used for `sendStateEventRaw` which goes through
     /// the SDK's authenticated client instead of raw REST API calls.
     let sdkRoom: MatrixRustSDK.Room?
-    /// Activity log for surfacing encryption signaling events in the Activity Log window.
-    var activityLog: ActivityLog?
 
     /// The to-device event type used by Element Call for key exchange.
     static let encryptionKeysEventType = "io.element.call.encryption_keys"
@@ -121,7 +119,7 @@ struct CallEncryptionService {
             stateKey: stateKey,
             content: jsonString
         )
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .debug, source: "CallEncryptionService",
             summary: "Sent call membership state event",
             detail: "state_key: \(stateKey), membershipID: \(membership), foci_preferred SFU: \(serviceURL).",
@@ -141,7 +139,7 @@ struct CallEncryptionService {
             stateKey: stateKey,
             content: "{}"
         )
-        activityLog?.log(
+        ActivityLog.shared.log(
             category: .call, severity: .debug, source: "CallEncryptionService",
             summary: "Removed call membership state event",
             roomId: roomID
@@ -195,7 +193,7 @@ struct CallEncryptionService {
         let active = summaries.filter { $0.isActive }
         let tombstoned = summaries.count - active.count
         if active.isEmpty {
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .debug, source: "CallEncryptionService",
                 summary: "No active call members in room",
                 detail: "Total `m.call.member` events scanned: \(summaries.count) (\(tombstoned) tombstoned).",
@@ -207,7 +205,7 @@ struct CallEncryptionService {
                 let mid = summary.membershipID ?? "(no membershipID)"
                 return "  \(summary.stateKey) — SFU: \(sfu), membershipID: \(mid)"
             }
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .call, severity: .debug, source: "CallEncryptionService",
                 summary: "Active call members in room: \(active.count)",
                 detail: "Scanned \(summaries.count) `m.call.member` events (\(tombstoned) tombstoned).\n\(lines.joined(separator: "\n"))",

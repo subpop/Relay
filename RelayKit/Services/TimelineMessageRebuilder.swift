@@ -42,7 +42,6 @@ final class TimelineMessageRebuilder {
     private let unreadCount: Int
     private let roomLabel: String
     private let roomId: String
-    private weak var activityLog: ActivityLog?
 
     /// Debounce task for row rebuilds. Collapses rapid successive
     /// `applyMappingResult()` calls into a single row swap so the
@@ -84,11 +83,10 @@ final class TimelineMessageRebuilder {
     /// Passed through to `MessageRowBuilder.buildRows` for pagination trigger computation.
     var hasReachedStart = false
 
-    init(unreadCount: Int, roomLabel: String, roomId: String, activityLog: ActivityLog?) {
+    init(unreadCount: Int, roomLabel: String, roomId: String) {
         self.unreadCount = unreadCount
         self.roomLabel = roomLabel
         self.roomId = roomId
-        self.activityLog = activityLog
     }
 
     /// Invalidates the generation counter so any in-flight background mapping
@@ -169,7 +167,7 @@ final class TimelineMessageRebuilder {
                 rebuildState,
                 "discarded (stale generation)"
             )
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .timeline, severity: .debug, source: "TimelineMessageRebuilder",
                 summary: "Rebuild discarded in \(roomLabel) (stale generation \(generation))",
                 roomId: roomId
@@ -221,7 +219,7 @@ final class TimelineMessageRebuilder {
         if changed {
             messages = mapping.messages
             messagesVersion &+= 1
-            activityLog?.log(
+            ActivityLog.shared.log(
                 category: .timeline, severity: .debug, source: "TimelineMessageRebuilder",
                 summary: "Messages updated in \(roomLabel): \(mapping.messages.count) messages (v\(messagesVersion))",
                 roomId: roomId

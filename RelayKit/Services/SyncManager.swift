@@ -159,7 +159,6 @@ final class SyncManager {
     // MARK: - Private Properties
 
     private let networkMonitor: NetworkMonitor
-    private let activityLog: ActivityLog
 
     private var client: (any ClientProxyProtocol)?
     private var syncStateHandle: TaskHandle?
@@ -190,9 +189,8 @@ final class SyncManager {
 
     // MARK: - Initialization
 
-    init(networkMonitor: NetworkMonitor, activityLog: ActivityLog) {
+    init(networkMonitor: NetworkMonitor) {
         self.networkMonitor = networkMonitor
-        self.activityLog = activityLog
     }
 
     // MARK: - Public API
@@ -211,7 +209,7 @@ final class SyncManager {
 
         self.client = client
         syncState = .syncing
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .info, source: "SyncManager",
             summary: "Starting sync"
         )
@@ -223,7 +221,7 @@ final class SyncManager {
         let reachedRunning = await waitForFirstSync()
         reconnectAttempt = 0
         transitionPhase(to: .active)
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: reachedRunning ? .info : .warning, source: "SyncManager",
             summary: reachedRunning ? "Initial sync reached running state" : "Initial sync did not reach running state"
         )
@@ -353,7 +351,7 @@ final class SyncManager {
 
         case (.active, .sdkState(.running)):
             syncState = .running
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .info, source: "SyncManager",
                 summary: "Sync state: running"
             )
@@ -362,7 +360,7 @@ final class SyncManager {
             break
 
         case (.active, .sdkState(.offline)):
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .warning, source: "SyncManager",
                 summary: "SDK reported offline — transitioning to offline + backoff retry"
             )
@@ -370,14 +368,14 @@ final class SyncManager {
             scheduleReconnect()
 
         case (.active, .sdkState(.terminated)):
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .error, source: "SyncManager",
                 summary: "Sync service terminated"
             )
             syncState = .error("The sync service was terminated.")
 
         case (.active, .sdkState(.error)):
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .error, source: "SyncManager",
                 summary: "SDK sync error — transitioning to offline + backoff retry"
             )
@@ -425,7 +423,7 @@ final class SyncManager {
             // Rebuild succeeded — the SDK reached running state.
             // waitForFirstSync() will pick this up and complete.
             syncState = .running
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .info, source: "SyncManager",
                 summary: "Sync state: running (rebuild complete)"
             )
@@ -434,14 +432,14 @@ final class SyncManager {
              (.rebuilding, .sdkState(.offline)):
             // Suppress during rebuild — the rebuild's error handling
             // path will deal with this via waitForFirstSync().
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .debug, source: "SyncManager",
                 summary: "SDK state suppressed during rebuild",
                 detail: "Input: \(input), phase: \(phase)"
             )
 
         case (.rebuilding, .sdkState(.terminated)):
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .error, source: "SyncManager",
                 summary: "Sync service terminated during rebuild"
             )
@@ -469,7 +467,7 @@ final class SyncManager {
         // ── Pending Restore ─────────────────────────────────────────
 
         case (.pendingRestore, .networkOnline):
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .info, source: "SyncManager",
                 summary: "Retrying deferred session restore"
             )
@@ -491,7 +489,7 @@ final class SyncManager {
         // SyncServiceState is a non-frozen SDK enum; future versions
         // may add new cases. Log and ignore.
         default:
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .debug, source: "SyncManager",
                 summary: "Unhandled input ignored",
                 detail: "Input: \(input), phase: \(phase)"
@@ -520,7 +518,7 @@ final class SyncManager {
         transitionPhase(to: .offline)
         syncState = .offline
 
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .warning, source: "SyncManager",
             summary: "Sync service stopped — offline"
         )
@@ -541,7 +539,7 @@ final class SyncManager {
 
         transitionPhase(to: .sleeping)
 
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .info, source: "SyncManager",
             summary: "System sleep — tearing down sync service"
         )
@@ -553,7 +551,7 @@ final class SyncManager {
     private func rebuildAfterWake() async {
         guard let client else { return }
 
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .info, source: "SyncManager",
             summary: "System wake — rebuilding sync service"
         )
@@ -566,7 +564,7 @@ final class SyncManager {
     private func rebuildAfterOnline() async {
         guard let client else { return }
 
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .info, source: "SyncManager",
             summary: "Rebuilding sync service",
             detail: "Reconnect attempt #\(reconnectAttempt)"
@@ -595,7 +593,7 @@ final class SyncManager {
             guard phase == .rebuilding else { return }
 
             guard reached else {
-                activityLog.log(
+                ActivityLog.shared.log(
                     category: .sync, severity: .warning, source: "SyncManager",
                     summary: "Rebuild did not reach running state"
                 )
@@ -620,7 +618,7 @@ final class SyncManager {
             guard phase == .rebuilding else { return }
 
             if NetworkErrorClassifier.isAuthenticationError(error) {
-                activityLog.log(
+                ActivityLog.shared.log(
                     category: .sync, severity: .error, source: "SyncManager",
                     summary: "Rebuild failed — session invalidated",
                     detail: error.localizedDescription
@@ -631,7 +629,7 @@ final class SyncManager {
                 // user to the login screen.
                 await onAuthenticationFailure?()
             } else if NetworkErrorClassifier.isOfflineShaped(error) {
-                activityLog.log(
+                ActivityLog.shared.log(
                     category: .sync, severity: .warning, source: "SyncManager",
                     summary: "Rebuild failed (server unreachable)",
                     detail: error.localizedDescription
@@ -640,7 +638,7 @@ final class SyncManager {
                 syncState = .offline
                 scheduleReconnect()
             } else {
-                activityLog.log(
+                ActivityLog.shared.log(
                     category: .sync, severity: .error, source: "SyncManager",
                     summary: "Rebuild failed",
                     detail: error.localizedDescription
@@ -735,7 +733,7 @@ final class SyncManager {
         let slots = Int.random(in: 0..<upperBound)
         let delay = Double(slots) * baseSlotSeconds
         reconnectAttempt += 1
-        activityLog.log(
+        ActivityLog.shared.log(
             category: .sync, severity: .info, source: "SyncManager",
             summary: "Scheduling reconnect attempt #\(reconnectAttempt)",
             detail: "Delay: \(String(format: "%.1f", delay))s (slot \(slots)/\(upperBound), exponent \(attempt))"
@@ -752,7 +750,7 @@ final class SyncManager {
         let oldPhase = phase
         phase = newPhase
         if oldPhase != newPhase {
-            activityLog.log(
+            ActivityLog.shared.log(
                 category: .sync, severity: .debug, source: "SyncManager",
                 summary: "Phase: \(oldPhase) → \(newPhase)"
             )
