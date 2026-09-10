@@ -44,7 +44,7 @@ struct MessageReactionBadges: View {
 
     /// The overlay's offset from the bubble's corner.
     private static let cornerOffsetX: CGFloat = 8
-    private static let cornerOffsetY: CGFloat = -11
+    private static let cornerOffsetY: CGFloat = -16
 
     @State private var isExpanded = false
 
@@ -81,7 +81,7 @@ struct MessageReactionBadges: View {
     private var expandedRow: some View {
         HStack(spacing: Self.expandedSpacing) {
             if isOutgoing {
-                expandButton
+                collapseButton
             }
 
             ForEach(reactions) { reaction in
@@ -94,19 +94,17 @@ struct MessageReactionBadges: View {
             }
 
             if !isOutgoing {
-                expandButton
+                collapseButton
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 6)
     }
 
-    /// The button that expands the control (filled smiley on a material circle)
-    /// and collapses it (plain xmark). Leading for outgoing messages, trailing
-    /// for incoming ones.
-    private var expandButton: some View {
+    /// The button that collapses an expanded row.
+    private var collapseButton: some View {
         Button(action: { isExpanded.toggle() }) {
-            Image(systemName: isExpanded ? "xmark" : "face.smiling")
+            Image(systemName: "xmark")
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)
                 .frame(width: Self.badgeSize, height: Self.badgeSize)
@@ -123,32 +121,26 @@ struct MessageReactionBadges: View {
     
     /// Collapsed state: shows up to 3 of the actual reaction emojis stacked together
     private var collapsedPreview: some View {
-        Group {
-            if reactions.isEmpty {
-                expandButton
-            } else {
-                Button(action: { isExpanded.toggle() }) {
-                    HStack(spacing: 2) {
-                        ForEach(reactions.prefix(3)) { reaction in
-                            Text(reaction.key)
-                                .font(.system(size: 12))
-                        }
-                        if reactions.count > 3 {
-                            Text("+\(reactions.count - 3)")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 3)
-                                .padding(.vertical, 1)
-                                .background(.secondary, in: Capsule())
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: Self.badgeSize)
-                    .contentShape(Capsule())
+        Button(action: { isExpanded.toggle() }) {
+            HStack(spacing: 2) {
+                ForEach(reactions.prefix(3)) { reaction in
+                    Text(reaction.key)
+                        .font(.system(size: 12))
                 }
-                .buttonStyle(.plain)
+                if reactions.count > 3 {
+                    Text("+\(reactions.count - 3)")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(.secondary, in: Capsule())
+                }
             }
+            .padding(.horizontal, 8)
+            .frame(height: Self.badgeSize)
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
     }
 }
 
