@@ -25,29 +25,33 @@ struct SettingsBehaviorTab: View {
     @AppStorage("behavior.alwaysLoadNewest") private var alwaysLoadNewest = true
     @AppStorage("behavior.showMembershipEvents") private var showMembershipEvents = true
     @AppStorage("behavior.showStateEvents") private var showStateEvents = true
+    @AppStorage("analytics.giphy.optIn") private var giphyAnalyticsOptIn = false
 
     var body: some View {
         Form {
-            Section("Privacy") {
+            Section {
                 Toggle("Send Read Receipts", isOn: $sendReadReceipts)
                 Toggle("Send Typing Notifications", isOn: $sendTypingNotifications)
-            }
-
-            Section {
-                Toggle("Always Load Newest Messages", isOn: $alwaysLoadNewest)
+                Toggle(isOn: $giphyAnalyticsOptIn) {
+                    Text("Personalize GIF Search Results")
+                    Text("When enabled, Relay uses an anonymouse identifier to improve search results sent to GIPHY. When disabled, no identifier is sent at all.")
+                    Link("GIPHY Privacy Policy", destination: URL(string: "https://support.giphy.com/hc/en-us/articles/360032872931-GIPHY-Privacy-Policy")!).font(.caption)
+                }
             } header: {
-                Text("Timeline")
-                // swiftlint:disable:next line_length
-                Text("When disabled, rooms open at your last read position so you can catch up on missed messages.")
+                Text("Privacy")
+                Text("Read receipts and typing indicators are visible to other members in a room.")
+            } footer: {
             }
 
             Section {
+                Toggle(isOn: $alwaysLoadNewest) {
+                    Text("Always Load Newest Messages")
+                    Text("When disabled, rooms open at your last read position so you can catch up on missed messages.")
+                }
                 Toggle("Show Membership & Profile Changes", isOn: $showMembershipEvents)
                 Toggle("Show Room State Changes", isOn: $showStateEvents)
             } header: {
-                Text("Timeline Events")
-                // swiftlint:disable:next line_length
-                Text("Control which system events appear in the timeline, such as users joining or leaving, and room setting changes.")
+                Text("Timeline")
             }
 
             Section {

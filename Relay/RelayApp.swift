@@ -34,7 +34,8 @@ struct RelayApp: App {
     private static let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
 
     @State private var matrixService = MatrixService()
-    @State private var gifSearchService = GiphyService(apiKey: Secrets.giphyAPIKey ?? "")
+    @State private var giphyIdentityStore = GiphyIdentityStore.shared
+    @State private var gifSearchService = GiphyService(apiKey: Secrets.giphyAPIKey ?? "", identityStore: .shared)
     @State private var callManager = CallManager()
     @State private var notificationDelegate = NotificationDelegate()
     @State private var appActions = AppActions()
@@ -45,6 +46,7 @@ struct RelayApp: App {
 
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @AppStorage("appearance.mode") private var appearanceMode: AppAppearance = .system
+    @AppStorage("analytics.giphy.optIn") private var analyticsGiphyOptIn = false
 
     var body: some Scene {
         WindowGroup(id: "main") {
@@ -126,6 +128,11 @@ struct RelayApp: App {
                 .onChange(of: dockBadgeCount) { _, newCount in
                     NSApp.dockTile.badgeLabel = newCount > 0 ? "\(newCount)" : nil
                 }
+                .onChange(of: analyticsGiphyOptIn) { _, _ in
+                    Task {
+                        await giphyIdentityStore.bootstrap(apiKey: Secrets.giphyAPIKey ?? "")
+                    }
+                }
                 .onChange(of: matrixService.pendingVerificationRequest?.id) { _, newValue in
                     if newValue != nil, let request = matrixService.pendingVerificationRequest {
                         postVerificationNotification(request: request)
@@ -148,6 +155,7 @@ struct RelayApp: App {
                     }
                 }
                 .task {
+                    await giphyIdentityStore.bootstrap(apiKey: Secrets.giphyAPIKey ?? "")
                     await setupNotifications()
                     matrixService.onNotificationEvent = { event in
                         Task { @MainActor in

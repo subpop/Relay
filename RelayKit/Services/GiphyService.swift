@@ -35,16 +35,19 @@ public final class GiphyService: GIFSearchServiceProtocol {
 
     private let session: URLSession
     private let baseURL = "https://api.giphy.com/v1/gifs"
+    private let identityStore: GiphyIdentityStore?
 
     /// Creates a GIPHY service with the given API key.
     ///
     /// - Parameters:
     ///   - apiKey: The GIPHY API key.
     ///   - rating: Content rating filter (default: `"pg"`).
-    public init(apiKey: String = "", rating: String = "pg") {
+    ///   - identityStore: Store that provides the `random_id` for analytics. Pass `nil` to disable tracking params.
+    public init(apiKey: String = "", rating: String = "pg", identityStore: GiphyIdentityStore? = nil) {
         self.apiKey = apiKey
         self.rating = rating
         self.session = URLSession.shared
+        self.identityStore = identityStore
     }
 
     // MARK: - GIFSearchServiceProtocol
@@ -59,6 +62,9 @@ public final class GiphyService: GIFSearchServiceProtocol {
             URLQueryItem(name: "rating", value: rating),
             URLQueryItem(name: "lang", value: Locale.current.language.languageCode?.identifier ?? "en")
         ]
+        if let customerID = identityStore?.currentID {
+            components.queryItems?.append(URLQueryItem(name: "customer_id", value: customerID))
+        }
 
         guard let url = components.url else {
             throw GiphyError.invalidURL
@@ -83,6 +89,9 @@ public final class GiphyService: GIFSearchServiceProtocol {
             URLQueryItem(name: "offset", value: String(offset)),
             URLQueryItem(name: "rating", value: rating)
         ]
+        if let customerID = identityStore?.currentID {
+            components.queryItems?.append(URLQueryItem(name: "customer_id", value: customerID))
+        }
 
         guard let url = components.url else {
             throw GiphyError.invalidURL
@@ -100,9 +109,13 @@ public final class GiphyService: GIFSearchServiceProtocol {
     }
 
     public func registerAction(url: URL) async {
-        // Fire-and-forget analytics pingback. Append timestamp and discard errors.
+        // Analytics are only sent when the user has opted in (identityStore has an ID).
+        guard let customerID = identityStore?.currentID else { return }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var items = components?.queryItems ?? []
+        if !items.contains(where: { $0.name == "customer_id" }) {
+            items.append(URLQueryItem(name: "customer_id", value: customerID))
+        }
         items.append(URLQueryItem(name: "ts", value: String(Int(Date.now.timeIntervalSince1970 * 1000))))
         components?.queryItems = items
 
