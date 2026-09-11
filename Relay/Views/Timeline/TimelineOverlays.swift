@@ -99,7 +99,6 @@ struct TimelineReactionPickerOverlay: View {
                 isOutgoing: state.isOutgoing,
                 onSelect: { emoji in
                     if let messageId = state.messageId {
-                        RecentEmojiStore.shared.recordUsage(emoji)
                         actions.toggleReaction(messageId, emoji)
                     }
                 },

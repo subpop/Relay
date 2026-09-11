@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3B3241B430525E06008DEDC6 /* EmojiKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BEM00062FC10006001F0EA1 /* EmojiKit */; };
 		3B3B82C42FC69A9F008DCEDC /* RelayShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3B3B82B82FC69A9F008DCEDC /* RelayShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3B3B82D52FC69C2F008DCEDC /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3B3B82D42FC69C2F008DCEDC /* Intents.framework */; };
 		3BMRST012FB10001001F0EA1 /* MatrixRustSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMRST022FB10002001F0EA1 /* MatrixRustSDK */; };
@@ -151,6 +152,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3B3241B430525E06008DEDC6 /* EmojiKit in Frameworks */,
 				DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */,
 				3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */,
 				3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */,
@@ -286,6 +288,7 @@
 			packageProductDependencies = (
 				3BRI00042FC10004001F0EA1 /* RelayInterface */,
 				DFDAFCB12FA2C56400A27353 /* LiveKit */,
+				3BEM00062FC10006001F0EA1 /* EmojiKit */,
 			);
 			productName = Relay;
 			productReference = 3B4AFD892F638A35001F0EA1 /* Relay.app */;
@@ -355,6 +358,7 @@
 				3BRI00052FC10005001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayInterface" */,
 				3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */,
 				3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+				3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3B4AFD8A2F638A35001F0EA1 /* Products */;
@@ -927,6 +931,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/danielsaidi/EmojiKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.1;
+			};
+		};
 		3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/livekit/client-sdk-swift";
@@ -946,6 +958,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		3BEM00062FC10006001F0EA1 /* EmojiKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */;
+			productName = EmojiKit;
+		};
 		3BLK00022FD10002001F0EA1 /* LiveKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
