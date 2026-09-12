@@ -103,9 +103,8 @@ struct MessageTextView: NSViewRepresentable {
 
         /// Offscreen TextKit 2 stack used exclusively for measurement in
         /// `sizeThatFits`. Measuring on a separate stack avoids mutating the
-        /// display text view's `NSTextLayoutManager`, which would tear down
-        /// and recreate `NSTextAttachmentViewProvider` views on every
-        /// layout pass.
+        /// display text view's `NSTextLayoutManager`, which would disturb
+        /// attachment layout on every measurement pass.
         let measureContentStorage = NSTextContentStorage()
         let measureLayoutManager = NSTextLayoutManager()
         let measureContainer: NSTextContainer = {
@@ -139,7 +138,7 @@ struct MessageTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MessageTextContent {
         // Default NSTextView init creates a TextKit 2 stack (NSTextLayoutManager),
-        // enabling NSTextAttachmentViewProvider for live SwiftUI pill rendering.
+        // enabling TextKit 2 attachment rendering for pills and quote icons.
         // The frame height is a placeholder — SwiftUI sizes the view via
         // `sizeThatFits`. A non-finite height is invalid view geometry.
         let view = MessageTextContent(
@@ -149,12 +148,9 @@ struct MessageTextView: NSViewRepresentable {
         view.textContainer?.lineFragmentPadding = 0
         view.clipsToBounds = false
         // Prevent NSTextView from flattening subviews into its own layer.
-        // NSHostingView (used by NSTextAttachmentViewProvider for pills and
-        // quote icons) manages its own backing layer. When the text view is
-        // embedded in SwiftUI's layer-backed hierarchy,
-        // canDrawSubviewsIntoLayer can default to true, which causes the
-        // text view's drawing pass to overwrite the hosting views' layer
-        // content — attachment views render briefly then go blank.
+        // (Historical fix for hosted attachment views rendering briefly
+        // then going blank; attachments now render as bitmap images, so
+        // this is retained only as defense.)
         view.canDrawSubviewsIntoLayer = false
         view.isEditable = false
         view.isSelectable = true
@@ -242,9 +238,8 @@ struct MessageTextView: NSViewRepresentable {
 
         // Measure on a separate, offscreen TextKit 2 stack so the display
         // text view's NSTextLayoutManager is never mutated. This preserves
-        // any NSTextAttachmentViewProvider views the display layout created
-        // during rendering — mutating the display layout (as the old code
-        // did) would tear those views down on every measurement pass.
+        // the display layout — mutating it (as the old code did) would
+        // disturb attachment layout on every measurement pass.
         _ = coordinator.measureStackReady
         // swiftlint:disable:next identifier_name
         let ms = coordinator.measureContentStorage

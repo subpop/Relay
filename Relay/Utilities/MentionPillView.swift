@@ -44,10 +44,10 @@ enum MentionPillStyle: Sendable {
 
 /// A capsule-shaped pill view for inline mention display.
 ///
-/// ``MentionPillView`` is displayed inline by ``PillTextAttachment``. In
-/// TextKit 2 contexts it is hosted live via ``PillTextAttachmentViewProvider``;
-/// a bitmap snapshot is kept as a fallback. It displays `@DisplayName` in a
-/// rounded capsule styled according to its ``MentionPillStyle``.
+/// ``MentionPillView`` is displayed inline by ``PillTextAttachment``, which
+/// keeps a bitmap snapshot of it as the attachment image. It displays
+/// `@DisplayName` in a rounded capsule styled according to its
+/// ``MentionPillStyle``.
 struct MentionPillView: View {
     let displayName: String
 

@@ -15,50 +15,6 @@
 import AppKit
 import SwiftUI
 
-// MARK: - QuoteTextAttachmentViewProvider
-
-/// Provides a live SwiftUI ``QuoteIconView`` for inline rendering of the
-/// blockquote icon in TextKit 2 text layouts.
-///
-/// This provider hosts the SwiftUI view directly in the text layout via
-/// `NSHostingView`, so the icon adapts automatically to appearance changes,
-/// accessibility settings, and Retina displays without manual scaling.
-nonisolated final class QuoteTextAttachmentViewProvider: NSTextAttachmentViewProvider {
-
-    nonisolated override init(
-        textAttachment: NSTextAttachment,
-        parentView: NSView?,
-        textLayoutManager: NSTextLayoutManager?,
-        location: any NSTextLocation
-    ) {
-        super.init(
-            textAttachment: textAttachment,
-            parentView: parentView,
-            textLayoutManager: textLayoutManager,
-            location: location
-        )
-    }
-
-    override func loadView() {
-        nonisolated(unsafe) let provider = self
-        MainActor.assumeIsolated {
-            guard let attachment = provider.textAttachment as? QuoteTextAttachment else { return }
-
-            let colorScheme: ColorScheme =
-                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? .dark : .light
-
-            let quoteView = QuoteIconView(tint: attachment.tint)
-                .frame(width: attachment.bounds.width, height: attachment.bounds.height)
-                .environment(\.colorScheme, colorScheme)
-
-            let hostingView = NSHostingView(rootView: quoteView)
-            hostingView.sizingOptions = .intrinsicContentSize
-            provider.view = hostingView
-        }
-    }
-}
-
 // MARK: - QuoteTextAttachment
 
 /// An `NSTextAttachment` subclass that renders the leading quote icon for a
@@ -71,10 +27,10 @@ nonisolated final class QuoteTextAttachmentViewProvider: NSTextAttachmentViewPro
 /// replaces the placeholder with a ``QuoteTextAttachment``, so the icon can be
 /// tinted to match the message bubble's foreground.
 ///
-/// In TextKit 2 contexts the icon renders as a live SwiftUI ``QuoteIconView``
-/// via ``QuoteTextAttachmentViewProvider``. A bitmap snapshot is kept on
-/// ``image`` as a fallback for contexts where the view provider is not invoked
-/// (e.g. offscreen measurement stacks, copy/paste).
+/// The icon is rendered as a bitmap snapshot of ``QuoteIconView`` (kept on
+/// ``image``), so it draws identically in every TextKit 2 context — display
+/// layouts, offscreen measurement stacks, and copy/paste — with no hosted
+/// view lifecycle to tear down on layout invalidation.
 nonisolated final class QuoteTextAttachment: NSTextAttachment, @unchecked Sendable {
 
     // MARK: - Sizing
@@ -144,29 +100,10 @@ nonisolated final class QuoteTextAttachment: NSTextAttachment, @unchecked Sendab
         fatalError("QuoteTextAttachment does not support NSCoding")
     }
 
-    // MARK: - View Provider
-
-    override var usesTextAttachmentView: Bool { true }
-
-    @preconcurrency
-    override func viewProvider(
-        for parentView: NSView?,
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?
-    ) -> NSTextAttachmentViewProvider? {
-        QuoteTextAttachmentViewProvider(
-            textAttachment: self,
-            parentView: parentView,
-            textLayoutManager: textContainer?.textLayoutManager,
-            location: location
-        )
-    }
-
-    // MARK: - Image Fallback
+    // MARK: - Image Rendering
 
     /// Renders the ``QuoteIconView`` to an `NSImage` at 2x resolution.
-    /// Used as a fallback for contexts where the view provider is not invoked
-    /// (e.g. offscreen measurement stacks, copy/paste).
+    /// This bitmap is the icon's rendered form in every TextKit 2 context.
     private static func renderFallback(tint: Color, bounds: CGRect) -> NSImage? {
         MainActor.assumeIsolated {
             let quoteView = QuoteIconView(tint: tint)
@@ -182,10 +119,10 @@ nonisolated final class QuoteTextAttachment: NSTextAttachment, @unchecked Sendab
 
 /// A monochrome quote glyph tinted to match the surrounding message bubble.
 ///
-/// ``QuoteIconView`` is displayed inline by ``QuoteTextAttachment``. In
-/// TextKit 2 contexts it is hosted live via ``QuoteTextAttachmentViewProvider``;
-/// a bitmap snapshot is kept as a fallback. Callers size it with a fixed frame
-/// matching the attachment bounds, so the glyph scales to fit the line box.
+/// ``QuoteIconView`` is displayed inline by ``QuoteTextAttachment``, which
+/// keeps a bitmap snapshot of it as the attachment image. Callers size it
+/// with a fixed frame matching the attachment bounds, so the glyph scales
+/// to fit the line box.
 struct QuoteIconView: View {
     /// The tint applied to the glyph, derived from the bubble's foreground.
     var tint: Color = .primary

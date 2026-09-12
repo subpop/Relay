@@ -25,56 +25,6 @@ extension NSAttributedString.Key {
     static let mentionDisplayName = NSAttributedString.Key("relay.mentionDisplayName")
 }
 
-// MARK: - PillTextAttachmentViewProvider
-
-/// Provides a live SwiftUI ``MentionPillView`` for inline rendering of
-/// mention pills in TextKit 2 text layouts.
-///
-/// This provider hosts the SwiftUI view directly in the text layout via
-/// `NSHostingView`, so the pill adapts automatically to appearance changes,
-/// accessibility settings, and Retina displays without manual scaling.
-nonisolated final class PillTextAttachmentViewProvider: NSTextAttachmentViewProvider {
-
-    nonisolated override init(
-        textAttachment: NSTextAttachment,
-        parentView: NSView?,
-        textLayoutManager: NSTextLayoutManager?,
-        location: any NSTextLocation
-    ) {
-        super.init(
-            textAttachment: textAttachment,
-            parentView: parentView,
-            textLayoutManager: textLayoutManager,
-            location: location
-        )
-    }
-
-    override func loadView() {
-        nonisolated(unsafe) let provider = self
-        MainActor.assumeIsolated {
-            guard let attachment = provider.textAttachment as? PillTextAttachment else { return }
-
-            let tintColor = Color(stableColorFor: attachment.userId)
-            let colorScheme: ColorScheme =
-                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? .dark : .light
-
-            let pillView = MentionPillView(
-                displayName: attachment.displayName,
-                tintColor: tintColor,
-                style: attachment.style,
-                showAtPrefix: attachment.showAtPrefix,
-                fontSize: attachment.pillFontSize
-            )
-            .environment(\.colorScheme, colorScheme)
-
-            let hostingView = NSHostingView(rootView: pillView)
-            hostingView.sizingOptions = .intrinsicContentSize
-            provider.view = hostingView
-        }
-    }
-}
-
 // MARK: - PillTextAttachment
 
 /// An `NSTextAttachment` subclass that represents an inline mention pill.
@@ -83,10 +33,10 @@ nonisolated final class PillTextAttachmentViewProvider: NSTextAttachmentViewProv
 /// character (`\u{FFFC}`) is atomically deletable — deleting any part of it
 /// removes the entire mention.
 ///
-/// In TextKit 2 contexts the pill is rendered as a live SwiftUI
-/// ``MentionPillView`` via ``PillTextAttachmentViewProvider``. A bitmap
-/// snapshot is kept on ``image`` as a fallback for contexts where the view
-/// provider is not invoked (e.g. offscreen measurement stacks, copy/paste).
+/// The pill is rendered as a bitmap snapshot of ``MentionPillView`` (kept on
+/// ``image``), so it draws identically in every TextKit 2 context — display
+/// layouts, offscreen measurement stacks, and copy/paste — with no hosted
+/// view lifecycle to tear down on layout invalidation.
 nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendable {
 
     /// The Matrix user ID for this mention (e.g. `@alice:matrix.org`).
@@ -163,29 +113,10 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         fatalError("PillTextAttachment does not support NSCoding")
     }
 
-    // MARK: - View Provider
-
-    override var usesTextAttachmentView: Bool { true }
-
-    @preconcurrency
-    override func viewProvider(
-        for parentView: NSView?,
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?
-    ) -> NSTextAttachmentViewProvider? {
-        PillTextAttachmentViewProvider(
-            textAttachment: self,
-            parentView: parentView,
-            textLayoutManager: textContainer?.textLayoutManager,
-            location: location
-        )
-    }
-
-    // MARK: - Image Fallback
+    // MARK: - Image Rendering
 
     /// Renders the ``MentionPillView`` to an `NSImage` at 2x resolution.
-    /// Used as a fallback for contexts where the view provider is not invoked
-    /// (e.g. offscreen measurement stacks, copy/paste).
+    /// This bitmap is the pill's rendered form in every TextKit 2 context.
     private static func renderPill(
         userId: String, displayName: String, fontSize: CGFloat,
         style: MentionPillStyle, showAtPrefix: Bool = true
