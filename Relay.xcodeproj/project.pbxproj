@@ -15,8 +15,8 @@
 		3BMK00042FE10004001F0EA1 /* MatrixKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00022FE10002001F0EA1 /* MatrixKit */; };
 		3BMK00052FE10005001F0EA1 /* MatrixKitSwiftData in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00032FE10003001F0EA1 /* MatrixKitSwiftData */; };
 		3BMK00062FE10006001F0EA1 /* MatrixRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00072FE10007001F0EA1 /* MatrixRTC */; };
-		DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = DFDAFCB12FA2C56400A27353 /* LiveKit */; };
 		3BSL00012FE10001001F0EA1 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 3BSL00022FE10002001F0EA1 /* Logging */; };
+		DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = DFDAFCB12FA2C56400A27353 /* LiveKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -550,7 +550,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 46UKXDYHHC;
@@ -572,7 +572,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.5.10;
+				MARKETING_VERSION = 0.6.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -619,7 +619,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 46UKXDYHHC;
@@ -635,7 +635,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.5.10;
+				MARKETING_VERSION = 0.6.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -784,14 +784,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/subpop/MatrixKit";
-			requirement = {
-				kind = branch;
-				branch = main;
-			};
-		};
 		3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/danielsaidi/EmojiKit";
@@ -806,6 +798,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 2.0.0;
+			};
+		};
+		3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/subpop/MatrixKit";
+			requirement = {
+				branch = main;
+				kind = branch;
 			};
 		};
 		3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */ = {
@@ -849,15 +849,15 @@
 			package = 3BRS00012FE10001001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayShared" */;
 			productName = RelayShared;
 		};
-		DFDAFCB12FA2C56400A27353 /* LiveKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
-			productName = LiveKit;
-		};
 		3BSL00022FE10002001F0EA1 /* Logging */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */;
 			productName = Logging;
+		};
+		DFDAFCB12FA2C56400A27353 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
