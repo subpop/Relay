@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Encapsulates the visual properties of a message bubble: background color,
@@ -53,17 +53,18 @@ struct BubbleStyle {
 
     /// Returns the bubble style for a regular message (text, image, video, audio).
     static func message(
-        for message: TimelineMessage,
+        isOutgoing: Bool,
+        senderID: String,
         coloredBubbles: Bool
     ) -> BubbleStyle {
-        let usesWhite = message.isOutgoing || coloredBubbles
+        let usesWhite = isOutgoing || coloredBubbles
         let background: Color
-        if message.isOutgoing {
+        if isOutgoing {
             background = coloredBubbles
-                ? Color(stableColorFor: message.senderID)
+                ? Color(stableColorFor: senderID)
                 : .accentColor
         } else if coloredBubbles {
-            background = Color(stableColorFor: message.senderID)
+            background = Color(stableColorFor: senderID)
         } else {
             background = Color(.unemphasizedSelectedContentBackgroundColor)
         }
@@ -104,19 +105,19 @@ struct BubbleStyle {
     )
 
     /// Returns the bubble style for special message types (redacted, encrypted, etc.).
-    static func special(kind: TimelineMessage.Kind) -> BubbleStyle {
+    static func special(kind: MessageKind) -> BubbleStyle {
         let background: Color = switch kind {
         case .redacted: Color(.systemGray).opacity(0.1)
-        case .encrypted: Color.orange.opacity(0.1)
+        case .unableToDecrypt: Color.orange.opacity(0.1)
         default: Color(.systemGray).opacity(0.15)
         }
-        let foreground: Color = switch kind {
-        case .encrypted: .orange
-        default: .primary
+        let foreground: AnyShapeStyle = switch kind {
+        case .unableToDecrypt: AnyShapeStyle(.orange)
+        default: AnyShapeStyle(.primary.opacity(0.6))
         }
         return BubbleStyle(
             backgroundColor: background,
-            foregroundStyle: AnyShapeStyle(foreground.opacity(0.6)),
+            foregroundStyle: foreground,
             _usesWhiteText: false
         )
     }

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import RelayShared
 
 /// Loads the cached room list from the app group container for the share extension.
 ///

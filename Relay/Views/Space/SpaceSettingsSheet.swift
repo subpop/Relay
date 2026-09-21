@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -23,7 +23,7 @@ import UniformTypeIdentifiers
 /// Changes are saved individually as each field is committed, matching the
 /// behavior of the existing room security settings.
 struct SpaceSettingsSheet: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.dismiss) private var dismiss
 
@@ -41,7 +41,7 @@ struct SpaceSettingsSheet: View {
     init(spaceId: String, details: RoomDetails) {
         self.spaceId = spaceId
         self.initialDetails = details
-        _name = State(initialValue: details.name)
+        _name = State(initialValue: details.name ?? "")
         _topic = State(initialValue: details.topic ?? "")
         _joinRule = State(initialValue: details.joinRule ?? "invite")
         _isPublic = State(initialValue: details.isPublic)
@@ -176,7 +176,7 @@ struct SpaceSettingsSheet: View {
         HStack {
             AvatarView(
                 name: name,
-                mxcURL: initialDetails.avatarURL,
+                mxcURL: initialDetails.avatarURL?.value,
                 size: 48
             )
 
@@ -205,31 +205,31 @@ struct SpaceSettingsSheet: View {
     private func saveName() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != initialDetails.name else { return }
-        performUpdate { try await matrixService.setRoomName(roomId: spaceId, name: trimmed) }
+        performUpdate { try await client.setRoomName(roomId: spaceId, name: trimmed) }
     }
 
     private func saveTopic() {
         let trimmed = topic.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed != (initialDetails.topic ?? "") else { return }
-        performUpdate { try await matrixService.setRoomTopic(roomId: spaceId, topic: trimmed) }
+        performUpdate { try await client.setRoomTopic(roomId: spaceId, topic: trimmed) }
     }
 
     private func saveJoinRule() {
-        performUpdate { try await matrixService.updateJoinRule(roomId: spaceId, rule: joinRule) }
+        performUpdate { try await client.updateJoinRule(roomId: spaceId, rule: joinRule) }
     }
 
     private func saveVisibility() {
-        performUpdate { try await matrixService.updateRoomVisibility(roomId: spaceId, isPublic: isPublic) }
+        performUpdate { try await client.updateRoomVisibility(roomId: spaceId, isPublic: isPublic) }
     }
 
     private func saveHistoryVisibility() {
         performUpdate {
-            try await matrixService.updateHistoryVisibility(roomId: spaceId, visibility: historyVisibility)
+            try await client.updateHistoryVisibility(roomId: spaceId, visibility: historyVisibility)
         }
     }
 
     private func removeAvatar() {
-        performUpdate { try await matrixService.removeRoomAvatar(roomId: spaceId) }
+        performUpdate { try await client.removeRoomAvatar(roomId: spaceId) }
     }
 
     private func handleImageSelection(_ result: Result<[URL], Error>) {
@@ -238,7 +238,7 @@ struct SpaceSettingsSheet: View {
         defer { url.stopAccessingSecurityScopedResource() }
         guard let data = try? Data(contentsOf: url) else { return }
         let mimeType = mimeTypeForURL(url)
-        performUpdate { try await matrixService.uploadRoomAvatar(roomId: spaceId, mimeType: mimeType, data: data) }
+        performUpdate { try await client.uploadRoomAvatar(roomId: spaceId, mimeType: mimeType, data: data) }
     }
 
     private func performUpdate(_ action: @escaping () async throws -> Void) {
@@ -269,7 +269,7 @@ struct SpaceSettingsSheet: View {
     SpaceSettingsSheet(
         spaceId: "!space-work:matrix.org",
         details: RoomDetails(
-            id: "!space-work:matrix.org",
+            id: RoomId(unchecked: "!space-work:matrix.org"),
             name: "Work",
             topic: "Work-related rooms and discussions",
             isPublic: false,
@@ -280,5 +280,5 @@ struct SpaceSettingsSheet: View {
             historyVisibility: "shared"
         )
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
 }

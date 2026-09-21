@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// The Account tab of the Settings window, displaying the user's profile avatar,
 /// display name, user ID, account info, and logout/cache actions.
 struct SettingsAccountTab: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
 
     @State private var displayName = ""
@@ -31,7 +30,9 @@ struct SettingsAccountTab: View {
     @State private var showLogoutConfirmation = false
     @State private var showClearCacheConfirmation = false
 
-    private var userId: String? { matrixService.userId() }
+    @State private var deviceId: String?
+
+    private var userId: String? { client.userId() }
 
     private var resolvedDisplayName: String {
         displayName.isEmpty ? (userId ?? "?") : displayName
@@ -127,10 +128,10 @@ struct SettingsAccountTab: View {
                 if let userId {
                     CopyableLabeledContent("User ID", value: userId)
                 }
-                if let homeserver = matrixService.homeserverAddress() {
+                if let homeserver = client.homeserver()?.absoluteString {
                     CopyableLabeledContent("Homeserver", value: homeserver)
                 }
-                if let deviceId = matrixService.deviceId() {
+                if let deviceId {
                     CopyableLabeledContent("Device ID", value: deviceId)
                 }
             }
@@ -150,12 +151,13 @@ struct SettingsAccountTab: View {
             }
         }
         .formStyle(.grouped)
-        .task(id: matrixService.syncState) {
-            guard matrixService.syncState == .running else { return }
-            let name = await matrixService.userDisplayName() ?? ""
+        .task(id: client.syncState) {
+            guard client.syncState == .running else { return }
+            let name = await client.userDisplayName() ?? ""
             displayName = name
             savedDisplayName = name
-            avatarURL = await matrixService.userAvatarURL()
+            avatarURL = await client.userAvatarURL()
+            deviceId = await client.deviceId()
         }
         .fileImporter(
             isPresented: $showImagePicker,
@@ -167,7 +169,7 @@ struct SettingsAccountTab: View {
         .alert("Log Out", isPresented: $showLogoutConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Log Out", role: .destructive) {
-                Task { await matrixService.logout() }
+                Task { await client.logout() }
             }
         } message: {
             Text("Are you sure you want to log out? You will need to sign in again.")
@@ -175,7 +177,7 @@ struct SettingsAccountTab: View {
         .alert("Clear Cache", isPresented: $showClearCacheConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear Cache", role: .destructive) {
-                Task { await matrixService.clearLocalData() }
+                Task { await client.clearLocalData() }
             }
         } message: {
             Text(
@@ -194,7 +196,7 @@ struct SettingsAccountTab: View {
         }
         Task {
             do {
-                try await matrixService.setDisplayName(trimmed)
+                try await client.setDisplayName(trimmed)
                 displayName = trimmed
                 savedDisplayName = trimmed
             } catch {
@@ -217,8 +219,8 @@ struct SettingsAccountTab: View {
         }
         Task {
             do {
-                try await matrixService.uploadUserAvatar(mimeType: mimeType, data: data)
-                avatarURL = await matrixService.userAvatarURL()
+                try await client.uploadUserAvatar(mimeType: mimeType, data: data)
+                avatarURL = await client.userAvatarURL()
             } catch {
                 errorReporter.report(.avatarUpdateFailed(error.localizedDescription))
             }
@@ -227,7 +229,7 @@ struct SettingsAccountTab: View {
 
     private func removeAvatar() async {
         do {
-            try await matrixService.removeUserAvatar()
+            try await client.removeUserAvatar()
             avatarURL = nil
         } catch {
             errorReporter.report(.avatarUpdateFailed(error.localizedDescription))
@@ -273,6 +275,6 @@ private struct CopyableLabeledContent: View {
         SettingsAccountTab()
             .tabItem { Label("Account", systemImage: "person.crop.circle") }
     }
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 480)
 }

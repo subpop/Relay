@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import QuickLook
-import RelayInterface
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// Renders an image attachment with thumbnail loading, tap-to-reveal for hidden media,
 /// click-to-zoom QuickLook preview, and a download/save button on hover.
 struct ImageMessageView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.mediaAutoReveal) private var autoReveal
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.gifAnimationOverride) private var gifAnimationOverride
@@ -32,7 +32,7 @@ struct ImageMessageView: View {
         }
         return globalAnimateGIFs
     }
-    let message: TimelineMessage
+    let message: ObservableTimelineEvent
 
     @State private var image: NSImage?
     @State private var imageData: Data?
@@ -42,20 +42,26 @@ struct ImageMessageView: View {
     @State private var isLoadingFullImage = false
     @State private var isRevealed = false
 
-    private var mediaInfo: TimelineMessage.MediaInfo {
-        message.mediaInfo!
+    private var download: MediaFileHelper.Download? {
+        message.mediaDownload
+    }
+
+    private var mediaInfo: MediaInfo? {
+        if case .image(_, _, let info) = message.kind { return info }
+        if case .sticker(_, _, let info) = message.kind { return info }
+        return nil
     }
 
     private var displaySize: CGSize {
-        mediaInfo.displaySize()
+        mediaInfo?.displaySize() ?? CGSize(width: 280, height: 200)
     }
 
     /// Whether this message contains a GIF image, detected by MIME type or file extension.
     private var isGIF: Bool {
-        if let mime = mediaInfo.mimetype, mime.lowercased() == "image/gif" {
+        if let mime = download?.mimetype, mime.lowercased() == "image/gif" {
             return true
         }
-        return mediaInfo.filename.lowercased().hasSuffix(".gif")
+        return (download?.filename ?? "").lowercased().hasSuffix(".gif")
     }
 
     /// Whether the GIF should currently be animating, based on the user preference.
@@ -131,13 +137,13 @@ struct ImageMessageView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if shouldShow, let caption = mediaInfo.caption, !caption.isEmpty {
+            if shouldShow, let caption = message.caption {
                 Text(caption)
                     .font(.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(.rect(cornerRadius: 8))
                     .padding(8)
             }
         }
@@ -156,22 +162,18 @@ struct ImageMessageView: View {
         .quickLookPreview($quickLookURL)
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
-        .task(id: shouldShow ? mediaInfo.mxcURL : nil) {
-            guard shouldShow else { return }
+        .task(id: shouldShow ? download?.mxcURL : nil) {
+            guard shouldShow, let download else { return }
             isLoading = true
             if isGIF {
                 // Load full content for GIFs to preserve animation frames.
-                if let data = await matrixService.mediaContent(
-                    mxcURL: mediaInfo.mxcURL,
-                    mediaSourceJSON: mediaInfo.mediaSourceJSON
-                ) {
+                if let data = await client.mediaBytes(download) {
                     imageData = data
                     image = NSImage(data: data)
                 }
             } else {
-                if let data = await matrixService.mediaThumbnail(
-                    mxcURL: mediaInfo.mxcURL,
-                    mediaSourceJSON: mediaInfo.mediaSourceJSON,
+                if let data = await client.mediaThumbnail(
+                    download,
                     width: UInt64(displaySize.width * 2),
                     height: UInt64(displaySize.height * 2)
                 ) {
@@ -196,13 +198,13 @@ struct ImageMessageView: View {
     }
 
     private func openQuickLook() async {
-        guard !isLoadingFullImage else { return }
+        guard !isLoadingFullImage, let download else { return }
         isLoadingFullImage = true
         defer { isLoadingFullImage = false }
 
         do {
             let url = try await MediaFileHelper.downloadToTemporaryFile(
-                mediaInfo: mediaInfo, matrixService: matrixService
+                download: download, client: client
             )
             // Resign first responder so QLPreviewPanel can find the
             // SwiftUI .quickLookPreview handler in the responder chain.
@@ -211,18 +213,19 @@ struct ImageMessageView: View {
             NSApp.keyWindow?.makeFirstResponder(nil)
             quickLookURL = url
         } catch {
-            errorReporter.report(.mediaPreviewFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaPreviewFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 
     private func saveImage() async {
+        guard let download else { return }
         do {
             try await MediaFileHelper.saveToFile(
-                mediaInfo: mediaInfo, matrixService: matrixService,
+                download: download, client: client,
                 contentTypes: [.image]
             )
         } catch {
-            errorReporter.report(.mediaSaveFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaSaveFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 }

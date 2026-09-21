@@ -13,15 +13,16 @@
 // limitations under the License.
 
 import Foundation
-import RelayInterface
+import MatrixKit
+import Observation
 
-/// Concrete implementation of ``SearchViewModelProtocol`` for the sidebar search.
+/// View model for sidebar search.
 ///
 /// Provides client-side room filtering and holds server-side message search
-/// results. The view model is owned by ``MainView`` and passed to
-/// ``SearchResultsList``.
+/// results. Owned by ``RoomListView``; message selection navigates through
+/// ``MainView``.
 @Observable
-final class SearchViewModel: SearchViewModelProtocol {
+final class SearchViewModel {
     var searchText = ""
 
     var isActive: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -32,11 +33,14 @@ final class SearchViewModel: SearchViewModelProtocol {
 
     var previousSelectedRoomId: String?
 
-    func filteredRooms(from rooms: [RoomSummary], spaceId: String?) -> [RoomSummary] {
+    var errorReporter: ErrorReporter?
+
+    private var searchTask: Task<Void, Never>?
+
+    func filteredRooms(from rooms: [RoomRowData], spaceId: String?) -> [RoomRowData] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return [] }
         return rooms.filter { room in
-            guard !room.isInvited else { return false }
             if let spaceId {
                 guard room.parentSpaceIds.contains(spaceId) else { return false }
             }
@@ -45,7 +49,33 @@ final class SearchViewModel: SearchViewModelProtocol {
         }
     }
 
+    /// Run a server-side message search for the current text, debounced.
+    func searchMessages(client: RelayClient) {
+        searchTask?.cancel()
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard query.count >= 2 else {
+            messageResults = []
+            isSearchingMessages = false
+            return
+        }
+        isSearchingMessages = true
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled else { return }
+            do {
+                let page = try await client.searchMessages(term: query)
+                guard !Task.isCancelled else { return }
+                messageResults = page.results
+            } catch {
+                errorReporter?.report(.messageSearchFailed(error.localizedDescription))
+            }
+            isSearchingMessages = false
+        }
+    }
+
     func dismiss() {
+        searchTask?.cancel()
+        searchTask = nil
         searchText = ""
         messageResults = []
         isSearchingMessages = false

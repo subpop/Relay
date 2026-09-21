@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 
 /// Lightweight user identifier used as a navigation value for the inspector panel.
 ///
 /// ``UserProfile`` can be constructed from a ``RoomMemberDetails`` (tapping a member in
-/// room info) or from a ``TimelineMessage`` (double-tapping an avatar in the timeline).
+/// room info) or from an ``ObservableTimelineEvent`` (double-tapping an avatar in the timeline).
 struct UserProfile: Hashable {
     /// The Matrix user ID (e.g. `"@alice:matrix.org"`).
     let userId: String
@@ -32,7 +32,7 @@ struct UserProfile: Hashable {
     let role: RoomMemberDetails.Role?
 
     /// The user's raw power level within the room context, if applicable.
-    let powerLevel: Int64?
+    let powerLevel: Int?
 
     /// Whether this member is the room creator.
     let isCreator: Bool
@@ -43,7 +43,7 @@ struct UserProfile: Hashable {
         displayName: String? = nil,
         avatarURL: String? = nil,
         role: RoomMemberDetails.Role? = nil,
-        powerLevel: Int64? = nil,
+        powerLevel: Int? = nil,
         isCreator: Bool = false
     ) {
         self.userId = userId
@@ -56,19 +56,19 @@ struct UserProfile: Hashable {
 
     /// Creates a ``UserProfile`` from a room member's details.
     init(member: RoomMemberDetails) {
-        self.userId = member.userId
+        self.userId = member.userId.value
         self.displayName = member.displayName
-        self.avatarURL = member.avatarURL
+        self.avatarURL = member.avatarURL?.value
         self.role = member.role
         self.powerLevel = member.powerLevel
         self.isCreator = member.isCreator
     }
 
-    /// Creates a ``UserProfile`` from a timeline message's sender information.
-    init(message: TimelineMessage) {
-        self.userId = message.senderID
-        self.displayName = message.senderDisplayName
-        self.avatarURL = message.senderAvatarURL
+    /// Creates a ``UserProfile`` from a timeline event's sender information.
+    init(event: ObservableTimelineEvent) {
+        self.userId = event.sender.value
+        self.displayName = event.senderDisplayName
+        self.avatarURL = event.senderAvatarURL?.value
         self.role = nil
         self.powerLevel = nil
         self.isCreator = false

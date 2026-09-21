@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
+import MatrixKit
 
 // MARK: - Parse Caches (MessageBubbleContent)
 
@@ -55,7 +55,7 @@ extension ReplyPreviewBubble {
 
     /// Extracts clean display text from a reply's body, resolving HTML or Markdown
     /// formatting so that mention links and other markup are rendered as plain text.
-    static func replyPreviewText(_ reply: TimelineMessage.ReplyDetail) -> String {
+    static func replyPreviewText(_ reply: ResolvedReply) -> String {
         // Prefer HTML path: parse the formatted body and extract the plain-text string.
         if let html = reply.formattedBody {
             return replyTextCache.value(forKey: html) {

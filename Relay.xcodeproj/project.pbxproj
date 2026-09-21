@@ -10,13 +10,13 @@
 		3B3241B430525E06008DEDC6 /* EmojiKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BEM00062FC10006001F0EA1 /* EmojiKit */; };
 		3B3B82C42FC69A9F008DCEDC /* RelayShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3B3B82B82FC69A9F008DCEDC /* RelayShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3B3B82D52FC69C2F008DCEDC /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3B3B82D42FC69C2F008DCEDC /* Intents.framework */; };
-		3BMRST012FB10001001F0EA1 /* MatrixRustSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMRST022FB10002001F0EA1 /* MatrixRustSDK */; };
-		3BRI00012FC10001001F0EA1 /* RelayInterface in Frameworks */ = {isa = PBXBuildFile; productRef = 3BRI00022FC10002001F0EA1 /* RelayInterface */; };
-		3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */ = {isa = PBXBuildFile; productRef = 3BRI00042FC10004001F0EA1 /* RelayInterface */; };
-		3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; };
-		3BRK00022FC00002001F0EA1 /* RelayKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		DF41154C2F82F7A30028241B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BLK00022FD10002001F0EA1 /* LiveKit */; };
+		3B590FD5305602AF0014C5D7 /* RelayShared in Frameworks */ = {isa = PBXBuildFile; productRef = 3BRS00042FE10004001F0EA1 /* RelayShared */; };
+		3B590FD6305602AF0014C5D7 /* RelayShared in Frameworks */ = {isa = PBXBuildFile; productRef = 3BRS00022FE10002001F0EA1 /* RelayShared */; };
+		3BMK00042FE10004001F0EA1 /* MatrixKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00022FE10002001F0EA1 /* MatrixKit */; };
+		3BMK00052FE10005001F0EA1 /* MatrixKitSwiftData in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00032FE10003001F0EA1 /* MatrixKitSwiftData */; };
+		3BMK00062FE10006001F0EA1 /* MatrixRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00072FE10007001F0EA1 /* MatrixRTC */; };
 		DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = DFDAFCB12FA2C56400A27353 /* LiveKit */; };
+		3BSL00012FE10001001F0EA1 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 3BSL00022FE10002001F0EA1 /* Logging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,13 +33,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = 3B3B82B72FC69A9F008DCEDC;
 			remoteInfo = ShareExtension;
-		};
-		3BRK00032FC00003001F0EA1 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 3B4AFD812F638A35001F0EA1 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 3BRK00102FC00010001F0EA1;
-			remoteInfo = RelayKit;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -61,7 +54,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				3BRK00022FC00002001F0EA1 /* RelayKit.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -74,7 +66,6 @@
 		3B3B82D42FC69C2F008DCEDC /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
 		3B4AFD892F638A35001F0EA1 /* Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Relay.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3BAE76A72F6A43BA000EC1E6 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		3BRK00002FC00000001F0EA1 /* RelayKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RelayKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -125,11 +116,6 @@
 			path = Relay;
 			sourceTree = "<group>";
 		};
-		3BRK00112FC00011001F0EA1 /* RelayKit */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = RelayKit;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -144,6 +130,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3B590FD6305602AF0014C5D7 /* RelayShared in Frameworks */,
 				3B3B82D52FC69C2F008DCEDC /* Intents.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -152,20 +139,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3B590FD5305602AF0014C5D7 /* RelayShared in Frameworks */,
 				3B3241B430525E06008DEDC6 /* EmojiKit in Frameworks */,
 				DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */,
-				3BRK00012FC00001001F0EA1 /* RelayKit.framework in Frameworks */,
-				3BRI00032FC10003001F0EA1 /* RelayInterface in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3BRK00122FC00012001F0EA1 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DF41154C2F82F7A30028241B /* LiveKit in Frameworks */,
-				3BMRST012FB10001001F0EA1 /* MatrixRustSDK in Frameworks */,
-				3BRI00012FC10001001F0EA1 /* RelayInterface in Frameworks */,
+				3BMK00042FE10004001F0EA1 /* MatrixKit in Frameworks */,
+				3BMK00052FE10005001F0EA1 /* MatrixKitSwiftData in Frameworks */,
+				3BMK00062FE10006001F0EA1 /* MatrixRTC in Frameworks */,
+				3BSL00012FE10001001F0EA1 /* Logging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -178,7 +158,6 @@
 				3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */,
 				3BAE76A72F6A43BA000EC1E6 /* README.md */,
 				3B4AFD8B2F638A35001F0EA1 /* Relay */,
-				3BRK00112FC00011001F0EA1 /* RelayKit */,
 				3B11E0892F9A3F600051F7B3 /* RelayTests */,
 				3B3B82CF2FC69B60008DCEDC /* RelayShareExtension */,
 				DFDAFCAE2FA2C4F700A27353 /* Frameworks */,
@@ -190,7 +169,6 @@
 			isa = PBXGroup;
 			children = (
 				3B4AFD892F638A35001F0EA1 /* Relay.app */,
-				3BRK00002FC00000001F0EA1 /* RelayKit.framework */,
 				3B11E0882F9A3F600051F7B3 /* RelayTests.xctest */,
 				3B3B82B82FC69A9F008DCEDC /* RelayShareExtension.appex */,
 			);
@@ -206,16 +184,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-
-/* Begin PBXHeadersBuildPhase section */
-		3BRK00132FC00013001F0EA1 /* Headers */ = {
-			isa = PBXHeadersBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
 		3B11E0872F9A3F600051F7B3 /* RelayTests */ = {
@@ -258,6 +226,7 @@
 			);
 			name = RelayShareExtension;
 			packageProductDependencies = (
+				3BRS00022FE10002001F0EA1 /* RelayShared */,
 			);
 			productName = ShareExtension;
 			productReference = 3B3B82B82FC69A9F008DCEDC /* RelayShareExtension.appex */;
@@ -278,7 +247,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				3BRK00052FC00005001F0EA1 /* PBXTargetDependency */,
 				3B3B82C32FC69A9F008DCEDC /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -286,39 +254,17 @@
 			);
 			name = Relay;
 			packageProductDependencies = (
-				3BRI00042FC10004001F0EA1 /* RelayInterface */,
 				DFDAFCB12FA2C56400A27353 /* LiveKit */,
 				3BEM00062FC10006001F0EA1 /* EmojiKit */,
+				3BMK00022FE10002001F0EA1 /* MatrixKit */,
+				3BMK00032FE10003001F0EA1 /* MatrixKitSwiftData */,
+				3BMK00072FE10007001F0EA1 /* MatrixRTC */,
+				3BRS00042FE10004001F0EA1 /* RelayShared */,
+				3BSL00022FE10002001F0EA1 /* Logging */,
 			);
 			productName = Relay;
 			productReference = 3B4AFD892F638A35001F0EA1 /* Relay.app */;
 			productType = "com.apple.product-type.application";
-		};
-		3BRK00102FC00010001F0EA1 /* RelayKit */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 3BRK00202FC00020001F0EA1 /* Build configuration list for PBXNativeTarget "RelayKit" */;
-			buildPhases = (
-				3BRK00142FC00014001F0EA1 /* Sources */,
-				3BRK00122FC00012001F0EA1 /* Frameworks */,
-				3BRK00152FC00015001F0EA1 /* Resources */,
-				3BRK00132FC00013001F0EA1 /* Headers */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				3BRK00112FC00011001F0EA1 /* RelayKit */,
-			);
-			name = RelayKit;
-			packageProductDependencies = (
-				3BMRST022FB10002001F0EA1 /* MatrixRustSDK */,
-				3BRI00022FC10002001F0EA1 /* RelayInterface */,
-				3BLK00022FD10002001F0EA1 /* LiveKit */,
-			);
-			productName = RelayKit;
-			productReference = 3BRK00002FC00000001F0EA1 /* RelayKit.framework */;
-			productType = "com.apple.product-type.framework";
 		};
 /* End PBXNativeTarget section */
 
@@ -340,9 +286,6 @@
 					3B4AFD882F638A35001F0EA1 = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					3BRK00102FC00010001F0EA1 = {
-						CreatedOnToolsVersion = 26.3;
-					};
 				};
 			};
 			buildConfigurationList = 3B4AFD842F638A35001F0EA1 /* Build configuration list for PBXProject "Relay" */;
@@ -355,10 +298,11 @@
 			mainGroup = 3B4AFD802F638A35001F0EA1;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				3BRI00052FC10005001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayInterface" */,
-				3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */,
+				3BRS00012FE10001001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayShared" */,
+				3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */,
 				3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 				3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */,
+				3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3B4AFD8A2F638A35001F0EA1 /* Products */;
@@ -366,7 +310,6 @@
 			projectRoot = "";
 			targets = (
 				3B4AFD882F638A35001F0EA1 /* Relay */,
-				3BRK00102FC00010001F0EA1 /* RelayKit */,
 				3B11E0872F9A3F600051F7B3 /* RelayTests */,
 				3B3B82B72FC69A9F008DCEDC /* RelayShareExtension */,
 			);
@@ -389,13 +332,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		3B4AFD872F638A35001F0EA1 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3BRK00152FC00015001F0EA1 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -465,13 +401,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		3BRK00142FC00014001F0EA1 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -484,11 +413,6 @@
 			isa = PBXTargetDependency;
 			target = 3B3B82B72FC69A9F008DCEDC /* RelayShareExtension */;
 			targetProxy = 3B3B82C22FC69A9F008DCEDC /* PBXContainerItemProxy */;
-		};
-		3BRK00052FC00005001F0EA1 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 3BRK00102FC00010001F0EA1 /* RelayKit */;
-			targetProxy = 3BRK00032FC00003001F0EA1 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -811,68 +735,6 @@
 			};
 			name = Release;
 		};
-		3BRK00212FC00021001F0EA1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "";
-				CODE_SIGN_STYLE = Automatic;
-				DEAD_CODE_STRIPPING = YES;
-				DEFINES_MODULE = YES;
-				DYLIB_COMPATIBILITY_VERSION = 1;
-				DYLIB_CURRENT_VERSION = 1;
-				DYLIB_INSTALL_NAME_BASE = "@rpath";
-				ENABLE_MODULE_VERIFIER = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/Frameworks",
-				);
-				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.RelayKit;
-				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
-				SKIP_INSTALL = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-			};
-			name = Debug;
-		};
-		3BRK00222FC00022001F0EA1 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "";
-				CODE_SIGN_STYLE = Automatic;
-				DEAD_CODE_STRIPPING = YES;
-				DEFINES_MODULE = YES;
-				DYLIB_COMPATIBILITY_VERSION = 1;
-				DYLIB_CURRENT_VERSION = 1;
-				DYLIB_INSTALL_NAME_BASE = "@rpath";
-				ENABLE_MODULE_VERIFIER = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/Frameworks",
-				);
-				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				PRODUCT_BUNDLE_IDENTIFIER = app.subpop.RelayKit;
-				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
-				SKIP_INSTALL = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -912,25 +774,24 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		3BRK00202FC00020001F0EA1 /* Build configuration list for PBXNativeTarget "RelayKit" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				3BRK00212FC00021001F0EA1 /* Debug */,
-				3BRK00222FC00022001F0EA1 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		3BRI00052FC10005001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayInterface" */ = {
+		3BRS00012FE10001001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayShared" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/RelayInterface;
+			relativePath = Packages/RelayShared;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/subpop/MatrixKit";
+			requirement = {
+				kind = branch;
+				branch = main;
+			};
+		};
 		3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/danielsaidi/EmojiKit";
@@ -947,12 +808,12 @@
 				minimumVersion = 2.0.0;
 			};
 		};
-		3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */ = {
+		3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/matrix-org/matrix-rust-components-swift";
+			repositoryURL = "https://github.com/apple/swift-log";
 			requirement = {
-				kind = exactVersion;
-				version = 26.6.6;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -963,28 +824,40 @@
 			package = 3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */;
 			productName = EmojiKit;
 		};
-		3BLK00022FD10002001F0EA1 /* LiveKit */ = {
+		3BMK00022FE10002001F0EA1 /* MatrixKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
-			productName = LiveKit;
+			package = 3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */;
+			productName = MatrixKit;
 		};
-		3BMRST022FB10002001F0EA1 /* MatrixRustSDK */ = {
+		3BMK00032FE10003001F0EA1 /* MatrixKitSwiftData */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3BMRST032FB10003001F0EA1 /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */;
-			productName = MatrixRustSDK;
+			package = 3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */;
+			productName = MatrixKitSwiftData;
 		};
-		3BRI00022FC10002001F0EA1 /* RelayInterface */ = {
+		3BMK00072FE10007001F0EA1 /* MatrixRTC */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = RelayInterface;
+			package = 3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */;
+			productName = MatrixRTC;
 		};
-		3BRI00042FC10004001F0EA1 /* RelayInterface */ = {
+		3BRS00022FE10002001F0EA1 /* RelayShared */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = RelayInterface;
+			package = 3BRS00012FE10001001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayShared" */;
+			productName = RelayShared;
+		};
+		3BRS00042FE10004001F0EA1 /* RelayShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BRS00012FE10001001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayShared" */;
+			productName = RelayShared;
 		};
 		DFDAFCB12FA2C56400A27353 /* LiveKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
 			productName = LiveKit;
+		};
+		3BSL00022FE10002001F0EA1 /* Logging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = Logging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

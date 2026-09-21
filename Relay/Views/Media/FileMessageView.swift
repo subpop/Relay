@@ -12,37 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import QuickLook
-import RelayInterface
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// Renders a file attachment as a compact bubble with a system document icon,
 /// filename, file size, download button on hover, and QuickLook on double-click.
 struct FileMessageView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
-    let message: TimelineMessage
+    @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+
+    let message: ObservableTimelineEvent
+
+    /// Whether the message was sent by the local user.
+    let isOutgoing: Bool
 
     @State private var quickLookURL: URL?
     @State private var isLoadingMedia = false
     @State private var isHovering = false
-    @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
 
-    private var mediaInfo: TimelineMessage.MediaInfo {
-        message.mediaInfo!
+    private var download: MediaFileHelper.Download? {
+        message.mediaDownload
     }
 
     private var style: BubbleStyle {
-        .message(for: message, coloredBubbles: coloredBubbles)
+        .message(
+            isOutgoing: isOutgoing,
+            senderID: message.sender.value,
+            coloredBubbles: coloredBubbles)
     }
 
     /// The resolved UTType for this file, derived from the MIME type or filename extension.
     private var resolvedContentType: UTType {
-        if let mime = mediaInfo.mimetype, let type = UTType(mimeType: mime) {
+        if let mime = download?.mimetype, let type = UTType(mimeType: mime) {
             return type
         }
-        let ext = (mediaInfo.filename as NSString).pathExtension
+        let ext = ((download?.filename ?? "") as NSString).pathExtension
         if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
             return type
         }
@@ -62,13 +69,13 @@ struct FileMessageView: View {
                 .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(mediaInfo.filename)
+                Text(download?.filename ?? message.body)
                     .font(.callout)
                     .fontWeight(.medium)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if let size = mediaInfo.size, size > 0 {
+                if let size = download?.size, size > 0 {
                     Text(formatFileSize(size))
                         .font(.caption)
                         .foregroundStyle(style.usesWhiteText ? .white.opacity(0.7) : .secondary)
@@ -117,7 +124,7 @@ struct FileMessageView: View {
     }
 
     private func openQuickLook() async {
-        guard !isLoadingMedia else { return }
+        guard !isLoadingMedia, let download else { return }
         isLoadingMedia = true
         defer { isLoadingMedia = false }
 
@@ -127,25 +134,26 @@ struct FileMessageView: View {
 
         do {
             quickLookURL = try await MediaFileHelper.downloadToTemporaryFile(
-                mediaInfo: mediaInfo, matrixService: matrixService
+                download: download, client: client
             )
         } catch {
-            errorReporter.report(.mediaPreviewFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaPreviewFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 
     private func saveMedia() async {
+        guard let download else { return }
         do {
             try await MediaFileHelper.saveToFile(
-                mediaInfo: mediaInfo, matrixService: matrixService,
+                download: download, client: client,
                 contentTypes: [resolvedContentType]
             )
         } catch {
-            errorReporter.report(.mediaSaveFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaSaveFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 
-    private func formatFileSize(_ bytes: UInt64) -> String {
+    private func formatFileSize(_ bytes: Int) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))

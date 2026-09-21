@@ -31,6 +31,22 @@ extension Character {
 }
 
 extension String {
+    /// Plain-text rendering of an inline-markdown body: links, emphasis,
+    /// code, and other markup resolve to their visible text.
+    ///
+    /// Used for single-line previews (room list, notifications) where raw
+    /// markup like `[name](https://matrix.to/...)` must never surface.
+    /// Falls back to the raw string when parsing fails.
+    var strippingInlineMarkdown: String {
+        if let parsed = try? AttributedString(
+            markdown: self,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            return String(parsed.characters)
+        }
+        return self
+    }
+
     /// Whether this string contains only emoji characters (ignoring whitespace).
     /// Returns `false` for empty or whitespace-only strings.
     var isEmojiOnly: Bool {

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import RelayShared
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -186,24 +187,6 @@ class ShareViewController: NSViewController {
 }
 
 // MARK: - PendingShare (local copy)
-
-/// Lightweight copy of the ``PendingShare`` model for the share extension.
-///
-/// The extension cannot link RelayInterface (which depends on AppKit via
-/// ``MatrixServiceProtocol``), so it uses its own identical Codable struct.
-private struct PendingShare: Codable {
-    let id: UUID
-    let roomId: String
-    let filenames: [String]
-    let timestamp: Date
-
-    init(roomId: String, filenames: [String]) {
-        self.id = UUID()
-        self.roomId = roomId
-        self.filenames = filenames
-        self.timestamp = .now
-    }
-}
 
 // MARK: - Errors
 

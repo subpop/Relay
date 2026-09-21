@@ -139,7 +139,7 @@
 
     <p>While the call is reproducing the issue, run in a terminal:</p>
 
-    <pre><code>log stream --predicate 'subsystem == "RelayKit" AND category BEGINSWITH "Call"' \
+    <pre><code>log stream --predicate 'subsystem == "Relay" AND category BEGINSWITH "Call"' \
            --level info &gt; relay-call-trace.log</code></pre>
 
     <p>Stop with <kbd>&#x2303;C</kbd> once the call has failed, then share <code>relay-call-trace.log</code> alongside the Activity Log JSON.</p>

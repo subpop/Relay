@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A compact banner shown at the bottom of the sidebar when the device
-/// is offline, matching the style of ``SessionVerificationBanner``.
+/// is offline or sync has failed, matching the style of
+/// ``SessionVerificationBanner``.
 ///
-/// Automatically appears when ``SyncState`` is `.offline` and disappears
-/// when connectivity is restored. Supports both regular and compact
-/// sidebar widths.
+/// Automatically appears when ``RelayClient/SyncState`` is `.offline` or
+/// `.error`, and disappears when connectivity is restored. A failed initial
+/// sync otherwise leaves the room list hollow with no indication. Supports
+/// both regular and compact sidebar widths.
 struct OfflineBanner: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.hasSpaceRail) private var hasSpaceRail
     @State private var bannerWidth: CGFloat = 0
 
@@ -37,14 +38,21 @@ struct OfflineBanner: View {
     /// When the radio is off (`NWPathMonitor` reports no path) we say
     /// "Network Offline" and use the wifi-slash glyph. When the radio
     /// is up but the homeserver isn't responding we say "Server
-    /// Offline" with a server-shaped glyph. Both share the same banner
-    /// chrome and the same orange tint — only the copy/icon differs.
+    /// Offline" with a server-shaped glyph. A failed sync says "Sync
+    /// Failed" with the same caution treatment. All share the same banner
+    /// chrome and orange tint — only the copy/icon differs.
     private var isNetworkOffline: Bool {
-        !matrixService.isNetworkConnected
+        !client.isNetworkConnected
+    }
+
+    private var isSyncError: Bool {
+        if case .error = client.syncState { return true }
+        return false
     }
 
     private var titleText: String {
-        isNetworkOffline ? "Network Offline" : "Server Unreachable"
+        if isSyncError { return "Sync Failed" }
+        return isNetworkOffline ? "Network Offline" : "Server Unreachable"
     }
 
     /// Status icon. For "Network Offline" we use the standard
@@ -72,7 +80,7 @@ struct OfflineBanner: View {
     }
 
     var body: some View {
-        if matrixService.syncState == .offline {
+        if client.syncState == .offline || isSyncError {
             Group {
                 if isCompact {
                     compactContent
@@ -133,12 +141,7 @@ struct OfflineBanner: View {
         Spacer()
         OfflineBanner()
     }
-    .environment(\.matrixService, {
-        let service = PreviewMatrixService()
-        service.syncState = .offline
-        service.isNetworkConnected = false
-        return service
-    }())
+    .environment(PreviewFixtures.offlineClient)
     .frame(width: 280, height: 200)
 }
 
@@ -147,12 +150,7 @@ struct OfflineBanner: View {
         Spacer()
         OfflineBanner()
     }
-    .environment(\.matrixService, {
-        let service = PreviewMatrixService()
-        service.syncState = .offline
-        service.isNetworkConnected = true
-        return service
-    }())
+    .environment(PreviewFixtures.serverUnreachableClient)
     .frame(width: 280, height: 200)
 }
 
@@ -161,12 +159,7 @@ struct OfflineBanner: View {
         Spacer()
         OfflineBanner()
     }
-    .environment(\.matrixService, {
-        let service = PreviewMatrixService()
-        service.syncState = .offline
-        service.isNetworkConnected = false
-        return service
-    }())
+    .environment(PreviewFixtures.offlineClient)
     .frame(width: 116, height: 200)
 }
 
@@ -175,6 +168,6 @@ struct OfflineBanner: View {
         Spacer()
         OfflineBanner()
     }
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 280, height: 200)
 }

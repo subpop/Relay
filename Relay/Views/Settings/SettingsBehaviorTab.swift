@@ -30,7 +30,10 @@ struct SettingsBehaviorTab: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Send Read Receipts", isOn: $sendReadReceipts)
+                Toggle(isOn: $sendReadReceipts) {
+                    Text("Send Read Receipts")
+                    Text("When disabled, Relay sends a private receipt instead: other members can't see what you've read, but unread counts stay accurate everywhere.")
+                }
                 Toggle("Send Typing Notifications", isOn: $sendTypingNotifications)
                 Toggle(isOn: $giphyAnalyticsOptIn) {
                     Text("Personalize GIF Search Results")
@@ -39,7 +42,7 @@ struct SettingsBehaviorTab: View {
                 }
             } header: {
                 Text("Privacy")
-                Text("Read receipts and typing indicators are visible to other members in a room.")
+                Text("Public read receipts and typing indicators are visible to other members in a room.")
             } footer: {
             }
 

@@ -1,219 +1,174 @@
 # Architecture
 
-Relay is a native macOS Matrix client built with SwiftUI. It wraps the
-[Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) via
-UniFFI-generated Swift bindings, layered through `@Observable` proxy
-classes that make the SDK's types suitable for reactive SwiftUI views.
+Relay is a native macOS Matrix client built with SwiftUI, backed by
+[MatrixKit](https://github.com/subpop/MatrixKit) — a pure-Swift SDK,
+providing the `MatrixKit`, `MatrixKitCrypto`, `MatrixKitSwiftData`,
+and `MatrixRTC` products.
 
 ## Dependency Graph
 
 ```
-MatrixRustSDK              (binary xcframework, via SPM)
-       |
-RelayKit.framework         (Xcode framework target)
-       |                   SDK proxy layer + Relay services & ViewModels
-       |
-Packages/RelayInterface    (local SPM package, zero dependencies)
-       |                   Protocols, models, enums — the API contract
-       |
-Relay.app                  (SwiftUI app target)
-                           Views, preview mocks, utilities
+MatrixKit
+  MatrixKit ───────────── pure-Swift protocol/transport/sync layer
+  MatrixKitCrypto ──────── keystore / crypto primitives
+  MatrixKitSwiftData ───── snapshot cache (depends on MatrixKit)
+  MatrixRTC ────────────── LiveKit-backed calls
+        ▲                 ▲
+        │                 │
+Relay.app ────────────────┼── imports MatrixKit (+Crypto/SwiftData/RTC in RelayClient)
+  RelayClient (@Observable facade, @Environment-injected)
+  Views / ViewModels / Models → MatrixKit concrete types directly
+  RelayShared (local Packages/RelayShared, zero dependencies)
+        ▲
+RelayShareExtension ──────┘ (imports RelayShared ONLY; file-based handoff,
+                             no MatrixKit, no network; the main app sends)
 ```
 
-### RelayKit.framework
+There is no `RelayKit` framework target, no `RelayInterface` package,
+and no Rust SDK in the build.
 
-The SDK layer. Everything that touches the Rust binary lives here. It
-compiles two sets of sources into a single framework module:
+### MatrixKit
 
-**Proxy layer** — `@Observable` wrappers around every major SDK type,
-each paired with a protocol. SDK callback listeners are bridged to
-`AsyncStream` via the generic `SDKListener<T>` adapter. List state
-(room list, timeline) is maintained by applying VectorDiff operations
-through a `DiffEngine`. This code has no UI dependency and no
-Relay-specific logic.
+The SDK layer. Protocol, transport, sync, crypto, and persistence
+live here, not in Relay. MatrixKit exposes actor-based clients and
+`@Observable @MainActor` models (`ObservableRoom`,
+`ObservableTimelineEvent`, `RoomId`, …) with `AsyncStream` updates.
 
-**Service layer** — Relay's concrete implementations that consume the
-proxies:
-
-- `MatrixService` — the facade that coordinates authentication, sync,
-  room list management, media caching, and notification settings behind
-  a single `@Environment(\.matrixService)` injection point.
-- `TimelineViewModel` and `SessionVerificationViewModel` — view models
-  that produce view-ready state from proxy data.
-- `TimelineMessageMapper` — converts raw `TimelineItem` arrays into the
-  `TimelineMessage` UI model.
-
-RelayKit re-exports the SDK via `@_exported import MatrixRustSDK`, so
-consumers that import RelayKit get SDK types transitively.
-
-### Packages/RelayInterface
-
-The interface contract between the framework and the app. A local SPM
-package with **zero external dependencies** — pure Swift types that both
-RelayKit and the app target import:
-
-- **Protocols** — `MatrixServiceProtocol`, `TimelineViewModelProtocol`,
-  `SessionVerificationViewModelProtocol`
-- **Enums** — `AuthState`, `SyncState`, `DefaultNotificationMode`,
-  `TimelineFocusState`, `VerificationState`
-- **Models** — `TimelineMessage`, `RoomSummary` (`@Observable` class
-  with last-message preview), `RoomDetails`, `RoomMemberDetails`,
-  `DirectoryRoom`, `DeviceInfo`, `EncryptionStatus`, `VerificationEmoji`
-- **Utilities** — `KeychainService`, `BlurHash`
-- **Environment key** — `@Environment(\.matrixService)`
-
-Because this package has no SDK dependency, Xcode previews that import
-only `RelayInterface` never load the Rust binary.
+MatrixKit is developed as Relay's protocol layer: agents may propose
+MatrixKit changes to maintain the Matrix/protocol vs. Relay/app
+boundary, rather than working around a missing SDK capability
+app-side.
 
 ### Relay.app
 
-The application target. Every view file imports `RelayInterface` and
-programs against protocols and model types. Only `RelayApp.swift` imports
-`RelayKit` to create the concrete `MatrixService` instance.
+The application target (`Relay/`). Views import `MatrixKit` directly
+and observe the concrete `RelayClient` — there is no
+protocol-interposition layer.
+
+- **`RelayClient`** (`Relay/Services/RelayClient.swift`) — the single
+  app facade. Owns the `MatrixClient` lifecycle (session restore,
+  password login, OIDC, sync start/stop, logout), persists sessions
+  via `KeychainKeyStore`, caches snapshots in SwiftData, tracks
+  connectivity (`NWPathMonitor`), and coordinates verification
+  (SAS/4S/key backup), notification modes, and media/avatar fetching.
+  Created once in `RelayApp.swift` and injected with
+  `.environment(client)`; views read it via
+  `@Environment(RelayClient.self)`.
+- **`TimelineViewModel`** (`Relay/ViewModels/`) — per-room state over
+  MatrixKit's `ObservableRoom` (`events:
+  [ObservableTimelineEvent]`, pagination, read markers, send/edit/
+  react/redact). Cheap to create; callers make one per opened room.
+- **App-side services** — `ActivityLog` (diagnostic ring buffer fed
+  by `RelayClient`), `GiphyService` (+ `GIFSearchServiceProtocol`),
+  `IntentDonationService`, `ComposeDraftStore`, `ErrorReporter`.
+- **Views/Models/Utilities** — SwiftUI views, `MatrixHTMLParser`,
+  mention/emoji helpers, text scaling, inspector/settings/directory/
+  search/space view models.
+
+### Packages/RelayShared
+
+The app ⇄ share-extension bridge. A local SPM package with **zero
+dependencies** — `Codable`-only types both targets import:
+
+- `AppGroup` — group identifier + `containerURL` helper.
+- `PendingShare` — handoff record (`id`, `roomId`, `filenames`,
+  `timestamp`).
+- `PendingShareStore` — app-group manifest + `pending-shares/`
+  file dir + `shareable-rooms*.json` room cache.
+- `ShareableRoom` — serializable room snapshot (`id`, `name`,
+  `isDirect`, `avatarData?`, `lastActivityTimestamp?`).
+
+### RelayShareExtension
+
+A deferred-send bridge that never touches Matrix. It imports
+`RelayShared` only (plus `AppKit`/`SwiftUI`/
+`UniformTypeIdentifiers`):
+
+1. `ShareExtensionRoomProvider` reads the `shareable-rooms.json`
+   cache the main app wrote, sorted by recent activity.
+2. `ShareView` shows the room picker + attachment preview.
+3. `ShareViewController` copies each `NSItemProvider` payload into
+   the app-group `pending-shares/` dir, appends a `PendingShare`
+   record, writes `latest-share-id.txt`, and activates the main app.
+4. `RelayApp.checkForPendingShare()` (on `didBecomeActive`) loads
+   the record, navigates to the room, and stages the files in the
+   compose bar for user review. The main app sends.
 
 ## Key Design Patterns
 
-### Protocol + Environment Injection
+### Facade + Environment Injection
 
 ```
-MatrixServiceProtocol          (defined in RelayInterface)
-    |
-    +-- MatrixService          (concrete, in RelayKit, created in RelayApp)
-    +-- PreviewMatrixService   (mock, in Relay app, used in #Preview)
+RelayClient                    (concrete @Observable, in Relay/)
+    └── MatrixKit.MatrixClient (SDK lifecycle, sync, rooms, crypto)
 ```
 
-Views declare `@Environment(\.matrixService) private var matrixService` and
-never see the concrete type. Swapping `PreviewMatrixService` for previews
-requires no conditional compilation.
+`RelayApp` owns one `RelayClient` (`@State`) and injects it into
+`ContentView`, `SettingsView`, and `ActivityLogView`. Views declare
+`@Environment(RelayClient.self) private var client` and call it
+directly. Previews construct a bare `RelayClient()` (or fixture
+view models); `RelayApp` skips heavy services under
+`XCODE_RUNNING_FOR_PREVIEWS`.
 
-### Facade over Focused Sub-Services
+### Thin Per-Room View Models
 
-`MatrixService` delegates internally to:
+Cross-cutting session/sync/room logic lives in `RelayClient`.
+Per-room timeline state lives in `TimelineViewModel`, a thin layer
+that projects `ObservableRoom`/`ObservableTimelineEvent` into
+view-ready state (filtering, grouping inputs, loading flags).
 
-| Sub-service              | Responsibility                                 |
-|--------------------------|-------------------------------------------------|
-| `AuthenticationService`  | Password login, OAuth/OIDC, session restore     |
-| `SyncManager`            | `SyncService` lifecycle and state observation    |
-| `RoomListManager`        | Incremental room list diffs, room info updates   |
-| `MediaService`           | `NSCache`-backed avatar and media fetching       |
-| `DirectorySearchService` | Public room directory search                     |
+### File-Based Extension Handoff
 
-### SDK Listener Bridge
-
-`SDKListener<T>` is a single generic class that conforms to every SDK
-listener protocol via conditional extensions. The pattern for consuming
-it is:
-
-```swift
-let (stream, continuation) = AsyncStream<[TimelineDiff]>.makeStream()
-let listener = SDKListener<[TimelineDiff]> { diffs in
-    continuation.yield(diffs)
-}
-let handle = await timeline.addListener(listener: listener)
-
-for await diffs in stream {
-    applyDiffs(diffs)
-}
-```
-
-The `TaskHandle` returned by the SDK subscription must be retained for
-the listener to remain active.
-
-### Timeline Message Mapping
-
-The SDK delivers timeline state as an array of `TimelineItem` values.
-`TimelineMessageMapper` is a pure function that converts `[TimelineItem]`
-into `[TimelineMessage]`, extracting:
-
-- Message kind (text, image, video, audio, file, emote, redacted, ...)
-- Media metadata (mxc URL, dimensions, duration, blurhash)
-- Aggregated reactions with current-user highlight
-- Reply-to context with resolved sender names
-- Mention-based highlight detection
-
-The mapper also tracks event IDs whose reply details are still pending
-so the view model can call `fetchDetailsForEvent` lazily.
-
-### Room List Enrichment
-
-The SDK's `RoomInfo` does not include a last-message preview or
-timestamp. `RoomListManager` enriches each room by:
-
-1. Subscribing to `subscribeToRoomInfoUpdates` for metadata changes.
-2. Calling `room.latestEvent()` on each update to extract the latest
-   message body (as `AttributedString`) and timestamp.
-3. Sorting rooms by `lastMessageTimestamp` descending, with
-   timestamp-less rooms sorted alphabetically at the bottom.
-
-The enriched data lives in `RelayInterface.RoomSummary`, an `@Observable`
-class distinct from the proxy layer's lightweight `RoomSummary` struct.
+The extension and the app never share memory or SDK state — only
+files in the app group plus `Codable` records in `RelayShared`.
+This keeps the extension entitlement surface small and crash-safe:
+a failed copy just leaves an unsent file, never a half-sent event.
 
 ## Concurrency Model
 
-- The project uses Swift 6 strict concurrency with
+- Swift 6 strict concurrency with
   `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
-- All view models and service classes are `@MainActor`-isolated.
-- Model structs (`TimelineMessage`, `DeviceInfo`, etc.) mark their inits
-  and pure computed properties `nonisolated` so they can be constructed
-  from any isolation domain.
-- SDK listener callbacks arrive on arbitrary Tokio runtime threads. They
-  are bridged to `AsyncStream` and consumed in `Task` blocks on the main
-  actor. Proxy properties mutated from listener closures use
-  `MainActor.assumeIsolated` where necessary.
+- View models and `RelayClient` are `@MainActor`-isolated
+  `@Observable` classes.
+- MatrixKit I/O runs on its own actors; updates reach the UI as
+  `AsyncStream` values consumed in `Task` blocks on the main actor.
 
 ## File Overview
 
 ```
-RelayKit/
-  RelayKit.swift              @_exported import MatrixRustSDK
-  Documentation.docc/         Framework documentation catalog
-  Core/                       SDKListener, DiffEngine, AsyncStreamBridge
-  Protocols/                  18 proxy protocol files
-  Client/                     ClientProxy, ClientBuilderProxy
-  Room/                       JoinedRoomProxy, InvitedRoomProxy, ...
-  RoomList/                   RoomSummaryProvider, RoomSummary (struct)
-  Sync/                       SyncServiceProxy, RoomListProxy, ...
-  Timeline/                   TimelineProxy, TimelineItemProvider
-  Encryption/                 EncryptionProxy, UserIdentityProxy
-  Verification/               SessionVerificationControllerProxy
-  Notifications/              NotificationSettingsProxy, NotificationClientProxy
-  Media/                      MediaProxy
-  RoomDirectory/              RoomDirectorySearchProxy
-  RoomPreview/                RoomPreviewProxy
-  Spaces/                     SpaceServiceProxy
-  Threads/                    ThreadListServiceProxy
-  QRCode/                     QRCodeLoginProxy
-  Widget/                     WidgetProxy
-  Services/
-    MatrixService.swift       Concrete facade implementation
-    AuthenticationService.swift
-    SyncManager.swift         SyncService lifecycle
-    RoomListManager.swift     Reactive room list with enrichment
-    TimelineViewModel.swift   Timeline ViewModel
-    SessionVerificationViewModel.swift
-    TimelineMessageMapper.swift
-    MediaService.swift        NSCache media layer
-    DirectorySearchService.swift
-
-Packages/RelayInterface/
-  Sources/RelayInterface/
-    MatrixServiceProtocol.swift   Protocol + AuthState/SyncState + @Environment key
-    TimelineViewModelProtocol.swift
-    SessionVerificationViewModelProtocol.swift
-    TimelineMessage.swift         UI message model (13 content kinds)
-    RoomSummary.swift             Enriched room summary (@Observable class)
-    RoomDetails.swift             Room metadata + RoomMemberDetails
-    DirectoryRoom.swift           Directory search result
-    DeviceInfo.swift              Device/session info
-    EncryptionStatus.swift        Backup/recovery state
-    KeychainService.swift         Keychain read/write
-    BlurHash.swift                Image hashing for attachments
-
 Relay/
-  RelayApp.swift              App entry point (imports RelayKit)
-  ContentView.swift           Routes on AuthState
-  Views/                      All SwiftUI views (imports RelayInterface)
-  ViewModels/                 Preview mock ViewModels
-  Services/                   PreviewMatrixService
-  Utilities/                  MatrixHTMLParser, EmojiDetection
+  RelayApp.swift              App entry point (creates RelayClient, share pickup, notifications)
+  ContentView.swift           Routes on RelayClient.AuthState / SyncState
+  Views/                      SwiftUI views (import MatrixKit directly)
+  ViewModels/                 TimelineViewModel, SearchViewModel, RoomDirectoryViewModel,
+                              SpaceHierarchyViewModel, SessionVerificationViewModel, fixtures
+  Services/                   RelayClient, KeychainKeyStore, ActivityLog,
+                              GiphyService, IntentDonationService
+  Models/ Utilities/          RoomDetails, MatrixHTMLParser, EmojiDetection, …
+  Generated/Secrets.swift     GIPHY key plumbing (see Secrets.xcconfig)
+
+Packages/RelayShared/
+  Sources/RelayShared/
+    AppGroup.swift            Group identifier + containerURL
+    PendingShare.swift        Handoff record
+    PendingShareStore.swift   Manifest + file dir + room cache
+    ShareableRoom.swift       Serializable room snapshot
+
+RelayShareExtension/
+  ShareViewController.swift   Entry point; file copy + handoff write
+  ShareView.swift             Room picker UI
+  ShareExtensionRoomProvider.swift  Reads cached rooms (no SDK)
+
+RelayTests/                   Unit tests (parsers, captions, read markers, …)
+
+MatrixKit   SDK: MatrixKit, MatrixKitCrypto, MatrixKitSwiftData, MatrixRTC
 ```
+
+## History
+
+Relay previously wrapped the Matrix Rust SDK via a `RelayKit`
+framework and a `RelayInterface` protocol package. That stack
+(including the Rust binary, `MatrixService`, and
+`PreviewMatrixService`) was deleted during the MatrixKit migration.
+If you see those names in old comments, they refer to the
+pre-migration design.

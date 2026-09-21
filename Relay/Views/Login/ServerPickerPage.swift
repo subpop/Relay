@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import AuthenticationServices
-import RelayInterface
 import SwiftUI
 
 /// The server picker page where users choose a homeserver to create an account.
@@ -24,7 +23,7 @@ import SwiftUI
 /// disclosure group.
 struct ServerPickerPage: View {
     @Binding var step: LoginStep
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @Environment(\.errorReporter) private var errorReporter
     @State private var moreExpanded = false
@@ -91,7 +90,7 @@ struct ServerPickerPage: View {
     private func logInWithBrowser(server: HomeServer) {
         Task {
             do {
-                try await matrixService.startOAuthLogin(
+                try await client.startOAuthLogin(
                     homeserver: server.id
                 ) { [webAuthenticationSession] url in
                     try await webAuthenticationSession.authenticate(
@@ -106,7 +105,7 @@ struct ServerPickerPage: View {
             } catch {
                 errorReporter.report(.loginFailed(error.localizedDescription))
             }
-            if case .error(let msg) = matrixService.authState {
+            if case .error(let msg) = client.authState {
                 errorReporter.report(.loginFailed(msg))
             }
         }

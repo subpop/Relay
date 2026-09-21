@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
+import MatrixKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -24,7 +24,7 @@ import UniformTypeIdentifiers
 /// Selecting an event reveals its full detail and metadata in a trailing inspector panel.
 struct ActivityLogView: View {
     @Environment(\.activityLog) private var activityLog
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     @State private var selectedEventIds: Set<UUID> = []
     @State private var showingInspector = false
@@ -60,7 +60,7 @@ struct ActivityLogView: View {
 
     /// Returns the display name for a room ID, or `nil` if the room is unknown.
     private func roomName(for roomId: String) -> String? {
-        matrixService.rooms.first { $0.id == roomId }?.name
+        client.rooms.first { $0.roomId.value == roomId }?.displayName
     }
 
     private var selectedEvents: [ActivityEvent] {
@@ -370,6 +370,7 @@ private struct ActivityLogRow: View {
 
     static func color(for severity: ActivityEvent.Severity) -> Color {
         switch severity {
+        case .trace: .secondary
         case .debug: .gray
         case .info: .blue
         case .warning: .orange
@@ -385,7 +386,13 @@ private struct ActivityLogRow: View {
 // MARK: - Preview
 
 #Preview("Activity Log") {
-    ActivityLogView()
-        .environment(\.matrixService, PreviewMatrixService())
+    let log = ActivityLog()
+    log.log(category: .sync, severity: .info, source: "SyncClient", summary: "Sync completed", metadata: ["rooms": "12"])
+    log.log(category: .auth, severity: .info, source: "AuthClient", summary: "Session restored from Keychain")
+    log.log(category: .network, severity: .warning, source: "NetworkMonitor", summary: "Connectivity lost, retrying", detail: "No route to host")
+    log.log(category: .timeline, severity: .error, source: "TimelineViewModel", summary: "Failed to load history", roomId: "!design:matrix.org")
+    return ActivityLogView()
+        .environment(\.activityLog, log)
+        .environment(RelayClient())
         .frame(width: 900, height: 600)
 }

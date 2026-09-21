@@ -1,0 +1,213 @@
+// Copyright 2026 Link Dupont
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import Foundation
+import SwiftUI
+
+/// The connection state of a call.
+enum CallState: Sendable, Equatable {
+    /// No active call.
+    case idle
+    /// Establishing connection to the call server.
+    case connecting
+    /// Successfully connected; media is flowing.
+    case connected
+    /// The call ended cleanly.
+    case disconnected
+    /// The call failed with an error message.
+    case failed(String)
+}
+
+/// A snapshot of a single call participant.
+struct CallParticipant: Identifiable, Sendable, Equatable {
+    /// The participant's identity string (typically their Matrix user ID).
+    let id: String
+    /// The participant's display name, if available.
+    let displayName: String?
+    /// Whether the participant has their camera enabled.
+    let isCameraEnabled: Bool
+    /// Whether the participant has their microphone enabled.
+    let isMicrophoneEnabled: Bool
+    /// Whether the participant is currently speaking.
+    let isSpeaking: Bool
+
+    init(
+        id: String,
+        displayName: String?,
+        isCameraEnabled: Bool,
+        isMicrophoneEnabled: Bool,
+        isSpeaking: Bool
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.isCameraEnabled = isCameraEnabled
+        self.isMicrophoneEnabled = isMicrophoneEnabled
+        self.isSpeaking = isSpeaking
+    }
+}
+
+/// A selectable camera input known to the system (built-in, external/USB, or
+/// an iPhone via Continuity Camera).
+///
+/// Intentionally a plain value type so the call UI can list and pick cameras
+/// without depending on AVFoundation or LiveKit — `CallViewModel` maps these
+/// to/from `AVCaptureDevice` by ``id`` inside the call stack.
+struct CameraDevice: Identifiable, Sendable, Equatable {
+    /// The system's stable `AVCaptureDevice.uniqueID`.
+    let id: String
+    /// Human-readable name for the menu (the device's `localizedName`).
+    let name: String
+    /// Coarse category, used only to pick an icon in the picker.
+    let kind: Kind
+
+    enum Kind: Sendable, Equatable { case builtIn, external, continuity, unknown }
+
+    init(id: String, name: String, kind: Kind) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+    }
+}
+
+/// A selectable audio input (microphone) known to the system.
+///
+/// Like ``CameraDevice``, a plain value type so the call UI can list and pick
+/// inputs without depending on the audio SDK; `CallViewModel` maps these
+/// to/from the LiveKit audio device by ``id``.
+struct AudioInputDevice: Identifiable, Sendable, Equatable {
+    /// The system audio device id (LiveKit `AudioDevice.deviceId`).
+    let id: String
+    /// Human-readable name for the menu.
+    let name: String
+
+    init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+/// The view model protocol for a LiveKit-backed audio/video call in a Matrix room.
+///
+/// ``CallViewModelProtocol`` defines the observable state and actions needed by ``CallView``
+/// to render the call UI, control local media, and display remote participants. Concrete
+/// implementations include ``CallViewModel`` (backed by the LiveKit Swift SDK) and
+/// ``PreviewCallViewModel`` (for SwiftUI previews).
+///
+/// Video rendering is intentionally opaque: callers request an ``NSView`` via
+/// ``makeVideoView(for:)`` to avoid exposing LiveKit types outside of the call module.
+@MainActor
+protocol CallViewModelProtocol: AnyObject, Observable {
+    /// The current connection state of the call.
+    var state: CallState { get }
+
+    /// All remote participants currently in the call.
+    var participants: [CallParticipant] { get }
+
+    /// Whether the local user's camera is active.
+    var isLocalCameraEnabled: Bool { get }
+
+    /// Whether the local user's microphone is active.
+    var isLocalMicrophoneEnabled: Bool { get }
+
+    /// The identity of the local participant, set after connection.
+    var localParticipantID: String? { get }
+
+    /// Human-readable description of the current connection step. Only
+    /// non-nil while `state == .connecting`. The UI is expected to hide
+    /// transient phases (steps shorter than ~300ms) so the indicator
+    /// only surfaces during genuinely slow joins on poor networks.
+    var connectingPhase: String? { get }
+
+    /// A monotonically increasing counter that is bumped whenever video tracks change
+    /// (publish, unpublish, camera toggle, etc.). SwiftUI views should read this value
+    /// to ensure ``NSViewRepresentable`` bridges receive `updateNSView` calls when the
+    /// underlying video track becomes available.
+    var videoTrackRevision: UInt { get }
+
+    /// Connects to the call using the provided LiveKit server URL and JWT token.
+    ///
+    /// - Parameters:
+    ///   - url: The WebSocket URL of the LiveKit server (e.g. `"wss://livekit.example.com"`).
+    ///   - token: A signed JWT granting access to the room.
+    func connect(url: String, token: String, sfuServiceURL: String) async throws
+
+    /// Disconnects from the call and cleans up media resources.
+    func disconnect() async
+
+    /// Toggles the local camera on or off.
+    func toggleCamera() async throws
+
+    /// Camera inputs currently available to the system, for the picker.
+    /// Refreshed via ``refreshCameras()``.
+    var availableCameras: [CameraDevice] { get }
+
+    /// The `id` of the camera currently in use, or `nil` before one is chosen.
+    var selectedCameraID: String? { get }
+
+    /// Re-enumerates the system's cameras into ``availableCameras``. Cheap to
+    /// call when opening the picker (covers a Continuity Camera connecting
+    /// mid-call).
+    func refreshCameras() async
+
+    /// Switches the local camera input to `device`. Applies live when the
+    /// camera is on; otherwise it's remembered and used on the next enable.
+    func selectCamera(_ device: CameraDevice) async throws
+
+    /// Microphone inputs currently available to the system, for the picker.
+    var availableAudioInputs: [AudioInputDevice] { get }
+
+    /// The `id` of the audio input currently in use, or `nil` before one is
+    /// resolved.
+    var selectedAudioInputID: String? { get }
+
+    /// Re-enumerates the system's audio inputs into ``availableAudioInputs``.
+    func refreshAudioInputs() async
+
+    /// Switches the active microphone input to `device`.
+    func selectAudioInput(_ device: AudioInputDevice) async throws
+
+    /// Toggles the local microphone on or off.
+    func toggleMicrophone() async throws
+
+    /// Returns a SwiftUI view that renders the video track of the given participant,
+    /// or `nil` if the participant has no active video track or is not found.
+    ///
+    /// - Parameter participantID: The ``CallParticipant/id`` of the participant to render.
+    func makeVideoView(for participantID: String) -> AnyView?
+
+    /// Returns the aspect ratio (width / height) of the participant's currently
+    /// publishing video track, or `nil` if no track is available or its
+    /// dimensions haven't been negotiated yet. Tile-based UIs use this to
+    /// avoid stretching video — each tile can size itself to the source aspect.
+    ///
+    /// - Parameter participantID: The ``CallParticipant/id`` of the participant.
+    func videoAspectRatio(for participantID: String) -> CGFloat?
+
+    /// Whether on-device live captions are currently enabled for remote
+    /// participants. When `true`, each subscribed remote audio track is
+    /// piped into Apple's `SpeechAnalyzer` and the latest transcription is
+    /// surfaced via ``captions``.
+    var isCaptionsEnabled: Bool { get }
+
+    /// Latest caption text for each remote participant whose audio is being
+    /// transcribed, keyed by ``CallParticipant/id``. Empty when captions are
+    /// disabled or no remote has spoken yet. Final captions clear after a
+    /// short fade window so the UI doesn't show stale text.
+    var captions: [String: String] { get }
+
+    /// Toggles live captions on or off. Off → on attaches a transcriber to
+    /// each currently-subscribed remote audio track (and to any subscribed
+    /// later); on → off tears them all down and clears ``captions``.
+    func setCaptionsEnabled(_ enabled: Bool) async
+}

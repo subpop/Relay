@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A single room row in the sidebar list, showing the avatar, name, last message preview,
 /// unread indicator, and notification mode state.
 struct RoomListRow: View {
-    let room: RoomSummary
+    let room: RoomRowData
 
     @Environment(\.hasSpaceRail) private var hasSpaceRail
     @State private var rowWidth: CGFloat = 0
@@ -83,7 +82,7 @@ struct RoomListRow: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
-            .opacity(room.successorRoomId != nil ? 0.5 : 1)
+            .opacity(room.isArchived ? 0.5 : 1)
             .help(room.name)
     }
 
@@ -113,8 +112,8 @@ struct RoomListRow: View {
 
                 HStack {
                     if let msg = room.lastMessage {
-                        let author = RoomListRow.formatAuthor(room.lastAuthor)
-                        Text(author + msg.visualizeLinksOnly())
+                        let author = RoomListRow.formatAuthor(room.lastMessageAuthor)
+                        Text(author + AttributedString(msg))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -130,7 +129,7 @@ struct RoomListRow: View {
             .transition(.opacity)
         }
         .padding(.vertical, 8)
-        .opacity(room.successorRoomId != nil ? 0.5 : 1)
+        .opacity(room.isArchived ? 0.5 : 1)
     }
 
     /// A mute icon overlay on the avatar for muted rooms.
@@ -160,7 +159,6 @@ struct RoomListRow: View {
 }
 
 // MARK: - Helpers
-
 extension RoomListRow {
     /// Formats a message timestamp for display in the room list.
     ///
@@ -218,50 +216,33 @@ extension AttributedString {
 // MARK: - Previews
 
 #Preview("Highlights") {
-    RoomListRow(room: RoomSummary(
-        id: "!design:matrix.org",
-        name: "Design Team",
-        lastAuthor: "Alice",
-        lastMessage: AttributedString("Let's finalize the mockups tomorrow"),
-        lastMessageTimestamp: .now.addingTimeInterval(-300),
-        notificationCount: 3,
-        highlightCount: 1
-    ))
-    .frame(width: 300)
+    RoomListRow(room: PreviewFixtures.rooms[0])
+        .frame(width: 300)
 }
 
 #Preview("Muted Room") {
-    RoomListRow(room: RoomSummary(
-        id: "!hq:matrix.org",
-        name: "Matrix HQ",
-        lastAuthor: "Bob",
-        lastMessage: AttributedString("General discussion"),
-        lastMessageTimestamp: .now.addingTimeInterval(-7200),
-        notificationCount: 42,
-        notificationMode: .mute
-    ))
-    .frame(width: 300)
+    RoomListRow(room: PreviewFixtures.rooms[2])
+        .frame(width: 300)
 }
 
 #Preview("Mentions Only — No Highlights") {
-    RoomListRow(room: RoomSummary(
-        id: "!dev:matrix.org",
+    RoomListRow(room: RoomRowData(
+        roomId: "!dev:example.com",
         name: "Development",
-        lastAuthor: "Alice",
-        lastMessage: AttributedString("Merged the refactor PR"),
+        lastMessage: "Merged the refactor PR",
+        lastMessageAuthor: "Alice",
         lastMessageTimestamp: .now.addingTimeInterval(-600),
-        notificationCount: 5,
-        notificationMode: .mentionsAndKeywordsOnly
+        notificationCount: 5
     ))
     .frame(width: 300)
 }
 
 #Preview("Notifications") {
-    RoomListRow(room: RoomSummary(
-        id: "!general:matrix.org",
+    RoomListRow(room: RoomRowData(
+        roomId: "!general:example.com",
         name: "General",
-        lastAuthor: "Charlie",
-        lastMessage: AttributedString("Has anyone tried the new build?"),
+        lastMessage: "Has anyone tried the new build?",
+        lastMessageAuthor: "Charlie",
         lastMessageTimestamp: .now.addingTimeInterval(-1800),
         notificationCount: 7
     ))
@@ -269,24 +250,16 @@ extension AttributedString {
 }
 
 #Preview("Unread DM") {
-    RoomListRow(room: RoomSummary(
-        id: "!bob:matrix.org",
-        name: "Bob",
-        lastAuthor: "Bob",
-        lastMessage: AttributedString("Hey, are you free for a call?"),
-        lastMessageTimestamp: .now.addingTimeInterval(-120),
-        notificationCount: 2,
-        isDirect: true
-    ))
-    .frame(width: 300)
+    RoomListRow(room: PreviewFixtures.rooms[1])
+        .frame(width: 300)
 }
 
 #Preview("No Unread") {
-    RoomListRow(room: RoomSummary(
-        id: "!alice:matrix.org",
+    RoomListRow(room: RoomRowData(
+        roomId: "!alice:example.com",
         name: "Alice",
-        lastAuthor: "Alice",
-        lastMessage: AttributedString("Sounds good, talk soon!"),
+        lastMessage: "Sounds good, talk soon!",
+        lastMessageAuthor: "Alice",
         lastMessageTimestamp: .now.addingTimeInterval(-7200),
         isDirect: true
     ))
@@ -295,21 +268,12 @@ extension AttributedString {
 
 #Preview("Compact") {
     HStack(spacing: 0) {
-        RoomListRow(room: RoomSummary(
-            id: "!design:matrix.org",
-            name: "Design Team",
-            notificationCount: 3,
-            highlightCount: 1
-        ))
+        RoomListRow(room: PreviewFixtures.rooms[0])
 
-        RoomListRow(room: RoomSummary(
-            id: "!hq:matrix.org",
-            name: "Matrix HQ",
-            notificationMode: .mute
-        ))
+        RoomListRow(room: PreviewFixtures.rooms[2])
 
-        RoomListRow(room: RoomSummary(
-            id: "!dev:matrix.org",
+        RoomListRow(room: RoomRowData(
+            roomId: "!dev:example.com",
             name: "Development"
         ))
     }

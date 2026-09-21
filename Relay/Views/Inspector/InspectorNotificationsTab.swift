@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The Notifications tab of the timeline inspector, showing per-room notification settings.
@@ -154,6 +154,5 @@ private extension RoomNotificationMode {
 
 #Preview {
     InspectorNotificationsTab(viewModel: .preview())
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }

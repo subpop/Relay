@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A reusable invite-by-Matrix-ID section with a text field, send button,
@@ -24,7 +23,7 @@ struct InviteUserSection: View {
     /// The room or space to invite the user to.
     let roomId: String
 
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
 
     @State private var userId = ""
@@ -75,7 +74,7 @@ struct InviteUserSection: View {
 
         Task {
             do {
-                try await matrixService.inviteUser(roomId: roomId, userId: trimmed)
+                try await client.inviteUser(roomId: roomId, userId: trimmed)
                 sentUserIds.append(trimmed)
                 userId = ""
                 isFieldFocused = true

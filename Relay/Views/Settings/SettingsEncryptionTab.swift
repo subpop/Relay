@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The Encryption tab of the Settings window, displaying read-only status
 /// information for session verification, key backup, and account recovery.
 struct SettingsEncryptionTab: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @State private var isSessionVerified = false
     @State private var isRecoveryEnabled = false
     @State private var isBackupEnabled = false
@@ -74,8 +74,9 @@ struct SettingsEncryptionTab: View {
     }
 
     private func loadState() async {
-        isSessionVerified = await matrixService.isCurrentSessionVerified()
-        let encryption = await matrixService.encryptionState()
+        await client.refreshVerificationState()
+        isSessionVerified = client.isSessionVerified
+        let encryption = await client.encryptionStatus()
         isBackupEnabled = encryption.backupEnabled
         isRecoveryEnabled = encryption.recoveryEnabled
     }
@@ -87,6 +88,6 @@ struct SettingsEncryptionTab: View {
         SettingsEncryptionTab()
             .tabItem { Label("Encryption", systemImage: "lock.fill") }
     }
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 480)
 }

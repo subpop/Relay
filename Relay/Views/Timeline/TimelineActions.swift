@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Tracks which collapsed system event groups the user has expanded.
@@ -50,8 +50,16 @@ final class ExpandedGroupsState {
 /// identity (`===`). As long as the same instance is injected, child views
 /// are not invalidated when a parent re-evaluates its body.
 ///
+/// `Observable` so rows re-evaluate when bind-time state lands: `configure`
+/// runs in `.task`, after the first paint computed `isOutgoing` with a nil
+/// `currentUserID`. Per-interaction mutable state (e.g. swipe offsets,
+/// expanded groups) must stay out of this class — it lives in dedicated
+/// observable objects like ``ExpandedGroupsState`` so gestures don't
+/// invalidate every visible row.
+///
 /// Injected once at the renderer level (``TimelineScrollView``)
 /// and read by any descendant view that needs to dispatch a user action.
+@Observable
 final class TimelineActions: Equatable {
     nonisolated static func == (lhs: TimelineActions, rhs: TimelineActions) -> Bool {
         lhs === rhs
@@ -64,10 +72,10 @@ final class TimelineActions: Equatable {
     var tapReply: (String) -> Void = { _ in }
 
     /// Initiates a reply to a message (e.g. swipe-to-reply).
-    var reply: (TimelineMessage) -> Void = { _ in }
+    var reply: (ObservableTimelineEvent) -> Void = { _ in }
 
     /// Opens the user profile for the sender of a message (e.g. avatar double-tap).
-    var avatarDoubleTap: (TimelineMessage) -> Void = { _ in }
+    var avatarDoubleTap: (ObservableTimelineEvent) -> Void = { _ in }
 
     /// Opens the user profile for a user mention link click.
     var userTap: (String) -> Void = { _ in }
@@ -128,7 +136,7 @@ final class TimelineActions: Equatable {
     /// is stable, re-injecting it into the environment does not invalidate
     /// child views.
     func configure(
-        viewModel: any TimelineStateProviding,
+        viewModel: TimelineViewModel,
         compose: ComposeViewModel,
         roomPermissions: RoomPermissions?,
         currentUserID: String?,
@@ -143,12 +151,11 @@ final class TimelineActions: Equatable {
         members: [RoomMemberDetails]
     ) {
         self.toggleReaction = { messageId, key in
-            guard let actionsVM = viewModel as? any TimelineActionsProviding else { return }
-            Task { await actionsVM.toggleReaction(messageId: messageId, key: key) }
+            Task { await viewModel.toggleReaction(messageId: messageId, key: key) }
         }
         self.tapReply = { eventID in
-            if let message = viewModel.messages.first(where: { $0.eventID == eventID }) {
-                scrollToRow(message.id)
+            if let message = viewModel.messages.first(where: { $0.eventId.value == eventID }) {
+                scrollToRow(message.eventId.value)
                 setHighlightedMessage(eventID)
             } else {
                 setFocusedMessage(eventID)
@@ -161,10 +168,10 @@ final class TimelineActions: Equatable {
             compose.shouldFocusTextField = true
         }
         self.avatarDoubleTap = { message in
-            onUserTap?(UserProfile(message: message))
+            onUserTap?(UserProfile(event: message))
         }
         self.userTap = { userId in
-            let member = members.first(where: { $0.userId == userId })
+            let member = members.first(where: { $0.userId.value == userId })
             let profile = member.map { UserProfile(member: $0) }
                 ?? UserProfile(userId: userId)
             onUserTap?(profile)

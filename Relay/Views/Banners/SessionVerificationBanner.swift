@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A compact banner shown at the bottom of the sidebar when the current session
@@ -24,9 +23,12 @@ import SwiftUI
 ///   on the system notification.
 /// - **Unverified**: When no request is pending but the session is unverified,
 ///   shows a "Verify" button to initiate verification and a dismiss button.
+///
+/// Accepting or starting verification flips
+/// `shouldPresentVerificationSheet`; the verification sheet itself
+/// arrives with session verification UI.
 struct SessionVerificationBanner: View {
-    @Environment(\.matrixService) private var matrixService
-    @Binding var verificationItem: VerificationItem?
+    @Environment(RelayClient.self) private var client
     @State private var isDismissed = false
     @Environment(\.hasSpaceRail) private var hasSpaceRail
     @State private var bannerWidth: CGFloat = 0
@@ -42,18 +44,18 @@ struct SessionVerificationBanner: View {
 
     /// Whether the banner should be visible.
     private var isVisible: Bool {
-        if matrixService.pendingVerificationRequest != nil {
+        if client.pendingVerificationRequest != nil {
             return true
         }
-        return matrixService.hasCheckedVerificationState
-            && !matrixService.isSessionVerified
+        return client.hasCheckedVerificationState
+            && !client.isSessionVerified
             && !isDismissed
     }
 
     var body: some View {
         if isVisible {
             Group {
-                if matrixService.pendingVerificationRequest != nil {
+                if client.pendingVerificationRequest != nil {
                     incomingRequestContent
                 } else {
                     unverifiedContent
@@ -80,7 +82,7 @@ struct SessionVerificationBanner: View {
     }
 
     private var tintColor: Color {
-        matrixService.pendingVerificationRequest != nil ? .blue : .orange
+        client.pendingVerificationRequest != nil ? .blue : .orange
     }
 
     // MARK: - Incoming Request
@@ -102,7 +104,7 @@ struct SessionVerificationBanner: View {
                     .foregroundStyle(.blue)
                     .font(.body)
                 Text(
-                    matrixService.pendingVerificationRequest
+                    client.pendingVerificationRequest
                         .map { "Request from device \($0.deviceId)" }
                         ?? "Verification Request"
                 )
@@ -112,20 +114,14 @@ struct SessionVerificationBanner: View {
             }
 
             Button(role: .destructive) {
-                Task { await matrixService.declinePendingVerificationRequest() }
+                Task { await client.declinePendingVerificationRequest() }
             } label: {
                 Image(systemName: "xmark")
             }
             .controlSize(.small)
 
             Button {
-                Task {
-                    // swiftlint:disable:next identifier_name
-                    if let vm = try? await matrixService.makeSessionVerificationViewModel(acceptingIncomingRequest: true) {
-                        matrixService.pendingVerificationRequest = nil
-                        verificationItem = VerificationItem(viewModel: vm)
-                    }
-                }
+                client.shouldPresentVerificationSheet = true
             } label: {
                 Image(systemName: "checkmark")
             }
@@ -140,18 +136,12 @@ struct SessionVerificationBanner: View {
                 .font(.system(size: 36))
 
             Button("Decline", systemImage: "xmark", role: .destructive) {
-                Task { await matrixService.declinePendingVerificationRequest() }
+                Task { await client.declinePendingVerificationRequest() }
             }
             .controlSize(.small)
 
             Button("Approve", systemImage: "checkmark") {
-                Task {
-                    // swiftlint:disable:next identifier_name
-                    if let vm = try? await matrixService.makeSessionVerificationViewModel(acceptingIncomingRequest: true) {
-                        matrixService.pendingVerificationRequest = nil
-                        verificationItem = VerificationItem(viewModel: vm)
-                    }
-                }
+                client.shouldPresentVerificationSheet = true
             }
             .controlSize(.small)
         }
@@ -184,12 +174,7 @@ struct SessionVerificationBanner: View {
             Spacer(minLength: 4)
 
             Button("Verify") {
-                Task {
-                    // swiftlint:disable:next identifier_name
-                    if let vm = try? await matrixService.makeSessionVerificationViewModel() {
-                        verificationItem = VerificationItem(viewModel: vm)
-                    }
-                }
+                client.shouldPresentVerificationSheet = true
             }
             .controlSize(.small)
 
@@ -212,12 +197,7 @@ struct SessionVerificationBanner: View {
                 .font(.system(size: 36))
 
             Button("Verify") {
-                Task {
-                    // swiftlint:disable:next identifier_name
-                    if let vm = try? await matrixService.makeSessionVerificationViewModel() {
-                        verificationItem = VerificationItem(viewModel: vm)
-                    }
-                }
+                client.shouldPresentVerificationSheet = true
             }
             .controlSize(.small)
         }
@@ -239,66 +219,43 @@ struct SessionVerificationBanner: View {
 // MARK: - Previews
 
 #Preview("Incoming Request") {
-    @Previewable @State var verificationItem: VerificationItem?
-    let service = PreviewMatrixService()
-    service.isSessionVerified = false
-    service.pendingVerificationRequest = IncomingVerificationRequest(
-        deviceId: "ABCDEF1234",
-        senderId: "@alice:matrix.org",
-        flowId: "preview-flow"
-    )
-    return VStack {
+    VStack {
         Spacer()
-        SessionVerificationBanner(verificationItem: $verificationItem)
+        SessionVerificationBanner()
     }
-    .environment(\.matrixService, service)
+    .environment(PreviewFixtures.incomingVerificationClient)
     .frame(width: 280, height: 200)
 }
 
 #Preview("Incoming Request (Compact)") {
-    @Previewable @State var verificationItem: VerificationItem?
-    let service = PreviewMatrixService()
-    service.isSessionVerified = false
-    service.pendingVerificationRequest = IncomingVerificationRequest(
-        deviceId: "ABCDEF1234",
-        senderId: "@alice:matrix.org",
-        flowId: "preview-flow"
-    )
-    return VStack {
+    VStack {
         Spacer()
-        SessionVerificationBanner(verificationItem: $verificationItem)
+        SessionVerificationBanner()
     }
-    .environment(\.matrixService, service)
+    .environment(PreviewFixtures.incomingVerificationClient)
     .frame(width: 116, height: 200)
 }
 
 #Preview("Unverified") {
-    @Previewable @State var verificationItem: VerificationItem?
-    let service = PreviewMatrixService()
-    service.isSessionVerified = false
-    return VStack {
+    VStack {
         Spacer()
-        SessionVerificationBanner(verificationItem: $verificationItem)
+        SessionVerificationBanner()
     }
-    .environment(\.matrixService, service)
+    .environment(PreviewFixtures.unverifiedClient)
     .frame(width: 280, height: 200)
 }
 
 #Preview("Unverified (Compact)") {
-    @Previewable @State var verificationItem: VerificationItem?
-    let service = PreviewMatrixService()
-    service.isSessionVerified = false
-    return VStack {
+    VStack {
         Spacer()
-        SessionVerificationBanner(verificationItem: $verificationItem)
+        SessionVerificationBanner()
     }
-    .environment(\.matrixService, service)
+    .environment(PreviewFixtures.unverifiedClient)
     .frame(width: 116, height: 200)
 }
 
 #Preview("Verified") {
-    @Previewable @State var verificationItem: VerificationItem?
-    SessionVerificationBanner(verificationItem: $verificationItem)
-        .environment(\.matrixService, PreviewMatrixService())
+    SessionVerificationBanner()
+        .environment(RelayClient())
         .frame(width: 280, height: 200)
 }

@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// An avatar that displays a user's or room's profile image, falling back to colored initials.
@@ -24,7 +23,7 @@ import SwiftUI
 /// By default the avatar clips to a circle. Pass a custom `shape` to use a different
 /// clip shape (e.g. a rounded rectangle for space avatars).
 struct AvatarView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     /// The display name used to generate initials. Also used for the fallback
     /// background color when ``colorID`` is `nil`.
@@ -67,7 +66,7 @@ struct AvatarView: View {
             image = nil
 
             guard let mxcURL else { return }
-            image = await matrixService.avatarThumbnail(mxcURL: mxcURL, size: size)
+            image = await client.avatarThumbnail(mxcURL: mxcURL, size: size)
         }
     }
 

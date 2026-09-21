@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
 import SwiftUI
 
 // MARK: - Attribute Resolution

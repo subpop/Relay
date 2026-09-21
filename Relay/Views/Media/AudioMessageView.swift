@@ -12,29 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import QuickLook
-import RelayInterface
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// Renders an audio attachment as a compact bubble with waveform icon, filename,
 /// duration, download button, and QuickLook support on double-click.
 struct AudioMessageView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
-    let message: TimelineMessage
+    @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+
+    let message: ObservableTimelineEvent
+
+    /// Whether the message was sent by the local user.
+    let isOutgoing: Bool
 
     @State private var quickLookURL: URL?
     @State private var isLoadingMedia = false
     @State private var isHovering = false
-    @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
 
-    private var mediaInfo: TimelineMessage.MediaInfo {
-        message.mediaInfo!
+    private var download: MediaFileHelper.Download? {
+        message.mediaDownload
+    }
+
+    private var mediaInfo: MediaInfo? {
+        if case .audio(_, _, let info) = message.kind { return info }
+        return nil
+    }
+
+    /// Duration in seconds (`MediaInfo` carries milliseconds).
+    private var durationSeconds: TimeInterval? {
+        guard let ms = mediaInfo?.duration, ms > 0 else { return nil }
+        return TimeInterval(ms) / 1000
     }
 
     private var style: BubbleStyle {
-        .message(for: message, coloredBubbles: coloredBubbles)
+        .message(
+            isOutgoing: isOutgoing,
+            senderID: message.sender.value,
+            coloredBubbles: coloredBubbles)
     }
 
     var body: some View {
@@ -50,19 +68,19 @@ struct AudioMessageView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(mediaInfo.filename)
+                Text(download?.filename ?? message.body)
                     .font(.callout)
                     .fontWeight(.medium)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 HStack(spacing: 6) {
-                    if let duration = mediaInfo.duration, duration > 0 {
-                        Text(duration.formattedDuration)
+                    if let durationSeconds {
+                        Text(durationSeconds.formattedDuration)
                             .font(.caption)
                     }
-                    if let size = mediaInfo.size, size > 0 {
-                        if mediaInfo.duration != nil && mediaInfo.duration! > 0 {
+                    if let size = download?.size, size > 0 {
+                        if durationSeconds != nil {
                             Text("·")
                                 .font(.caption)
                         }
@@ -115,7 +133,7 @@ struct AudioMessageView: View {
     }
 
     private func openQuickLook() async {
-        guard !isLoadingMedia else { return }
+        guard !isLoadingMedia, let download else { return }
         isLoadingMedia = true
         defer { isLoadingMedia = false }
 
@@ -125,25 +143,26 @@ struct AudioMessageView: View {
 
         do {
             quickLookURL = try await MediaFileHelper.downloadToTemporaryFile(
-                mediaInfo: mediaInfo, matrixService: matrixService
+                download: download, client: client
             )
         } catch {
-            errorReporter.report(.mediaPreviewFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaPreviewFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 
     private func saveMedia() async {
+        guard let download else { return }
         do {
             try await MediaFileHelper.saveToFile(
-                mediaInfo: mediaInfo, matrixService: matrixService,
+                download: download, client: client,
                 contentTypes: [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
             )
         } catch {
-            errorReporter.report(.mediaSaveFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaSaveFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 
-    private func formatFileSize(_ bytes: UInt64) -> String {
+    private func formatFileSize(_ bytes: Int) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))

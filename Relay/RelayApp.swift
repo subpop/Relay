@@ -13,9 +13,10 @@
 // limitations under the License.
 
 import Intents
+import Logging
+import MatrixKit
 import os
-import RelayKit
-import RelayInterface
+import RelayShared
 import SwiftUI
 import UserNotifications
 
@@ -23,9 +24,9 @@ private let logger = Logger(subsystem: "Relay", category: "DeepLink")
 
 /// The main entry point for the Relay macOS application.
 ///
-/// ``RelayApp`` creates the ``MatrixService``, injects it into the SwiftUI environment,
-/// manages the dock badge for unread counts, and posts local notifications for new
-/// mentions, direct messages, and incoming verification requests.
+/// ``RelayApp`` creates the ``RelayClient``, injects it into the SwiftUI environment,
+/// manages the dock badge for unread counts, and posts local notifications for
+/// incoming verification requests and room messages.
 @main
 struct RelayApp: App {
     /// `true` when Xcode is running the process solely to render SwiftUI
@@ -33,20 +34,42 @@ struct RelayApp: App {
     /// keychain, network monitor, etc.) are never created in preview mode.
     private static let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
 
-    @State private var matrixService = MatrixService()
-    @State private var giphyIdentityStore = GiphyIdentityStore.shared
-    @State private var gifSearchService = GiphyService(apiKey: Secrets.giphyAPIKey ?? "", identityStore: .shared)
+    @State private var client = RelayClient()
     @State private var callManager = CallManager()
     @State private var notificationDelegate = NotificationDelegate()
     @State private var appActions = AppActions()
     @State private var composeDraftStore = ComposeDraftStore()
     @State private var showClearCacheConfirmation = false
 
+    /// Installs the swift-log → Activity Log bridge exactly once per
+    /// process (previews may construct the app repeatedly, and a second
+    /// bootstrap would trap). MatrixKit records flow into the Activity
+    /// Log window, trace included; the console prints error-and-above
+    /// only. Installed in `init`, before any MatrixKit logger exists.
+    private static let installLoggingBridge: Void = {
+        LoggingSystem.bootstrap { label in
+            var console = StreamLogHandler.standardError(label: label)
+            console.logLevel = .error
+            return MultiplexLogHandler([
+                MatrixKitLogBridge(label: label),
+                console,
+            ])
+        }
+    }()
+
+    init() {
+        _ = Self.installLoggingBridge
+    }
+
+    /// GIF search backend (GIPHY). Empty API keys fail gracefully in the picker.
+    private var gifSearchService: any GIFSearchServiceProtocol {
+        GiphyService(apiKey: Secrets.giphyAPIKey ?? "", identityStore: .shared)
+    }
+
     @Environment(\.openWindow) private var openWindow
 
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @AppStorage("appearance.mode") private var appearanceMode: AppAppearance = .system
-    @AppStorage("analytics.giphy.optIn") private var analyticsGiphyOptIn = false
 
     var body: some Scene {
         WindowGroup(id: "main") {
@@ -72,7 +95,6 @@ struct RelayApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain }) {
                         window.deminiaturize(nil)
                         window.makeKeyAndOrderFront(nil)
-                        NSApplication.shared.activate()
                     } else {
                         openWindow(id: "main")
                     }
@@ -83,15 +105,15 @@ struct RelayApp: App {
 
         Settings {
             SettingsView()
-                .environment(\.matrixService, matrixService)
+                .environment(client)
+                .environment(\.errorReporter, client.errorReporter)
                 .environment(\.gifSearchService, gifSearchService)
-                .environment(\.errorReporter, matrixService.errorReporter)
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
 
         Window("Activity Log", id: "activity-log") {
             ActivityLogView()
-                .environment(\.matrixService, matrixService)
+                .environment(client)
                 .environment(\.activityLog, ActivityLog.shared)
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
@@ -100,15 +122,9 @@ struct RelayApp: App {
 
         Window("Call", id: "call") {
             CallWindowView()
-                .environment(\.matrixService, matrixService)
                 .environment(\.callManager, callManager)
-                .preferredColorScheme(appearanceMode.colorScheme)
         }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentMinSize)
-        .defaultSize(width: 360, height: 540)
-        .defaultPosition(.topTrailing)
-        .defaultLaunchBehavior(.suppressed)
+        .defaultSize(width: 720, height: 480)
     }
 
     /// The root content view, configured with real services at runtime or
@@ -119,29 +135,24 @@ struct RelayApp: App {
                 .preferredColorScheme(appearanceMode.colorScheme)
         } else {
             ContentView()
-                .environment(\.matrixService, matrixService)
-                .environment(\.gifSearchService, gifSearchService)
+                .environment(client)
+                .environment(\.errorReporter, client.errorReporter)
                 .environment(\.callManager, callManager)
-                .environment(\.errorReporter, matrixService.errorReporter)
                 .environment(\.composeDraftStore, composeDraftStore)
+                .environment(\.gifSearchService, gifSearchService)
                 .environment(appActions)
                 .onChange(of: dockBadgeCount) { _, newCount in
                     NSApp.dockTile.badgeLabel = newCount > 0 ? "\(newCount)" : nil
                 }
-                .onChange(of: analyticsGiphyOptIn) { _, _ in
-                    Task {
-                        await giphyIdentityStore.bootstrap(apiKey: Secrets.giphyAPIKey ?? "")
-                    }
-                }
-                .onChange(of: matrixService.pendingVerificationRequest?.id) { _, newValue in
-                    if newValue != nil, let request = matrixService.pendingVerificationRequest {
+                .onChange(of: client.pendingVerificationRequest?.id) { _, newValue in
+                    if newValue != nil, let request = client.pendingVerificationRequest {
                         postVerificationNotification(request: request)
                     }
                 }
                 .onOpenURL { url in
                     if let uri = MatrixURI(url: url) {
                         logger.info("Received deep link: \(url.absoluteString)")
-                        matrixService.pendingDeepLink = uri
+                        client.pendingDeepLink = uri
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -155,18 +166,17 @@ struct RelayApp: App {
                     }
                 }
                 .task {
-                    await giphyIdentityStore.bootstrap(apiKey: Secrets.giphyAPIKey ?? "")
                     await setupNotifications()
-                    matrixService.onNotificationEvent = { event in
-                        Task { @MainActor in
-                            self.handleNotificationEvent(event)
-                        }
+                }
+                .task {
+                    for await event in client.notificationEvents() {
+                        handleNotificationEvent(event)
                     }
                 }
                 .alert("Clear Cache", isPresented: $showClearCacheConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     Button("Clear Cache", role: .destructive) {
-                        Task { await matrixService.clearLocalData() }
+                        Task { await client.clearLocalData() }
                     }
                 } message: {
                     Text("This will delete all locally cached data and resync from the server. You will remain logged in.")
@@ -180,7 +190,7 @@ struct RelayApp: App {
     private func setupNotifications() async {
         let center = UNUserNotificationCenter.current()
         center.delegate = notificationDelegate
-        notificationDelegate.matrixService = matrixService
+        notificationDelegate.client = client
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
 
         // Register the verification request notification category with an Accept action.
@@ -204,80 +214,24 @@ struct RelayApp: App {
 
     /// The total dock badge count, computed from every room's notification-worthy unread state.
     ///
-    /// Because ``RoomSummary`` is `@Observable`, SwiftUI tracks each property
-    /// access and re-evaluates this whenever any room's unread state changes.
-    /// The count respects each room's effective notification mode:
+    /// The count respects each room's cached notification mode:
     /// - All Messages: counts all unread messages
     /// - Mentions & Keywords Only: counts only unread mentions
     /// - Mute: counts nothing
-    private var dockBadgeCount: UInt {
-        matrixService.rooms.reduce(0 as UInt) { total, room in
-            switch room.notificationMode {
+    /// - Default (uncached): DMs count all notifications, groups count highlights only
+    private var dockBadgeCount: Int {
+        client.rooms.reduce(0) { total, room in
+            switch client.notificationModeCache[room.roomId.value] {
             case .mute:
                 return total
             case .mentionsAndKeywordsOnly:
-                return total + room.highlightCount
+                return total + client.displayHighlightCount(for: room)
             case .allMessages:
-                return total + room.notificationCount
+                return total + client.displayUnreadCount(for: room)
             case nil:
-                // Default: DMs count all notifications, groups count highlights only
-                return room.isDirect ? total + room.notificationCount : total + room.highlightCount
+                return room.isDirect ? total + client.displayUnreadCount(for: room) : total + client.displayHighlightCount(for: room)
             }
         }
-    }
-
-    /// Handles a notification event from the room list manager.
-    ///
-    /// Posts a system notification banner and/or plays a sound when a room has new
-    /// unread activity, respecting the room's effective notification mode:
-    /// - **All Messages**: sound + banner for every message.
-    /// - **Mentions & Keywords Only**: sound + banner only for mentions.
-    /// - **Mute**: no sound or banner.
-    /// - **Default** (`nil`): DMs behave as All Messages; groups as Mentions & Keywords Only.
-    ///
-    /// When the user is actively viewing the room, the banner is suppressed but
-    /// the sound still plays (if warranted by the notification mode).
-    private func handleNotificationEvent(_ event: RoomNotificationEvent) {
-        // Determine the effective notification mode for this room.
-        // When there is no per-room override, DMs default to "All Messages"
-        // and groups default to "Mentions & Keywords Only".
-        let effectiveMode: RelayInterface.RoomNotificationMode = event.notificationMode
-            ?? (event.isDirect ? .allMessages : .mentionsAndKeywordsOnly)
-
-        // Muted rooms produce no sound, banner, or other system notification.
-        guard effectiveMode != .mute else { return }
-
-        // For "Mentions & Keywords Only", only notify when the message is a mention.
-        if effectiveMode == .mentionsAndKeywordsOnly, !event.isMention {
-            return
-        }
-
-        let content = UNMutableNotificationContent()
-
-        if event.isDirect {
-            content.title = event.roomName
-        } else {
-            content.title = "\(event.messageAuthor ?? "Unknown sender") in \(event.roomName)"
-        }
-
-        content.body = event.messageBody ?? "New message"
-        content.sound = .default
-        content.threadIdentifier = event.roomId
-        content.userInfo = ["roomId": event.roomId]
-        content.categoryIdentifier = NotificationDelegate.roomMessageCategoryIdentifier
-
-        // Suppress the banner when the user is actively viewing this room,
-        // but still deliver the notification so the sound plays.
-        if NSApp.isActive, selectedRoomId == event.roomId {
-            content.interruptionLevel = .passive
-        }
-
-        let request = UNNotificationRequest(
-            identifier: "room-\(event.roomId)-\(Date.now.timeIntervalSince1970)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
     }
 
     /// Checks the app group container for a pending share from the share extension.
@@ -321,14 +275,14 @@ struct RelayApp: App {
 
         // Stage attachments in the compose bar for the target room.
         let draft = composeDraftStore.draft(for: share.roomId)
-        draft.stageAttachments(fileURLs, errorReporter: matrixService.errorReporter)
+        draft.stageAttachments(fileURLs, errorReporter: ErrorReporter())
 
         // Remove the pending share record (files will be cleaned up after send
         // by TimelineViewModel.sendAttachment, which deletes the temp URL).
         PendingShareStore.remove(id: shareId)
     }
 
-    private func postVerificationNotification(request: IncomingVerificationRequest) {
+    private func postVerificationNotification(request: RelayClient.IncomingVerification) {
         let content = UNMutableNotificationContent()
         content.title = "Verification Request"
         content.body = "Another device (\(request.deviceId)) wants to verify this session."
@@ -338,6 +292,31 @@ struct RelayApp: App {
 
         let notificationRequest = UNNotificationRequest(
             identifier: "verification-\(request.flowId)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(notificationRequest)
+    }
+
+    /// Post a local banner for an incoming room message.
+    ///
+    /// Direct chats show the room name; group rooms show "author in room".
+    /// When the app is active with the room open, the banner is suppressed
+    /// (`.passive`) but the sound still plays.
+    private func handleNotificationEvent(_ event: RelayClient.RoomMessageNotification) {
+        let content = UNMutableNotificationContent()
+        content.title = event.isDirect ? event.roomName : "\(event.authorName ?? "Unknown sender") in \(event.roomName)"
+        content.body = event.body
+        content.sound = .default
+        content.threadIdentifier = event.roomId
+        content.userInfo = ["roomId": event.roomId]
+        content.categoryIdentifier = NotificationDelegate.roomMessageCategoryIdentifier
+        if NSApp.isActive && selectedRoomId == event.roomId {
+            content.interruptionLevel = .passive
+        }
+
+        let notificationRequest = UNNotificationRequest(
+            identifier: "message-\(event.eventId)",
             content: content,
             trigger: nil
         )
@@ -450,6 +429,7 @@ struct QuickSwitchCommand: Commands {
 
     var body: some Commands {
         CommandGroup(after: .pasteboard) {
+            Divider()
             Button("Quick Switch\u{2026}") {
                 appActions.showQuickSwitch = true
             }
@@ -492,8 +472,8 @@ struct TextSizeCommands: Commands {
 /// Handles notification presentation and user interactions for local notifications.
 ///
 /// When the user taps the verification notification or its "Accept" action,
-/// the delegate creates a ``SessionVerificationViewModel`` and presents the
-/// verification sheet via ``MatrixService/showVerificationSheet``.
+/// the delegate flips `shouldPresentVerificationSheet` for the verification
+/// sheet (arriving with session verification UI).
 /// When the user taps a room message notification, the delegate navigates to
 /// that room by setting the `selectedRoomId` in `UserDefaults`.
 @Observable
@@ -502,7 +482,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     nonisolated static let acceptActionIdentifier = "ACCEPT_VERIFICATION"
     nonisolated static let roomMessageCategoryIdentifier = "ROOM_MESSAGE"
 
-    weak var matrixService: MatrixService?
+    weak var client: RelayClient?
 
     /// Show notifications even when the app is in the foreground.
     ///
@@ -527,7 +507,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
         if content.categoryIdentifier == Self.verificationCategoryIdentifier {
             await MainActor.run {
-                matrixService?.shouldPresentVerificationSheet = true
+                client?.shouldPresentVerificationSheet = true
             }
             return
         }

@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import os
-import RelayInterface
 import SwiftUI
 
-/// The sidebar list of joined rooms with unread indicators, search filtering, and swipe-to-leave.
+/// The sidebar list of joined rooms with unread indicators and swipe-to-leave.
 ///
 /// Pending invite rows appear at the top of the list, above joined rooms.
 struct RoomListView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(AppActions.self) private var appActions
     @Binding var selectedRoomId: String?
@@ -29,10 +29,9 @@ struct RoomListView: View {
     @AppStorage("roomSortDirection") private var sortDirection: RoomSortDirection = .descending
     @AppStorage("roomTypeFilter") private var typeFilter: RoomTypeFilter = .all
     @AppStorage("showArchivedRooms") private var showArchivedRooms = false
-    @State private var roomToLeave: RoomSummary?
+    @State private var roomToLeave: RoomRowData?
     @State private var showLeaveConfirmation = false
-    @State private var verificationItem: VerificationItem?
-    @State private var inviteToDecline: RoomSummary?
+    @State private var inviteToDecline: InviteRowData?
     @State private var showDeclineConfirmation = false
 
     var body: some View {
@@ -125,8 +124,8 @@ struct RoomListView: View {
             }
         }
         .overlay {
-            if matrixService.rooms.isEmpty {
-                if matrixService.hasLoadedRooms {
+            if client.rooms.isEmpty {
+                if client.hasLoadedRooms {
                     ContentUnavailableView(
                         "No Rooms",
                         systemImage: "bubble.left.and.bubble.right",
@@ -140,11 +139,8 @@ struct RoomListView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 OfflineBanner()
-                SessionVerificationBanner(verificationItem: $verificationItem)
+                SessionVerificationBanner()
             }
-        }
-        .sheet(item: $verificationItem) { item in
-            VerificationSheet(viewModel: item.viewModel)
         }
         .alert("Leave Room", isPresented: $showLeaveConfirmation, presenting: roomToLeave) { room in
             Button("Cancel", role: .cancel) {}
@@ -245,32 +241,32 @@ struct RoomListView: View {
 // MARK: - Actions
 
 extension RoomListView {
-    private func confirmLeave(_ room: RoomSummary) {
+    private func confirmLeave(_ room: RoomRowData) {
         roomToLeave = room
         showLeaveConfirmation = true
     }
 
-    private func leaveRoom(_ room: RoomSummary) {
+    private func leaveRoom(_ room: RoomRowData) {
         if selectedRoomId == room.id {
             selectedRoomId = nil
         }
         Task {
             do {
-                try await matrixService.leaveRoom(id: room.id)
+                try await client.leaveRoom(id: room.id)
             } catch {
                 errorReporter.report(.roomLeaveFailed(error.localizedDescription))
             }
         }
     }
 
-    private func acceptInvite(_ invite: RoomSummary) {
+    private func acceptInvite(_ invite: InviteRowData) {
         Task {
             do {
-                try await matrixService.acceptInvite(roomId: invite.id)
+                try await client.acceptInvite(roomId: invite.id)
                 // Wait briefly for the room list to sync, then select the room.
                 try? await Task.sleep(for: .milliseconds(500))
-                if let joined = matrixService.rooms.first(where: { $0.id == invite.id }) {
-                    selectedRoomId = joined.id
+                if client.rooms.contains(where: { $0.roomId.value == invite.id }) {
+                    selectedRoomId = invite.id
                 }
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
@@ -278,25 +274,25 @@ extension RoomListView {
         }
     }
 
-    private func toggleFavourite(_ room: RoomSummary) {
+    private func toggleFavourite(_ room: RoomRowData) {
         Task {
             do {
-                try await matrixService.setFavourite(roomId: room.id, isFavourite: !room.isFavourite)
+                try await client.setFavourite(roomId: room.id, isFavourite: !room.isFavourite)
             } catch {
                 errorReporter.report(.pinFailed(error.localizedDescription))
             }
         }
     }
 
-    private func confirmDecline(_ invite: RoomSummary) {
+    private func confirmDecline(_ invite: InviteRowData) {
         inviteToDecline = invite
         showDeclineConfirmation = true
     }
 
-    private func declineInvite(_ invite: RoomSummary) {
+    private func declineInvite(_ invite: InviteRowData) {
         Task {
             do {
-                try await matrixService.declineInvite(roomId: invite.id)
+                try await client.declineInvite(roomId: invite.id)
             } catch {
                 errorReporter.report(.roomLeaveFailed(error.localizedDescription))
             }
@@ -308,8 +304,8 @@ extension RoomListView {
 
 extension RoomListView {
     /// Rooms with a pending invitation, shown at the top of the sidebar.
-    fileprivate var pendingInvites: [RoomSummary] {
-        matrixService.rooms.filter { $0.isInvited }
+    fileprivate var pendingInvites: [InviteRowData] {
+        client.invitedRooms.map(InviteRowData.from)
     }
 
     private static let perfSignposter = OSSignposter(
@@ -318,17 +314,23 @@ extension RoomListView {
     )
 
     /// All joined rooms with the current space, type, search filter, and sort applied.
-    private var filteredRooms: [RoomSummary] {
+    private var filteredRooms: [RoomRowData] {
         let state = Self.perfSignposter.beginInterval(
             "filterRooms" as StaticString,
-            "\(matrixService.rooms.count) total"
+            "\(client.rooms.count) total"
         )
-        var rooms = matrixService.rooms.filter { !$0.isInvited }
+        var rooms = client.rooms
+            .filter { $0.membership == .join }
+            .map { RoomRowData.from(room: $0, isMuted: client.isMuted(roomId: $0.roomId.value), client: client) }
 
         // Apply space filter.
         if let selectedSpaceId {
             rooms = rooms.filter { $0.parentSpaceIds.contains(selectedSpaceId) }
         }
+
+        // Spaces never render as rows: they live in the rail (when
+        // joined) and the space detail.
+        rooms = rooms.filter { !$0.isSpace }
 
         // Apply type filter.
         switch typeFilter {
@@ -343,7 +345,7 @@ extension RoomListView {
         // Exclude tombstoned (upgraded) rooms unless the user has opted
         // to see archived rooms.
         if !showArchivedRooms {
-            rooms = rooms.filter { $0.successorRoomId == nil }
+            rooms = rooms.filter { !$0.isArchived }
         }
 
         // Apply sort.
@@ -360,39 +362,47 @@ extension RoomListView {
 
 
     /// A reusable comparator for sorting rooms by the current sort settings.
-    private var roomComparator: (RoomSummary, RoomSummary) -> Bool {
+    ///
+    /// Rooms without a cached timestamp always sort after rooms with one,
+    /// in either direction: treating a missing timestamp as equal (the
+    /// old behavior) violates strict weak ordering and scrambles the list
+    /// whenever timestamped and untimestamped rooms mix.
+    private var roomComparator: (RoomRowData, RoomRowData) -> Bool {
         { lhs, rhs in
             // Muted rooms always sort to the bottom, regardless of direction.
             if lhs.isMuted != rhs.isMuted {
                 return rhs.isMuted
             }
 
-            let result: ComparisonResult
             switch sortOrder {
             case .lastMessage:
                 // Muted rooms don't participate in recency sort; order alphabetically.
                 if lhs.isMuted {
-                    result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-                } else {
-                    switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
-                    // swiftlint:disable:next identifier_name
-                    case (.some(let l), .some(let r)):
-                        result = l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
-                    default:
-                        // When one or both rooms lack a cached timestamp,
-                        // preserve the SDK's sliding-sync order (which is
-                        // recency-based). Swift's sort is stable, so
-                        // returning .orderedSame keeps the original position.
-                        result = .orderedSame
-                    }
+                    let result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                    return sortDirection == .ascending
+                        ? result == .orderedAscending
+                        : result == .orderedDescending
+                }
+                switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
+                // swiftlint:disable:next identifier_name
+                case (.some(let l), .some(let r)):
+                    let result: ComparisonResult = l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
+                    return sortDirection == .ascending
+                        ? result == .orderedAscending
+                        : result == .orderedDescending
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                case (.none, .none):
+                    return false
                 }
             case .name:
-                result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                let result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                return sortDirection == .ascending
+                    ? result == .orderedAscending
+                    : result == .orderedDescending
             }
-
-            return sortDirection == .ascending
-                ? result == .orderedAscending
-                : result == .orderedDescending
         }
     }
 }
@@ -406,7 +416,7 @@ extension RoomListView {
         selectedRoomId: $sel,
         selectedSpaceId: $space
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .environment(AppActions())
     .frame(width: 300, height: 400)
 }
@@ -416,6 +426,7 @@ extension RoomListView {
         selectedRoomId: .constant(nil),
         selectedSpaceId: .constant(nil)
     )
+    .environment(RelayClient())
     .environment(AppActions())
     .frame(width: 300, height: 400)
 }

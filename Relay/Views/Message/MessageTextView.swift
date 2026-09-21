@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 // MARK: - MessageTextView (NSViewRepresentable)
@@ -36,7 +36,10 @@ struct MessageTextView: NSViewRepresentable {
     var onRoomTap: ((String) -> Void)?
 
     /// When set with ``contextMessage`` and ``onMessageContextAction``, right-click merges Relay actions into the text menu.
-    var contextMessage: TimelineMessage?
+    var contextMessage: ObservableTimelineEvent?
+
+    /// Whether the message was sent by the local user (gates edit/pin entries).
+    var isOutgoingMessage: Bool = false
 
     var onMessageContextAction: ((TimelineRowContextAction) -> Void)?
 
@@ -161,6 +164,7 @@ struct MessageTextView: NSViewRepresentable {
         view.onUserTap = onUserTap
         view.onRoomTap = onRoomTap
         view.contextMessage = contextMessage
+        view.isOutgoingMessage = isOutgoingMessage
         view.onMessageContextAction = onMessageContextAction
         view.onPresentReactionPicker = onPresentReactionPicker
         view.permissions = permissions
@@ -187,6 +191,7 @@ struct MessageTextView: NSViewRepresentable {
         view.onUserTap = onUserTap
         view.onRoomTap = onRoomTap
         view.contextMessage = contextMessage
+        view.isOutgoingMessage = isOutgoingMessage
         view.onMessageContextAction = onMessageContextAction
         view.onPresentReactionPicker = onPresentReactionPicker
         view.permissions = permissions
@@ -332,7 +337,10 @@ final class MessageTextContent: NSTextView {
     var onRoomTap: ((String) -> Void)?
 
     /// Timeline message for contextual actions (reply, pin, …). Set by ``MessageTextView``.
-    var contextMessage: TimelineMessage?
+    var contextMessage: ObservableTimelineEvent?
+
+    /// Whether the message was sent by the local user (gates edit/pin entries).
+    var isOutgoingMessage: Bool = false
 
     /// Delivers the same actions as the SwiftUI row context menu.
     var onMessageContextAction: ((TimelineRowContextAction) -> Void)?
@@ -454,7 +462,8 @@ final class MessageTextContent: NSTextView {
             return baseMenu
         }
 
-        let entries = TimelineMessageContextMenu.entries(for: message, permissions: permissions)
+        let entries = TimelineMessageContextMenu.entries(
+            for: message, isOutgoing: isOutgoingMessage, permissions: permissions)
         var insertIndex = 0
         for entry in entries {
             switch entry {
@@ -546,7 +555,7 @@ final class MessageTextContent: NSTextView {
 
     @objc private func contextTogglePin() {
         guard let message = contextMessage else { return }
-        onMessageContextAction?(.togglePin(message.eventID))
+        onMessageContextAction?(.togglePin(message.eventId.value))
     }
 
     @objc private func contextEdit() {

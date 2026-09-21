@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -115,7 +115,7 @@ private struct ComposeBarContent: View {
 
             if let replyMessage = compose.replyingTo {
                 ReplyEditBanner(
-                    label: "Replying to \(replyMessage.senderDisplayName ?? replyMessage.senderID)",
+                    label: "Replying to \(replyMessage.senderDisplayName ?? replyMessage.sender.value)",
                     systemImage: "arrowshape.turn.up.left"
                 ) {
                     withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
@@ -249,13 +249,13 @@ private struct ComposeBarActions: View {
 
 private let previewMembers: [RoomMemberDetails] = [
     RoomMemberDetails(
-        userId: "@alice:matrix.org", displayName: "Alice Smith", role: .administrator
+        userId: UserId(unchecked: "@alice:matrix.org"), displayName: "Alice Smith", role: .administrator
     ),
     RoomMemberDetails(
-        userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator
+        userId: UserId(unchecked: "@bob:matrix.org"), displayName: "Bob Chen", role: .moderator
     ),
-    RoomMemberDetails(userId: "@charlie:matrix.org", displayName: "Charlie Davis"),
-    RoomMemberDetails(userId: "@diana:matrix.org", displayName: "Diana Evans"),
+    RoomMemberDetails(userId: UserId(unchecked: "@charlie:matrix.org"), displayName: "Charlie Davis"),
+    RoomMemberDetails(userId: UserId(unchecked: "@diana:matrix.org"), displayName: "Diana Evans"),
 ]
 
 #Preview("Empty") {
@@ -270,7 +270,6 @@ private let previewMembers: [RoomMemberDetails] = [
         onGIFSelected: { _ in }
     )
     .frame(width: 400)
-    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Text") {
@@ -286,7 +285,6 @@ private let previewMembers: [RoomMemberDetails] = [
         onGIFSelected: { _ in }
     )
     .frame(width: 400)
-    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Attachments") {
@@ -315,7 +313,6 @@ private let previewMembers: [RoomMemberDetails] = [
         onGIFSelected: { _ in }
     )
     .frame(width: 500)
-    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("With Mention Suggestions") {
@@ -336,5 +333,4 @@ private let previewMembers: [RoomMemberDetails] = [
         .frame(width: 400)
     }
     .frame(height: 350)
-    .environment(\.matrixService, PreviewMatrixService())
 }

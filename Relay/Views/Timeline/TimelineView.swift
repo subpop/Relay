@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import OSLog
-import RelayInterface
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -24,29 +24,29 @@ private let logger = Logger(subsystem: "Relay", category: "Timeline")
 /// ``TimelineView`` is a composition root that assembles the scroll view, overlays,
 /// compose bar, and interaction handlers from focused subviews.
 struct TimelineView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.gifSearchService) private var gifSearchService
     @Environment(\.composeDraftStore) private var composeDraftStore
+    @Environment(\.scenePhase) private var scenePhase
 
     let roomId: String
     let roomName: String
     var roomAvatarURL: String?
 
-    @State var viewModel: any TimelineStateProviding
+    @State var viewModel: TimelineViewModel
     @Binding var focusedMessageId: String?
     var onUserTap: ((UserProfile) -> Void)?
     var onRoomTap: ((String) -> Void)?
     var readOnly: Bool = false
 
     @State private var compose = ComposeViewModel()
-    @State private var messageToDelete: TimelineMessage?
+    @State private var messageToDelete: ObservableTimelineEvent?
     @State private var isNearEnd = true
+    @State private var lastBottomRowId: String?
     @State private var composeBarHeight: CGFloat = 0
     @State private var pendingScrollToEnd = false
-    @State private var showUnreadMarker = true
     @State private var timelineInitialLoadComplete = false
-    @State private var unreadMarkerDismissTask: Task<Void, Never>?
     @State private var isDirectRoom = false
     @State private var roomPermissions: RoomPermissions?
     @State private var highlightedMessageId: String?
@@ -98,7 +98,7 @@ struct TimelineView: View {
         roomId: String,
         roomName: String,
         roomAvatarURL: String? = nil,
-        viewModel: any TimelineStateProviding,
+        viewModel: TimelineViewModel,
         focusedMessageId: Binding<String?>,
         onUserTap: ((UserProfile) -> Void)? = nil,
         onRoomTap: ((String) -> Void)? = nil,
@@ -127,11 +127,10 @@ struct TimelineView: View {
                 )
             }
             .overlay(alignment: .bottom) {
-                if successorRoomId != nil || (!readOnly && (roomPermissions?.canSendMessages ?? true)),
-                   let actionsVM = viewModel as? any TimelineViewModelProtocol {
+                if successorRoomId != nil || (!readOnly && (roomPermissions?.canSendMessages ?? true)) {
                     TimelineBottomBar(
                         compose: compose,
-                        viewModel: actionsVM,
+                        viewModel: viewModel,
                         roomId: roomId,
                         successorRoomId: successorRoomId,
                         onRoomTap: onRoomTap,
@@ -177,7 +176,7 @@ struct TimelineView: View {
                     viewModel: viewModel,
                     compose: compose,
                     roomPermissions: roomPermissions,
-                    currentUserID: matrixService.userId(),
+                    currentUserID: viewModel.currentUserId,
                     onUserTap: onUserTap,
                     onRoomTap: onRoomTap,
                     scrollToRow: { [self] id in scroller.scrollToRow(id: id) },
@@ -198,22 +197,18 @@ struct TimelineView: View {
                     members: compose.members
                 )
 
-                let roomSummary = matrixService.rooms.first(where: { $0.id == roomId })
-                isDirectRoom = roomSummary?.isDirect ?? false
-                successorRoomId = roomSummary?.successorRoomId
+                isDirectRoom = viewModel.isDirectRoom
+                successorRoomId = viewModel.successorRoomId
 
-                let details = await matrixService.roomDetails(roomId: roomId)
-                roomPermissions = details?.permissions
+                roomPermissions = await viewModel.roomPermissions()
                 timelineActionsRef.permissions = roomPermissions
 
                 await viewModel.loadTimeline()
 
-                if !readOnly, !alwaysLoadNewest {
-                    let focusEventId = await matrixService.fullyReadEventId(roomId: roomId)
-                    if let focusEventId {
-                        await viewModel.focusOnEvent(eventId: focusEventId)
-                        await scrollToEventWhenAvailable(focusEventId)
-                    }
+                if !readOnly, !alwaysLoadNewest,
+                   let focusEventId = viewModel.firstUnreadMessageId {
+                    await viewModel.focusOnEvent(eventId: focusEventId)
+                    await scrollToEventWhenAvailable(focusEventId)
                 }
 
                 timelineInitialLoadComplete = true
@@ -221,40 +216,24 @@ struct TimelineView: View {
 
                 guard !readOnly else { return }
                 markAsReadIfNeeded()
-                compose.members = await matrixService.roomMembers(roomId: roomId)
+                compose.members = await viewModel.roomMembers()
             }
             .onDisappear {
                 if !readOnly, sendTypingNotifications {
-                    Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: false) }
+                    Task { await viewModel.setTyping(false) }
                 }
                 memberRefreshTask?.cancel()
-                unreadMarkerDismissTask?.cancel()
             }
-            .onChange(of: matrixService.rooms.first(where: { $0.id == roomId })?.successorRoomId) { _, newValue in
+            .onChange(of: viewModel.successorRoomId) { _, newValue in
                 successorRoomId = newValue
             }
-            .onChange(of: viewModel.firstUnreadMessageId) { oldValue, newValue in
-                guard oldValue == nil, newValue != nil else { return }
-                showUnreadMarker = true
-                unreadMarkerDismissTask?.cancel()
-                unreadMarkerDismissTask = Task {
-                    try? await Task.sleep(for: .seconds(5))
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeOut(duration: 0.4)) {
-                        showUnreadMarker = false
-                    }
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
-                    viewModel.firstUnreadMessageId = nil
-                }
-            }
-            .onChange(of: viewModel.messages.count) {
+            .onChange(of: viewModel.events.count) {
                 guard !readOnly else { return }
                 memberRefreshTask?.cancel()
                 memberRefreshTask = Task {
                     try? await Task.sleep(for: .milliseconds(500))
                     guard !Task.isCancelled else { return }
-                    compose.members = await matrixService.roomMembers(roomId: roomId)
+                    compose.members = await viewModel.roomMembers()
                 }
             }
             .onChange(of: compose.text) { oldValue, newValue in
@@ -262,9 +241,9 @@ struct TimelineView: View {
                 let wasEmpty = oldValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let isEmpty = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if wasEmpty && !isEmpty {
-                    Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: true) }
+                    Task { await viewModel.setTyping(true) }
                 } else if !wasEmpty && isEmpty {
-                    Task { await matrixService.sendTypingNotice(roomId: roomId, isTyping: false) }
+                    Task { await viewModel.setTyping(false) }
                 }
             }
             .onChange(of: showMembershipEvents) { _, enabled in
@@ -277,8 +256,8 @@ struct TimelineView: View {
                 guard let eventId = focusedMessageId else { return }
                 focusedMessageId = nil
 
-                if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
-                    scroller.scrollToRow(id: message.id)
+                if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
+                    scroller.scrollToRow(id: message.eventId.value)
                     highlightedMessageId = eventId
                 } else {
                     Task {
@@ -292,8 +271,8 @@ struct TimelineView: View {
                 set: { if !$0 { messageToDelete = nil } }
             )) {
                 Button("Delete", role: .destructive) {
-                    if let message = messageToDelete, let actionsVM = viewModel as? any TimelineActionsProviding {
-                        Task { await actionsVM.redact(messageId: message.eventID, reason: nil) }
+                    if let message = messageToDelete {
+                        Task { await viewModel.redact(messageId: message.eventId.value) }
                     }
                     messageToDelete = nil
                 }
@@ -312,7 +291,6 @@ struct TimelineView: View {
         TimelineScrollView(
             rows: viewModel.messageRows,
             config: .init(
-                showUnreadMarker: showUnreadMarker,
                 firstUnreadMessageID: viewModel.firstUnreadMessageId,
                 highlightedMessageID: highlightedMessageId,
                 showURLPreviews: showURLPreviews,
@@ -327,7 +305,7 @@ struct TimelineView: View {
             onNearEndChanged: { nearEnd in
                 isNearEnd = nearEnd
                 markAsReadIfNeeded()
-            },            onPaginateBackward: {
+            }, onPaginateBackward: {
                 guard !viewModel.isLoadingMore, !viewModel.hasReachedStart else { return }
                 Task { await viewModel.loadMoreHistory() }
             },
@@ -335,12 +313,12 @@ struct TimelineView: View {
                 guard !viewModel.isLoadingMore, !viewModel.hasReachedEnd else { return }
                 Task { await viewModel.loadMoreFuture() } },
             onBottomMostVisibleMessageChanged: { rowID in
+                lastBottomRowId = rowID
                 guard let rowID,
                       let row = viewModel.messageRows.first(where: { $0.id == rowID })
                 else { return }
-                advanceFullyReadMarker(to: row.message.eventID)
-            },
-            onScrollSettled: { markAsReadIfNeeded() }
+                advanceFullyReadMarker(to: row.message.eventId.value)
+            }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "timeline")
@@ -361,7 +339,7 @@ struct TimelineView: View {
                 actions: timelineActionsRef
             )
         }
-        .onChange(of: viewModel.messageRowsVersion) {
+        .onChange(of: viewModel.messageRows.map(\.id)) {
             guard timelineInitialLoadComplete else { return }
 
             if pendingScrollToEnd {
@@ -392,22 +370,25 @@ struct TimelineView: View {
                 markAsReadIfNeeded()
             }
         }
-        .onChange(of: viewModel.isLoadingMore) {
-            if !viewModel.isLoadingMore {
-                markAsReadIfNeeded()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        .onChange(of: scenePhase) { _, newValue in
+            guard newValue == .active else { return }
+            // App regained focus: resume read marking after the dwell, and
+            // catch up the fully-read marker to the last visible row (its
+            // change handler doesn't refire on reactivation alone).
             markAsReadIfNeeded()
+            if let rowID = lastBottomRowId,
+               let row = viewModel.messageRows.first(where: { $0.id == rowID }) {
+                advanceFullyReadMarker(to: row.message.eventId.value)
+            }
         }
     }
 
     // MARK: - Scroll Management
 
     private func scrollToEventWhenAvailable(_ eventId: String) async {
-        if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
+        if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
             try? await Task.sleep(for: .milliseconds(100))
-            scroller.scrollToRow(id: message.id)
+            scroller.scrollToRow(id: message.eventId.value)
             highlightedMessageId = eventId
             return
         }
@@ -416,22 +397,22 @@ struct TimelineView: View {
         while ContinuousClock.now < deadline {
             let found = await withCheckedContinuation { continuation in
                 withObservationTracking {
-                    _ = viewModel.messages
+                    _ = viewModel.events
                 } onChange: {
                     continuation.resume(returning: true)
                 }
             }
             guard found else { break }
-            if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
+            if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
                 try? await Task.sleep(for: .milliseconds(100))
-                scroller.scrollToRow(id: message.id)
+                scroller.scrollToRow(id: message.eventId.value)
                 highlightedMessageId = eventId
                 return
             }
         }
 
-        if let message = viewModel.messages.first(where: { $0.eventID == eventId }) {
-            scroller.scrollToRow(id: message.id)
+        if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
+            scroller.scrollToRow(id: message.eventId.value)
         }
         highlightedMessageId = eventId
     }
@@ -442,17 +423,22 @@ struct TimelineView: View {
         guard !readOnly else { return }
         readReceiptTracker.markReadIfNeeded(
             isNearEnd: isNearEnd,
-            isActive: NSApp.isActive,
+            isActive: scenePhase == .active,
             markAsRead: { [self] in
-                await matrixService.markAsRead(roomId: roomId, sendPublicReceipt: sendReadReceipts)
+                await client.markAsRead(roomId: roomId, sendReceipt: sendReadReceipts)
             }
         )
     }
 
     private func advanceFullyReadMarker(to eventId: String) {
+        // `m.fully_read` is same-account account data (invisible to other
+        // members), so reading always advances it even with Send Read
+        // Receipts off — only public room receipts are gated by that
+        // setting (a private receipt is sent instead).
         readReceiptTracker.updateHighWaterMark(
             eventId: eventId,
-            in: viewModel.messages,
+            in: viewModel.events,
+            isActive: scenePhase == .active,
             sendReceipt: { [viewModel] eventId in
                 await viewModel.sendFullyReadReceipt(upTo: eventId)
             }
@@ -463,7 +449,13 @@ struct TimelineView: View {
 
     private var editLastMessageAction: (() -> Void)? {
         guard !readOnly else { return nil }
-        guard let message = viewModel.messages.last(where: { $0.isOutgoing && $0.kind == .text }) else {
+        guard let message = viewModel.events.last(where: {
+            guard $0.sender.value == viewModel.currentUserId, $0.isEditable else {
+                return false
+            }
+            if case .text = $0.kind { return true }
+            return false
+        }) else {
             return nil
         }
         return {
@@ -484,15 +476,11 @@ struct TimelineView: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         case .togglePin(let eventId):
-            guard let actionsVM = viewModel as? any TimelineActionsProviding else { break }
-            let isPinned = matrixService.rooms
-                .first(where: { $0.id == roomId })?
-                .pinnedEventIds.contains(eventId) ?? false
             Task {
-                if isPinned {
-                    await actionsVM.unpin(eventId: eventId)
+                if viewModel.isPinned(eventId: eventId) {
+                    await viewModel.unpin(eventId: eventId)
                 } else {
-                    await actionsVM.pin(eventId: eventId)
+                    await viewModel.pin(eventId: eventId)
                 }
             }
         case .edit(let message):
@@ -500,16 +488,16 @@ struct TimelineView: View {
             compose.editingMessage = message
             compose.text = message.body
         case .saveMedia(let message):
-            guard let mediaInfo = message.mediaInfo else { break }
+            guard let download = message.mediaDownload else { break }
             Task {
                 do {
                     try await MediaFileHelper.saveToFile(
-                        mediaInfo: mediaInfo, matrixService: matrixService,
+                        download: download, client: client,
                         contentTypes: Self.contentTypes(for: message)
                     )
                 } catch {
                     errorReporter.report(.mediaSaveFailed(
-                        filename: mediaInfo.filename,
+                        filename: download.filename,
                         reason: error.localizedDescription
                     ))
                 }
@@ -519,19 +507,20 @@ struct TimelineView: View {
         }
     }
 
-    private static func contentTypes(for message: TimelineMessage) -> [UTType] {
+    private static func contentTypes(for message: ObservableTimelineEvent) -> [UTType] {
         switch message.kind {
-        case .image(_):
+        case .image:
             return [.image]
-        case .video(_):
+        case .video:
             return [.movie, .video, .mpeg4Movie, .quickTimeMovie]
-        case .audio(_):
+        case .audio:
             return [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
         default:
-            if let mime = message.mediaInfo?.mimetype, let type = UTType(mimeType: mime) {
+            let download = message.mediaDownload
+            if let mime = download?.mimetype, let type = UTType(mimeType: mime) {
                 return [type]
             }
-            let ext = ((message.mediaInfo?.filename ?? "") as NSString).pathExtension
+            let ext = ((download?.filename ?? "") as NSString).pathExtension
             if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
                 return [type]
             }

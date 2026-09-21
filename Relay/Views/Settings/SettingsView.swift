@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 // MARK: - Settings View
@@ -20,11 +20,11 @@ import SwiftUI
 /// The settings window, organized into tabs for account profile, appearance,
 /// behavior, notifications, session management, encryption status, and labs.
 struct SettingsView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     var body: some View {
         Group {
-            if matrixService.userId() != nil {
+            if client.userId() != nil {
                 TabView {
                     SettingsAccountTab()
                         .tabItem { Label("Account", systemImage: "person.crop.circle") }
@@ -57,26 +57,49 @@ struct SettingsView: View {
 
 #Preview("General") {
     SettingsView()
-        .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("Verification — Emoji") {
-    VerificationSheet(
-        viewModel: PreviewSessionVerificationViewModel(
-            state: .showingEmojis,
-            emojis: PreviewSessionVerificationViewModel.sampleEmojis
-        )
-    )
+    VerificationSheet(viewModel: {
+        let model = SessionVerificationViewModel(client: RelayClient())
+        model.emojis = [
+            SASEmoji(emoji: "🎉", description: "Party popper"),
+            SASEmoji(emoji: "🚀", description: "Rocket"),
+            SASEmoji(emoji: "🐶", description: "Dog face"),
+            SASEmoji(emoji: "🌈", description: "Rainbow"),
+            SASEmoji(emoji: "⚽", description: "Soccer ball"),
+            SASEmoji(emoji: "🍕", description: "Pizza"),
+            SASEmoji(emoji: "🎸", description: "Guitar"),
+        ]
+        model.state = .showingEmojis
+        return model
+    }())
 }
 
 #Preview("Verification — Idle") {
-    VerificationSheet(viewModel: PreviewSessionVerificationViewModel())
+    VerificationSheet(viewModel: {
+        let model = SessionVerificationViewModel(client: RelayClient())
+        model.hasOtherDevices = true
+        return model
+    }())
 }
 
 #Preview("Verification — No Other Devices") {
-    VerificationSheet(viewModel: PreviewSessionVerificationViewModel(hasOtherDevices: false))
+    VerificationSheet(viewModel: SessionVerificationViewModel(client: RelayClient()))
 }
 
-#Preview("Verification — Recovery Key") {
-    VerificationSheet(viewModel: PreviewSessionVerificationViewModel(state: .enteringRecoveryKey))
+#Preview("Verification — Recovery Entry") {
+    VerificationSheet(viewModel: {
+        let model = SessionVerificationViewModel(client: RelayClient())
+        model.state = .enteringRecovery
+        return model
+    }())
+}
+
+#Preview("Verification — Restore Prompt") {
+    VerificationSheet(viewModel: {
+        let model = SessionVerificationViewModel(client: RelayClient())
+        model.state = .awaitingBackupRestore
+        return model
+    }())
 }

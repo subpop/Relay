@@ -13,9 +13,9 @@
 // limitations under the License.
 
 import CoreGraphics
-import RelayInterface
+import MatrixKit
 
-extension TimelineMessage.MediaInfo {
+extension MediaInfo {
     /// Computes a display size for media content, fitting within the given
     /// maximum dimensions while preserving the original aspect ratio.
     ///

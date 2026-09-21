@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The context in which the inspector is being used.
@@ -82,7 +82,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
 /// Xcode-style icon-only segmented tabs. The available tabs depend on the ``InspectorContext``:
 /// rooms show all six tabs, while spaces show General, Members, Notifications, and Settings.
 struct TimelineInspectorView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     let roomId: String
     let context: InspectorContext
@@ -139,7 +139,7 @@ struct TimelineInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
-            await viewModel.load(service: matrixService)
+            await viewModel.load(client: client)
         }
         .onChange(of: selectedProfile) { _, profile in
             if profile != nil {
@@ -200,12 +200,10 @@ struct TimelineInspectorView: View {
 
 #Preview("Room") {
     TimelineInspectorView(roomId: "!design:matrix.org", context: .room)
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Space") {
     TimelineInspectorView(roomId: "!space-work:matrix.org", context: .space)
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }

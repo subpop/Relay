@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A compact, centered row for displaying system events in the timeline.
@@ -22,7 +22,7 @@ import SwiftUI
 /// encryption). They are rendered as small, centered text with an inline
 /// SF Symbol icon — no avatar, no chat bubble, no swipe actions.
 struct SystemEventView: View {
-    let message: TimelineMessage
+    let message: ObservableTimelineEvent
 
     @Environment(\.timelineActions) private var actions
 
@@ -30,7 +30,7 @@ struct SystemEventView: View {
         HStack(spacing: 4) {
             Image(systemName: iconName)
                 .imageScale(.small)
-            Text(message.attributedBody ?? AttributedString(message.body))
+            Text(attributedDescription)
         }
         .font(.caption)
         .foregroundStyle(.tertiary)
@@ -45,16 +45,63 @@ struct SystemEventView: View {
         })
     }
 
+    private var description: String {
+        switch message.kind {
+        case .state(_, let description),
+            .profileChange(let description),
+            .callEvent(_, let description):
+            description
+        default:
+            message.body
+        }
+    }
+
+    /// Description with user deep-links on the sender's and membership
+    /// target's names. Taps route through the `openURL` interception
+    /// above into `actions.userTap` (the member inspector).
+    private var attributedDescription: AttributedString {
+        SystemEventLinker.linkedDescription(
+            description,
+            senderName: message.senderDisplayName,
+            senderID: message.sender.value,
+            targetName: message.targetDisplayName,
+            targetID: message.targetUserId?.value
+        )
+    }
+
     private var iconName: String {
         switch message.kind {
-        case .membership(_):
-            "person.2"
-        case .profileChange(_):
+        case .state(let type, _):
+            switch type {
+            case "m.room.member":
+                "person.2"
+            case "m.room.create":
+                "sparkles"
+            case "m.room.avatar":
+                "photo"
+            case "m.room.power_levels":
+                "gearshape"
+            case "m.room.encryption":
+                "lock.shield"
+            case "m.room.tombstone":
+                "arrow.up.right.square"
+            case "m.room.canonical_alias":
+                "link"
+            case "m.room.pinned_events":
+                "pin"
+            case "m.room.join_rules":
+                "person.badge.key"
+            case "m.room.history_visibility":
+                "clock.arrow.circlepath"
+            case "m.room.server_acl":
+                "server.rack"
+            default:
+                "info.circle"
+            }
+        case .profileChange:
             "person.text.rectangle"
-        case .callEvent(_):
+        case .callEvent:
             "phone.fill"
-        case .stateEvent(_):
-            "gearshape"
         default:
             "info.circle"
         }
@@ -63,19 +110,12 @@ struct SystemEventView: View {
 
 // MARK: - Previews
 
-private func previewAttributedBody(_ name: String, userId: String, suffix: String) -> AttributedString {
-    var linked = AttributedString(name)
-    linked.link = URL(string: "https://matrix.to/#/\(userId)")
-    return linked + AttributedString(suffix)
-}
-
 #Preview("Membership") {
     SystemEventView(
-        message: .init(
-            id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
+        message: PreviewFixtures.event(
+            "1", sender: "@alice:matrix.org", displayName: "Alice",
             body: "Alice joined the room",
-            timestamp: .now, isOutgoing: false,
-            kind: .membership(previewAttributedBody("Alice", userId: "@alice:matrix.org", suffix: " joined the room"))
+            kind: .state(type: "m.room.member", description: "Alice joined the room")
         )
     )
     .padding()
@@ -84,11 +124,24 @@ private func previewAttributedBody(_ name: String, userId: String, suffix: Strin
 
 #Preview("Profile Change") {
     SystemEventView(
-        message: .init(
-            id: "2", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
+        message: PreviewFixtures.event(
+            "2", sender: "@bob:matrix.org", displayName: "Bob",
             body: "Bob updated their avatar",
-            timestamp: .now, isOutgoing: false,
-            kind: .profileChange(previewAttributedBody("Bob", userId: "@bob:matrix.org", suffix: " updated their avatar"))
+            kind: .profileChange(description: "Bob updated their avatar")
+        )
+    )
+    .padding()
+    .frame(width: 450)
+}
+
+#Preview("Kick") {
+    SystemEventView(
+        message: PreviewFixtures.event(
+            "3", sender: "@alice:matrix.org", displayName: "Alice",
+            body: "Alice removed Bob",
+            kind: .state(type: "m.room.member", description: "Alice removed Bob"),
+            targetUserId: "@bob:matrix.org",
+            targetDisplayName: "Bob"
         )
     )
     .padding()

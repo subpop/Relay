@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -55,9 +55,21 @@ struct InspectorGeneralTab: View {
         Group {
             if let details = viewModel.details {
                 detailContent(details)
-            } else {
+            } else if viewModel.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView {
+                    Label("Couldn't Load Room", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(viewModel.loadError ?? "Room details are unavailable.")
+                } actions: {
+                    Button("Retry") {
+                        Task { await viewModel.retryLoading() }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .disabled(isSaving)
@@ -92,7 +104,7 @@ struct InspectorGeneralTab: View {
                     )
                 }
                 if !isEditing {
-                    InspectorFooterSection(roomId: details.id)
+                    InspectorFooterSection(roomId: details.id.value)
                 }
             }
             .padding(.vertical)
@@ -145,7 +157,7 @@ struct InspectorGeneralTab: View {
     private func headerSection(_ details: RoomDetails) -> some View {
         VStack(spacing: 6) {
             // Avatar with overlay controls
-            AvatarView(name: details.name, mxcURL: details.avatarURL, size: 80)
+            AvatarView(name: details.name ?? details.id.value, mxcURL: details.avatarURL?.value, size: 80)
                 .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                 .overlay(alignment: .bottomTrailing) {
                     if isEditing, canEditAvatar {
@@ -202,7 +214,7 @@ struct InspectorGeneralTab: View {
             if !isEditing {
                 ShareLink(
                     item: matrixToURL(for: details),
-                    preview: SharePreview(details.name)
+                    preview: SharePreview(details.name ?? details.id.value)
                 ) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.callout)
@@ -219,7 +231,7 @@ struct InspectorGeneralTab: View {
 
     private func readOnlyFields(_ details: RoomDetails) -> some View {
         Group {
-            Text(details.name)
+            Text(details.name ?? details.id.value)
                 .font(.title3)
                 .bold()
 
@@ -251,7 +263,7 @@ struct InspectorGeneralTab: View {
                     .font(.callout)
                     .multilineTextAlignment(.center)
             } else {
-                Text(details.name)
+                Text(details.name ?? details.id.value)
                     .font(.title3)
                     .bold()
             }
@@ -280,7 +292,7 @@ struct InspectorGeneralTab: View {
     /// Builds a `https://matrix.to` URL for the room or space, preferring the
     /// canonical alias (human-readable) and falling back to the room ID.
     private func matrixToURL(for details: RoomDetails) -> URL {
-        let identifier = details.canonicalAlias ?? details.id
+        let identifier = details.canonicalAlias ?? details.id.value
         let encoded = identifier.addingPercentEncoding(
             withAllowedCharacters: .urlFragmentAllowed
         )!
@@ -338,7 +350,7 @@ struct InspectorGeneralTab: View {
     // MARK: - Edit Mode
 
     private func enterEditMode(_ details: RoomDetails) {
-        editName = details.name
+        editName = details.name ?? ""
         editTopic = details.topic ?? ""
         editJoinRule = details.joinRule ?? "invite"
         editIsPublic = details.isPublic
@@ -351,7 +363,7 @@ struct InspectorGeneralTab: View {
     private func save(_ details: RoomDetails) {
         let trimmedName = editName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedTopic = editTopic.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nameChanged = canEditName && !trimmedName.isEmpty && trimmedName != details.name
+        let nameChanged = canEditName && !trimmedName.isEmpty && trimmedName != (details.name ?? "")
         let topicChanged = canEditTopic && trimmedTopic != (details.topic ?? "")
         let joinRuleChanged = isSpace && canEditJoinRules && editJoinRule != (details.joinRule ?? "invite")
         let visibilityChanged = isSpace && canEditVisibility && editIsPublic != details.isPublic
@@ -811,7 +823,7 @@ private struct InspectorPinnedSection: View {
     var body: some View {
         GroupBox {
             PinnedMessagesView(
-                roomId: details.id,
+                roomId: details.id.value,
                 scrollable: false,
                 onSelectMessage: onPinnedMessageTap
             )
@@ -892,30 +904,25 @@ struct InspectorInfoRow: View {
 
 #Preview("Room") {
     InspectorGeneralTab(viewModel: .preview())
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Room (Admin)") {
     InspectorGeneralTab(viewModel: .preview(asAdmin: true))
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Direct") {
     InspectorGeneralTab(viewModel: .preview(isDirect: true))
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Space") {
     InspectorGeneralTab(viewModel: .preview(context: .space), context: .space)
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Space (Admin)") {
     InspectorGeneralTab(viewModel: .preview(context: .space, asAdmin: true), context: .space)
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }

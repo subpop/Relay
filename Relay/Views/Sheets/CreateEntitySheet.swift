@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A sheet for creating a new Matrix room, space, or sub-space.
@@ -32,7 +31,7 @@ struct CreateEntitySheet: View {
         case subSpace(parentId: String, parentName: String)
     }
 
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.dismiss) private var dismiss
     @Environment(\.errorReporter) private var errorReporter
 
@@ -66,6 +65,13 @@ struct CreateEntitySheet: View {
     private var subtitle: String? {
         if case .subSpace(_, let parentName) = kind {
             return "in \(parentName)"
+        }
+        return nil
+    }
+
+    private var subSpaceParentId: String? {
+        if case .subSpace(let parentId, _) = kind {
+            return parentId
         }
         return nil
     }
@@ -229,19 +235,18 @@ struct CreateEntitySheet: View {
                 let trimmedTopic = topic.trimmingCharacters(in: .whitespaces)
                 let trimmedAddress = address.trimmingCharacters(in: .whitespaces)
 
-                let options = CreateRoomOptions(
+                let roomId = try await client.createRoom(
                     name: trimmedName,
                     topic: trimmedTopic.isEmpty ? nil : trimmedTopic,
                     address: (isPublic && !trimmedAddress.isEmpty) ? trimmedAddress : nil,
                     isPublic: isPublic,
                     isEncrypted: isSpace ? false : isEncrypted,
-                    isSpace: isSpace
+                    isSpace: isSpace,
+                    parentSpaceId: subSpaceParentId
                 )
 
-                let roomId = try await matrixService.createRoom(options: options)
-
                 if case .subSpace(let parentId, _) = kind {
-                    try await matrixService.addChildToSpace(childId: roomId, spaceId: parentId)
+                    try await client.addChildToSpace(childId: roomId, spaceId: parentId)
                 }
 
                 if case .room = kind {
@@ -261,17 +266,17 @@ struct CreateEntitySheet: View {
 
 #Preview("Create Room") {
     CreateEntitySheet(kind: .room, selectedRoomId: .constant(nil))
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
 }
 
 #Preview("Create Space") {
     CreateEntitySheet(kind: .space)
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
 }
 
 #Preview("Create Sub-Space") {
     CreateEntitySheet(
         kind: .subSpace(parentId: "!space-work:matrix.org", parentName: "Work")
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
 }

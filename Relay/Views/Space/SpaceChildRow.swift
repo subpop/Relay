@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A single row in the space hierarchy list, styled as a grouped card row
@@ -28,7 +28,7 @@ struct SpaceChildRow: View {
                 avatar
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(child.name)
+                    Text(child.name ?? child.roomId.value)
                         .fontWeight(.medium)
                         .lineLimit(1)
 
@@ -48,9 +48,9 @@ struct SpaceChildRow: View {
     @ViewBuilder
     private var avatar: some View {
         if child.roomType == .space {
-            AvatarView(name: child.name, mxcURL: child.avatarURL, size: 36, shape: AnyShape(.rect(cornerRadius: 36 * 0.22)))
+            AvatarView(name: child.name ?? child.roomId.value, mxcURL: child.avatarURL?.value, size: 36, shape: AnyShape(.rect(cornerRadius: 36 * 0.22)))
         } else {
-            AvatarView(name: child.name, mxcURL: child.avatarURL, size: 36)
+            AvatarView(name: child.name ?? child.roomId.value, mxcURL: child.avatarURL?.value, size: 36)
         }
     }
 
@@ -116,7 +116,7 @@ struct SpaceChildRow: View {
 #Preview("Joined Room") {
     SpaceChildRow(
         child: SpaceChild(
-            roomId: "!room1:matrix.org",
+            roomId: RoomId(unchecked: "!room1:matrix.org"),
             name: "General",
             topic: "General discussion for the team",
             memberCount: 42,
@@ -125,14 +125,14 @@ struct SpaceChildRow: View {
         ),
         onTap: {}
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .padding()
 }
 
 #Preview("Unjoined Room") {
     SpaceChildRow(
         child: SpaceChild(
-            roomId: "!room2:matrix.org",
+            roomId: RoomId(unchecked: "!room2:matrix.org"),
             name: "Design",
             topic: "UI/UX design discussion",
             memberCount: 15,
@@ -140,14 +140,14 @@ struct SpaceChildRow: View {
         ),
         onJoin: {}
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .padding()
 }
 
 #Preview("Sub-Space") {
     SpaceChildRow(
         child: SpaceChild(
-            roomId: "!space1:matrix.org",
+            roomId: RoomId(unchecked: "!space1:matrix.org"),
             name: "Engineering",
             memberCount: 30,
             roomType: .space,
@@ -155,6 +155,6 @@ struct SpaceChildRow: View {
         ),
         onTap: {}
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .padding()
 }

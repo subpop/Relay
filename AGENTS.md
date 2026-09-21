@@ -64,17 +64,28 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Project Overview
 
-Relay is a native macOS Matrix client built with SwiftUI. The codebase is
-organized into three layers:
+Relay is a native macOS Matrix client built with SwiftUI, backed by
+[MatrixKit](https://github.com/subpop/MatrixKit) — a pure-Swift SDK, providing
+the `MatrixKit`, `MatrixKitCrypto`, `MatrixKitSwiftData`, and `MatrixRTC`
+products.
 
-- **Relay/** -- App target (SwiftUI views, entry point)
-- **RelayKit/** -- Framework target (Matrix Rust SDK integration, services,
-  view models)
-- **Packages/RelayInterface/** -- Local SPM package (shared protocols and
-  model types, zero dependencies)
+- **Relay/** -- App target (SwiftUI views, view models, `RelayClient`
+  facade, app-side services and utilities)
+- **MatrixKit** -- SDK layer (protocol, transport, sync, crypto,
+  persistence). Developed as Relay's protocol layer; agents may propose
+  MatrixKit changes to maintain the Matrix/protocol vs. Relay/app
+  boundary.
+- **Packages/RelayShared/** -- Local SPM package (app-group bridge:
+  `AppGroup`, `PendingShare`, `PendingShareStore`, `ShareableRoom`;
+  zero dependencies, `Codable`-only)
+- **RelayShareExtension/** -- Share extension target (room picker +
+  file handoff; imports `RelayShared` only, no MatrixKit, no network)
+- **RelayTests/** -- Unit test target
 
-Views program against `RelayInterface` protocols, not concrete SDK types.
-Only `RelayApp.swift` imports `RelayKit` directly.
+Views import `MatrixKit` directly and observe the concrete
+`RelayClient` via `@Environment(RelayClient.self)`. `RelayApp.swift`
+creates the `RelayClient` once and injects it with
+`.environment(client)`.
 
 ## Build & Test
 
@@ -111,12 +122,28 @@ Only `RelayApp.swift` imports `RelayKit` directly.
 
 ## Architecture Rules
 
-- Never import `MatrixRustSDK` or `RelayKit` from view code. Views depend
-  only on `RelayInterface` protocols.
-- New SDK wrappers go in `RelayKit/`. New protocols and shared models go
-  in `Packages/RelayInterface/`.
-- Previews must work without loading the Rust binary. Use mock
-  implementations that conform to `RelayInterface` protocols.
+- Respect the Matrix/app boundary: protocol, transport, sync, crypto,
+  and persistence logic belongs in `MatrixKit`; app UX, view state,
+  and composition belongs in `Relay/`. Propose MatrixKit changes when
+  a Relay fix requires an SDK capability, rather than working around
+  the SDK app-side.
+- `RelayClient` (`Relay/Services/RelayClient.swift`) is the single
+  app facade (session restore/login/OIDC, sync lifecycle, keychain
+  session, SwiftData cache, verification, notifications, media).
+  Route cross-cutting session/sync/room logic through it. Per-room
+  timeline state lives in `TimelineViewModel` (`Relay/ViewModels/`),
+  a thin layer over MatrixKit's `ObservableRoom`.
+- Views and view models use MatrixKit concrete types directly
+  (`ObservableRoom`, `ObservableTimelineEvent`, `RoomId`, …) — there
+  is no protocol-interposition layer.
+- Keep `Packages/RelayShared/` zero-dependency and `Codable`-only.
+  It is imported by both the app and the share extension.
+- `RelayShareExtension/` imports `RelayShared` only. It never touches
+  MatrixKit or the network; it writes files + a `PendingShare` record
+  to the app group, and the main app sends them.
+- Previews construct a bare `RelayClient()` (or fixture view models)
+  directly. `RelayApp.swift` skips heavy services under
+  `XCODE_RUNNING_FOR_PREVIEWS`.
 
 ## UI Design
 

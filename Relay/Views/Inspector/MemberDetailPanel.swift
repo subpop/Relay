@@ -13,8 +13,8 @@
 // limitations under the License.
 
 import CryptoKit
+import MatrixKit
 import QuickLook
-import RelayInterface
 import SwiftUI
 
 /// A slide-in panel that displays a user's profile within the Members tab.
@@ -35,7 +35,7 @@ struct MemberDetailPanel: View {
     var canBan = false
 
     /// Called when the user selects a new power level for this member.
-    var onRoleChange: ((Int64) async throws -> Void)?
+    var onRoleChange: ((Int) async throws -> Void)?
 
     /// Called when the user taps the "Message" button to open a DM.
     var onMessageTap: (() -> Void)?
@@ -46,7 +46,7 @@ struct MemberDetailPanel: View {
     /// Called after a kick or ban succeeds, so the parent can refresh.
     var onModerationAction: (() -> Void)?
 
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @State private var isIgnored = false
     @State private var isPerformingAction = false
     @State private var confirmationAction: ModerationAction?
@@ -55,7 +55,7 @@ struct MemberDetailPanel: View {
     @State private var isLoadingAvatar = false
 
     private var isSelf: Bool {
-        profile.userId == matrixService.userId()
+        profile.userId == client.userId()
     }
 
     private var name: String {
@@ -93,7 +93,7 @@ struct MemberDetailPanel: View {
         .disabled(isPerformingAction || isLoadingAvatar)
         .quickLookPreview($quickLookURL)
         .task {
-            isIgnored = (try? await matrixService.isUserIgnored(userId: profile.userId)) ?? false
+            isIgnored = await client.isUserIgnored(userId: profile.userId)
         }
         .confirmationDialog(
             confirmationAction?.title ?? "",
@@ -292,9 +292,7 @@ struct MemberDetailPanel: View {
         isLoadingAvatar = true
         defer { isLoadingAvatar = false }
 
-        guard let data = await matrixService.mediaContent(
-            mxcURL: mxcURL, mediaSourceJSON: nil
-        ) else { return }
+        guard let data = await client.downloadMedia(mxcURL: mxcURL) else { return }
 
         let hash = Insecure.MD5
             .hash(data: Data(mxcURL.utf8))
@@ -311,7 +309,7 @@ struct MemberDetailPanel: View {
 
     // MARK: - Action Handling
 
-    private func changeRole(to powerLevel: Int64) {
+    private func changeRole(to powerLevel: Int) {
         isPerformingAction = true
         Task {
             defer { isPerformingAction = false }
@@ -326,20 +324,20 @@ struct MemberDetailPanel: View {
             do {
                 switch action {
                 case .kick:
-                    try await matrixService.kickMember(
+                    try await client.kickMember(
                         roomId: roomId, userId: profile.userId, reason: nil
                     )
                     onModerationAction?()
                 case .ban:
-                    try await matrixService.banMember(
+                    try await client.banMember(
                         roomId: roomId, userId: profile.userId, reason: nil
                     )
                     onModerationAction?()
                 case .ignore:
-                    try await matrixService.ignoreUser(userId: profile.userId)
+                    try await client.ignoreUser(userId: profile.userId)
                     isIgnored = true
                 case .unignore:
-                    try await matrixService.unignoreUser(userId: profile.userId)
+                    try await client.unignoreUser(userId: profile.userId)
                     isIgnored = false
                 }
             } catch {
@@ -433,7 +431,7 @@ private struct ModerationButton: View {
         onMessageTap: { print("Message tapped") },
         onBack: { print("Back tapped") }
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 260, height: 600)
 }
 
@@ -452,6 +450,6 @@ private struct ModerationButton: View {
         onMessageTap: { print("Message tapped") },
         onBack: { print("Back tapped") }
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 260, height: 600)
 }

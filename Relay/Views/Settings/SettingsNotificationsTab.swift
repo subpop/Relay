@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 import UserNotifications
 
@@ -34,21 +34,21 @@ final class NotificationSettingsViewModel {
     var roomsWithCustomSettings: [String] = []
     var errorReporter: ErrorReporter?
 
-    private var matrixService: (any MatrixServiceProtocol)?
+    private var client: RelayClient?
 
     @MainActor
-    func load(service: any MatrixServiceProtocol) async {
-        matrixService = service
+    func load(client: RelayClient) async {
+        self.client = client
         do {
-            directMessagesMode = try await service.getDefaultNotificationMode(isOneToOne: true)
-            groupRoomsMode = try await service.getDefaultNotificationMode(isOneToOne: false)
-            callsEnabled = try await service.isCallNotificationEnabled()
-            invitesEnabled = try await service.isInviteNotificationEnabled()
-            roomMentionsEnabled = try await service.isRoomMentionEnabled()
-            userMentionsEnabled = try await service.isUserMentionEnabled()
-            keywords = try await service.getNotificationKeywords()
-            hasConfigurationMismatch = try await !service.hasConsistentNotificationSettings()
-            roomsWithCustomSettings = try await service.roomsWithCustomNotificationSettings()
+            directMessagesMode = try await client.getDefaultNotificationMode(isOneToOne: true)
+            groupRoomsMode = try await client.getDefaultNotificationMode(isOneToOne: false)
+            callsEnabled = try await client.isCallNotificationEnabled()
+            invitesEnabled = try await client.isInviteNotificationEnabled()
+            roomMentionsEnabled = try await client.isRoomMentionEnabled()
+            userMentionsEnabled = try await client.isUserMentionEnabled()
+            keywords = try await client.getNotificationKeywords()
+            hasConfigurationMismatch = try await !client.hasConsistentNotificationSettings()
+            roomsWithCustomSettings = try await client.roomsWithCustomNotificationSettings()
         } catch {
             errorReporter?.report(.notificationSettingsFailed(error.localizedDescription))
         }
@@ -62,11 +62,11 @@ final class NotificationSettingsViewModel {
     }
 
     @MainActor
-    func update(_ block: @escaping (any MatrixServiceProtocol) async throws -> Void) {
-        guard let matrixService else { return }
+    func update(_ block: @escaping (RelayClient) async throws -> Void) {
+        guard let client else { return }
         Task {
             do {
-                try await block(matrixService)
+                try await block(client)
             } catch {
                 errorReporter?.report(.notificationSettingsFailed(error.localizedDescription))
             }
@@ -79,12 +79,12 @@ final class NotificationSettingsViewModel {
         isFixingMismatch = true
         Task {
             do {
-                try await matrixService?.fixInconsistentNotificationSettings()
+                try await client?.fixInconsistentNotificationSettings()
                 hasConfigurationMismatch = false
                 // Reload modes after fix
-                if let service = matrixService {
-                    directMessagesMode = try await service.getDefaultNotificationMode(isOneToOne: true)
-                    groupRoomsMode = try await service.getDefaultNotificationMode(isOneToOne: false)
+                if let client = client {
+                    directMessagesMode = try await client.getDefaultNotificationMode(isOneToOne: true)
+                    groupRoomsMode = try await client.getDefaultNotificationMode(isOneToOne: false)
                 }
             } catch {
                 errorReporter?.report(.notificationSettingsFailed(error.localizedDescription))
@@ -113,7 +113,7 @@ final class NotificationSettingsViewModel {
 /// The Notifications tab of the Settings window, providing controls for default
 /// notification modes, mention and keyword settings, and other notification toggles.
 struct SettingsNotificationsTab: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @State private var viewModel = NotificationSettingsViewModel()
 
@@ -143,7 +143,7 @@ struct SettingsNotificationsTab: View {
         .formStyle(.grouped)
         .task {
             viewModel.errorReporter = errorReporter
-            await viewModel.load(service: matrixService)
+            await viewModel.load(client: client)
         }
     }
 
@@ -250,13 +250,16 @@ struct SettingsNotificationsTab: View {
     private var customRoomsSection: some View {
         Section {
             ForEach(viewModel.roomsWithCustomSettings, id: \.self) { roomId in
-                if let room = matrixService.rooms.first(where: { $0.id == roomId }) {
+                if let room = client.rooms.first(where: { $0.roomId.value == roomId }) {
                     HStack(spacing: 10) {
-                        AvatarView(name: room.name, mxcURL: room.avatarURL, size: 24)
-                        Text(room.name)
+                        AvatarView(
+                            name: room.displayName,
+                            mxcURL: room.avatarURL?.value,
+                            size: 24)
+                        Text(room.displayName)
                             .lineLimit(1)
                         Spacer()
-                        if let mode = room.notificationMode {
+                        if let mode = client.notificationMode(roomId: roomId) {
                             Text(mode.label)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -462,24 +465,7 @@ private struct FlowLayout: Layout {
         SettingsNotificationsTab()
             .tabItem { Label("Notifications", systemImage: "bell") }
     }
-    .environment(\.matrixService, PreviewMatrixService())
-    .frame(width: 480)
-}
-#Preview("Per-Room Overrides") {
-    let service = PreviewMatrixService()
-    // Set custom notification modes on some rooms
-    service.rooms[0].notificationMode = .mentionsAndKeywordsOnly // Design Team
-    service.rooms[2].notificationMode = .mute                   // Matrix HQ
-    service.customNotificationRoomIds = [
-        "!design:matrix.org",
-        "!hq:matrix.org",
-    ]
-
-    return TabView {
-        SettingsNotificationsTab()
-            .tabItem { Label("Notifications", systemImage: "bell") }
-    }
-    .environment(\.matrixService, service)
+    .environment(RelayClient())
     .frame(width: 480)
 }
 

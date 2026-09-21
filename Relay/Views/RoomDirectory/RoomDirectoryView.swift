@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A browsable room directory presented as a sheet.
@@ -21,14 +21,14 @@ import SwiftUI
 /// provides a search field for finding rooms by name or alias. Joining a room
 /// dismisses the sheet and selects it in the sidebar.
 struct RoomDirectoryView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.dismiss) private var dismiss
 
     /// Bound to the sidebar's selected room ID. Set on successful join.
     @Binding var selectedRoomId: String?
 
-    @State private var viewModel: (any RoomDirectoryViewModelProtocol)?
+    @State private var viewModel = RoomDirectoryViewModel()
     @State private var query = ""
     @State private var searchTask: Task<Void, Never>?
     @State private var isJoining = false
@@ -41,13 +41,10 @@ struct RoomDirectoryView: View {
             directoryContent
         }
         .frame(width: 540, height: 500)
-        .onAppear {
-            if viewModel == nil {
-                viewModel = matrixService.makeRoomDirectoryViewModel()
-            }
-            searchTask = Task {
-                await viewModel?.search(query: nil)
-            }
+        .task {
+            viewModel.client = client
+            viewModel.errorReporter = errorReporter
+            await viewModel.search(query: nil)
         }
     }
 
@@ -77,39 +74,31 @@ struct RoomDirectoryView: View {
 
     @ViewBuilder
     private var directoryContent: some View {
-        if let viewModel {
-            if viewModel.rooms.isEmpty && viewModel.isSearching {
-                ProgressView("Searching directory\u{2026}")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.rooms.isEmpty && !viewModel.isSearching {
-                ContentUnavailableView(
-                    "No Rooms Found",
-                    systemImage: "magnifyingglass",
-                    description: Text(query.isEmpty
-                                      ? "No public rooms are available on this server."
-                                      : "No rooms match \"\(query)\". Try a different search.")
-                )
-            } else {
-                roomList(viewModel)
-            }
-        } else {
+        if viewModel.rooms.isEmpty && viewModel.isSearching {
+            ProgressView("Searching directory…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewModel.rooms.isEmpty && !viewModel.isSearching {
             ContentUnavailableView(
-                "Directory Unavailable",
-                systemImage: "building.2",
-                description: Text("Sign in to browse the room directory.")
+                "No Rooms Found",
+                systemImage: "magnifyingglass",
+                description: Text(query.isEmpty
+                                  ? "No public rooms are available on this server."
+                                  : "No rooms match \"\(query)\". Try a different search.")
             )
+        } else {
+            roomList
         }
     }
 
     // MARK: - Room List
 
-    private func roomList(_ viewModel: any RoomDirectoryViewModelProtocol) -> some View {
+    private var roomList: some View {
         Form {
             Section {
-                ForEach(viewModel.rooms) { room in
+                ForEach(viewModel.rooms, id: \.roomId) { room in
                     DirectoryRoomRow(
                         room: room,
-                        isJoining: joiningRoomId == room.roomId,
+                        isJoining: joiningRoomId == room.roomId.value,
                         onJoin: { joinRoom(room) }
                     )
                 }
@@ -155,27 +144,28 @@ struct RoomDirectoryView: View {
         searchTask?.cancel()
         searchTask = Task {
             let trimmed = query.trimmingCharacters(in: .whitespaces)
-            await viewModel?.search(query: trimmed.isEmpty ? nil : trimmed)
+            await viewModel.search(query: trimmed.isEmpty ? nil : trimmed)
         }
     }
 
     // MARK: - Join
 
-    private func joinRoom(_ room: DirectoryRoom) {
+    private func joinRoom(_ room: PublicRoomEntry) {
         guard !isJoining else { return }
         isJoining = true
-        joiningRoomId = room.alias ?? room.roomId
+        joiningRoomId = room.roomId.value
 
         Task {
             do {
-                let idOrAlias = room.alias ?? room.roomId
-                try await matrixService.joinRoom(idOrAlias: idOrAlias)
+                let idOrAlias = room.canonicalAlias ?? room.roomId.value
+                try await client.joinRoom(idOrAlias: idOrAlias)
 
                 try? await Task.sleep(for: .milliseconds(500))
-                if let joined = matrixService.rooms.first(where: {
-                    $0.id == room.roomId || $0.canonicalAlias == room.alias
+                if let joined = client.rooms.first(where: {
+                    $0.roomId.value == room.roomId.value
+                        || $0.canonicalAlias == room.canonicalAlias
                 }) {
-                    selectedRoomId = joined.id
+                    selectedRoomId = joined.roomId.value
                 }
                 dismiss()
             } catch {
@@ -192,16 +182,20 @@ struct RoomDirectoryView: View {
 /// A single row in the directory list showing the room avatar, name, topic,
 /// member count, and a join button.
 private struct DirectoryRoomRow: View {
-    let room: DirectoryRoom
+    let room: PublicRoomEntry
     var isJoining: Bool = false
     let onJoin: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            avatar
+            AvatarView(
+                name: room.name ?? room.roomId.value,
+                mxcURL: room.avatarUrl,
+                size: 36
+            )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(room.name ?? room.alias ?? room.roomId)
+                Text(room.name ?? room.canonicalAlias ?? room.roomId.value)
                     .fontWeight(.medium)
                     .lineLimit(1)
 
@@ -210,8 +204,8 @@ private struct DirectoryRoomRow: View {
 
             Spacer()
 
-            if room.memberCount > 0 {
-                Label("\(room.memberCount)", systemImage: "person.2")
+            if room.numJoinedMembers > 0 {
+                Label("\(room.numJoinedMembers)", systemImage: "person.2")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -221,29 +215,11 @@ private struct DirectoryRoomRow: View {
         .padding(.vertical, 4)
     }
 
-    @ViewBuilder
-    private var avatar: some View {
-        if room.isSpace {
-            AvatarView(
-                name: room.name ?? room.roomId,
-                mxcURL: room.avatarURL,
-                size: 36,
-                shape: AnyShape(.rect(cornerRadius: 36 * 0.22))
-            )
-        } else {
-            AvatarView(
-                name: room.name ?? room.roomId,
-                mxcURL: room.avatarURL,
-                size: 36
-            )
-        }
-    }
-
     private var subtitle: some View {
         Group {
             if let topic = room.topic, !topic.isEmpty {
                 Text(topic)
-            } else if let alias = room.alias {
+            } else if let alias = room.canonicalAlias {
                 Text(alias)
             }
         }
@@ -271,5 +247,5 @@ private struct DirectoryRoomRow: View {
     @Previewable @State var selected: String?
 
     RoomDirectoryView(selectedRoomId: $selected)
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
 }

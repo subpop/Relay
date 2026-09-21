@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A breadcrumb entry in the space hierarchy navigation path.
 struct SpaceBreadcrumb: Equatable {
     let spaceId: String
-    let name: String
+    let name: String?
 }
 
 /// The detail view shown when a space is selected in the sidebar rail.
@@ -27,10 +27,10 @@ struct SpaceBreadcrumb: Equatable {
 /// child rooms and sub-spaces. Tapping a sub-space navigates deeper into the
 /// hierarchy with a breadcrumb bar for navigation back up.
 struct SpaceDetailView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     let spaceId: String
-    let spaceSummary: RoomSummary
+    let spaceSummary: RoomRowData
     @Binding var selectedRoomId: String?
 
     /// Called when the user taps the Settings button. The parent view should
@@ -38,7 +38,7 @@ struct SpaceDetailView: View {
     var onOpenSettings: (() -> Void)?
 
     @State private var path: [SpaceBreadcrumb] = []
-    @State private var viewModel: (any SpaceHierarchyViewModelProtocol)?
+    @State private var viewModel: SpaceHierarchyViewModel?
     @State private var hasLoaded = false
     @State private var leaveSpaceItem: LeaveSpaceItem?
     @State private var showAddRoomSheet = false
@@ -71,26 +71,40 @@ struct SpaceDetailView: View {
                     }
                     .padding(.vertical)
                 }
-            } else if let viewModel, viewModel.children.isEmpty {
+            } else if let viewModel, viewModel.directChildren.isEmpty {
                 Section {
-                    ContentUnavailableView {
-                        Label("No Rooms", systemImage: "square.stack.3d.up.slash")
-                    } description: {
-                        Text("This space doesn\u{2019}t have any rooms yet.")
-                    } actions: {
-                        if viewModel.canManageChildren {
-                            Button("Add Room\u{2026}", systemImage: "plus") {
-                                showAddRoomSheet = true
+                    if let loadError = viewModel.loadError {
+                        ContentUnavailableView {
+                            Label("Couldn't Load Space", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(loadError)
+                        } actions: {
+                            Button("Retry") {
+                                Task { await viewModel.load() }
                             }
                             .buttonStyle(.bordered)
-                            .tint(.accentColor)
                         }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    } else {
+                        ContentUnavailableView {
+                            Label("No Rooms", systemImage: "square.stack.3d.up.slash")
+                        } description: {
+                            Text("This space doesn\u{2019}t have any rooms yet.")
+                        } actions: {
+                            if viewModel.canManageChildren {
+                                Button("Add Room\u{2026}", systemImage: "plus") {
+                                    showAddRoomSheet = true
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.accentColor)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else if let viewModel {
                 Section {
-                    ForEach(viewModel.children) { child in
+                    ForEach(viewModel.directChildren) { child in
                         SpaceChildRow(
                             child: child,
                             onJoin: !child.isJoined ? { joinChild(child, viewModel: viewModel) } : nil,
@@ -106,7 +120,11 @@ struct SpaceDetailView: View {
                         .contentShape(.rect)
                     }
 
-                    if !viewModel.isAtEnd {
+                    // While the visible level is incomplete, the footer both
+                    // signals loading and drives pagination. Once every
+                    // direct child has a row, remaining (deeper, server-
+                    // capped) pages continue silently in the background.
+                    if !viewModel.isAtEnd, !viewModel.isCurrentLevelComplete {
                         HStack {
                             Spacer()
                             ProgressView()
@@ -145,9 +163,10 @@ struct SpaceDetailView: View {
         .formStyle(.grouped)
         .task(id: currentSpaceId) {
             hasLoaded = false
-            let vm = matrixService.makeSpaceHierarchyViewModel(spaceId: currentSpaceId)
+            let vm = SpaceHierarchyViewModel(spaceId: currentSpaceId, client: client)
+            vm.errorReporter = errorReporter
             viewModel = vm
-            await vm?.load()
+            await vm.load()
             hasLoaded = true
         }
         .onChange(of: spaceId) {
@@ -161,7 +180,7 @@ struct SpaceDetailView: View {
             AddRoomToSpaceSheet(
                 spaceId: currentSpaceId,
                 spaceName: viewModel?.spaceName ?? currentDisplayName,
-                existingChildIds: Set(viewModel?.children.map(\.roomId) ?? [])
+                existingChildIds: Set(viewModel?.directChildren.map(\.roomId.value) ?? [])
             )
         }
         .sheet(isPresented: $showCreateSubSpaceSheet) {
@@ -217,7 +236,7 @@ struct SpaceDetailView: View {
                 if let memberCount = viewModel?.spaceMemberCount, memberCount > 0 {
                     Label("\(memberCount)", systemImage: "person.2")
                 }
-                if let childCount = viewModel?.children.count, childCount > 0 {
+                if let childCount = viewModel?.directChildren.count, childCount > 0 {
                     Label("\(childCount) rooms", systemImage: "number")
                 }
             }
@@ -277,10 +296,10 @@ struct SpaceDetailView: View {
                     .foregroundStyle(.tertiary)
 
                 if index == path.count - 1 {
-                    Text(path[index].name)
+                    Text(path[index].name ?? path[index].spaceId)
                         .foregroundStyle(.primary)
                 } else {
-                    Button(path[index].name) {
+                    Button(path[index].name ?? path[index].spaceId) {
                         navigateToLevel(index + 1)
                     }
                     .buttonStyle(.plain)
@@ -309,7 +328,7 @@ struct SpaceDetailView: View {
     private func leaveCurrentSpace() {
         Task {
             do {
-                let children = try await matrixService.leaveSpace(spaceId: spaceId)
+                let children = try await client.leaveSpace(spaceId: spaceId)
                 leaveSpaceItem = LeaveSpaceItem(
                     id: spaceId,
                     name: spaceSummary.name,
@@ -324,7 +343,7 @@ struct SpaceDetailView: View {
     private func removeChild(_ child: SpaceChild) {
         Task {
             do {
-                try await matrixService.removeChildFromSpace(childId: child.roomId, spaceId: currentSpaceId)
+                try await client.removeChildFromSpace(childId: child.roomId.value, spaceId: currentSpaceId)
             } catch {
                 errorReporter.report(.roomLeaveFailed(error.localizedDescription))
             }
@@ -334,9 +353,9 @@ struct SpaceDetailView: View {
     private func handleChildTap(_ child: SpaceChild) {
         if child.roomType == .space {
             // Always allow browsing into sub-spaces, joined or not
-            path.append(SpaceBreadcrumb(spaceId: child.roomId, name: child.name))
+            path.append(SpaceBreadcrumb(spaceId: child.roomId.value, name: child.name))
         } else if child.isJoined {
-            selectedRoomId = child.roomId
+            selectedRoomId = child.roomId.value
         }
     }
 
@@ -348,16 +367,16 @@ struct SpaceDetailView: View {
         }
     }
 
-    private func joinChild(_ child: SpaceChild, viewModel: any SpaceHierarchyViewModelProtocol) {
+    private func joinChild(_ child: SpaceChild, viewModel: SpaceHierarchyViewModel) {
         Task {
             do {
-                try await viewModel.joinRoom(roomId: child.roomId)
+                try await viewModel.joinRoom(roomId: child.roomId.value)
                 try? await Task.sleep(for: .milliseconds(500))
                 if child.roomType == .space {
                     // Browse into the newly joined sub-space
-                    path.append(SpaceBreadcrumb(spaceId: child.roomId, name: child.name))
+                    path.append(SpaceBreadcrumb(spaceId: child.roomId.value, name: child.name))
                 } else {
-                    selectedRoomId = child.roomId
+                    selectedRoomId = child.roomId.value
                 }
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
@@ -371,32 +390,29 @@ struct SpaceDetailView: View {
 #Preview {
     SpaceDetailView(
         spaceId: "!space-work:matrix.org",
-        spaceSummary: RoomSummary(
-            id: "!space-work:matrix.org",
+        spaceSummary: RoomRowData(
+            roomId: "!space-work:matrix.org",
             name: "Work",
             topic: "Work-related rooms and discussions",
             isSpace: true
         ),
         selectedRoomId: .constant(nil)
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 600, height: 600)
 }
 #Preview("No Rooms") {
-    let service = PreviewMatrixService()
-    service.previewSpaceChildren = []
-
     return SpaceDetailView(
         spaceId: "!space-empty:matrix.org",
-        spaceSummary: RoomSummary(
-            id: "!space-empty:matrix.org",
+        spaceSummary: RoomRowData(
+            roomId: "!space-empty:matrix.org",
             name: "Empty Space",
             topic: "A space with no rooms",
             isSpace: true
         ),
         selectedRoomId: .constant(nil)
     )
-    .environment(\.matrixService, service)
+    .environment(RelayClient())
     .frame(width: 600, height: 600)
 }
 

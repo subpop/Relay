@@ -12,27 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
-/// The root view that switches between login, loading, and main content based on ``AuthState``.
+/// The root view that switches between login, loading, and main content based on auth state.
 struct ContentView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     var body: some View {
         Group {
-            switch matrixService.authState {
+            switch client.authState {
             case .unknown:
                 ProgressView("Loading…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .task { await matrixService.restoreSession() }
             case .loggedOut:
                 LoginView()
             case .loggingIn:
                 ProgressView("Signing in…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loggedIn:
-                switch matrixService.syncState {
+                switch client.syncState {
                 case .idle:
                     VStack(spacing: 12) {
                         ProgressView()
@@ -45,7 +43,7 @@ struct ContentView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .task { matrixService.startSyncIfNeeded() }
+                    .task { client.startSyncIfNeeded() }
                 case .syncing, .running, .offline:
                     MainView()
                 case .error:
@@ -55,10 +53,17 @@ struct ContentView: View {
                 LoginView()
             }
         }
+        // Attached to the outer Group (stable identity): restoring flips
+        // authState, which swaps the inner branch and would cancel a
+        // branch-attached task mid-sync on every launch.
+        .task {
+            await client.restoreSession()
+        }
         .relayErrorAlert()
     }
 }
 
 #Preview {
     ContentView()
+        .environment(RelayClient())
 }

@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A quick-switch overlay for rapidly navigating between rooms.
@@ -21,7 +20,7 @@ import SwiftUI
 /// and a filtered list of joined rooms. The user can type to filter, use arrow
 /// keys to navigate, and press Return to switch to the selected room.
 struct QuickRoomSwitchView: View {
-    @Environment(\.matrixService) private var matrixService
+    var rooms: [RoomRowData] = []
     @Binding var selectedRoomId: String?
     @Binding var isPresented: Bool
 
@@ -29,8 +28,8 @@ struct QuickRoomSwitchView: View {
     @State private var highlightedIndex = 0
     @FocusState private var isTextFieldFocused: Bool
 
-    private var filteredRooms: [RoomSummary] {
-        let rooms = matrixService.rooms.filter { !$0.isInvited && !$0.isSpace }
+    private var filteredRooms: [RoomRowData] {
+        let rooms = rooms.filter { !$0.isSpace }
         if filterText.isEmpty {
             return rooms
         }
@@ -118,7 +117,7 @@ struct QuickRoomSwitchView: View {
         selectRoom(filteredRooms[highlightedIndex])
     }
 
-    private func selectRoom(_ room: RoomSummary) {
+    private func selectRoom(_ room: RoomRowData) {
         selectedRoomId = room.id
         dismiss()
     }
@@ -133,7 +132,7 @@ struct QuickRoomSwitchView: View {
 /// A single row in the quick-switch overlay, showing the room avatar, name,
 /// and an optional canonical alias as the subtitle.
 private struct QuickSwitchRow: View {
-    let room: RoomSummary
+    let room: RoomRowData
     let isHighlighted: Bool
 
     var body: some View {
@@ -173,7 +172,10 @@ private struct QuickSwitchRow: View {
 // MARK: - Previews
 
 #Preview("Quick Room Switch") {
-    QuickRoomSwitchView(selectedRoomId: .constant(nil), isPresented: .constant(true))
-        .environment(\.matrixService, PreviewMatrixService())
-        .frame(width: 600, height: 500)
+    QuickRoomSwitchView(
+        rooms: PreviewFixtures.rooms,
+        selectedRoomId: .constant(nil),
+        isPresented: .constant(true)
+    )
+    .frame(width: 600, height: 500)
 }

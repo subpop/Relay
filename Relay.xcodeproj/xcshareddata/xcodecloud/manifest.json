@@ -1,0 +1,9 @@
+{
+  "id" : "cf3320cf-d8eb-4a69-9edc-caf5857877e4",
+  "targets" : [
+    {
+      "id" : "C5785869-E670-4FD9-B505-F2A038AC388D",
+      "name" : "Relay"
+    }
+  ]
+}

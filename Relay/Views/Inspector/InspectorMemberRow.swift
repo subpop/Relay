@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A reusable row displaying a room member's avatar, name, and user ID.
@@ -24,15 +24,15 @@ struct InspectorMemberRow: View {
     var body: some View {
         HStack(spacing: 8) {
             AvatarView(
-                name: member.displayName ?? member.userId,
-                mxcURL: member.avatarURL,
+                name: member.displayName ?? member.userId.value,
+                mxcURL: member.avatarURL?.value,
                 size: 28,
-                colorID: member.userId
+                colorID: member.userId.value
             )
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 4) {
-                    Text(member.displayName ?? member.userId)
+                    Text(member.displayName ?? member.userId.value)
                         .font(.callout)
                         .lineLimit(1)
 
@@ -44,7 +44,7 @@ struct InspectorMemberRow: View {
                 }
 
                 if member.displayName != nil {
-                    Text(member.userId)
+                    Text(member.userId.value)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)

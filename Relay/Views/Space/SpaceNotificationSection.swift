@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A Form section that displays notification mode controls for a space.
 ///
 /// Allows the user to choose between All Messages, Mentions Only, or Mute
 /// for the space room itself. The selection is persisted via the Matrix
-/// push rules system through ``MatrixServiceProtocol``.
+/// push rules system through ``RelayClient``.
 struct SpaceNotificationSection: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     let spaceId: String
     @Binding var notificationMode: RoomNotificationMode?
@@ -61,7 +61,7 @@ struct SpaceNotificationSection: View {
         notificationMode = mode
         Task {
             do {
-                try await matrixService.setRoomNotificationMode(roomId: spaceId, mode: mode)
+                try await client.setRoomNotificationMode(roomId: spaceId, mode: mode)
             } catch {
                 notificationMode = previousMode
             }
@@ -73,7 +73,7 @@ struct SpaceNotificationSection: View {
         notificationMode = nil
         Task {
             do {
-                try await matrixService.restoreDefaultRoomNotificationMode(roomId: spaceId)
+                try await client.restoreDefaultRoomNotificationMode(roomId: spaceId)
             } catch {
                 notificationMode = previousMode
             }
@@ -140,7 +140,7 @@ private struct NotificationModeButton: View {
         )
     }
     .formStyle(.grouped)
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 600, height: 300)
 }
 
@@ -153,6 +153,6 @@ private struct NotificationModeButton: View {
         )
     }
     .formStyle(.grouped)
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 600, height: 300)
 }

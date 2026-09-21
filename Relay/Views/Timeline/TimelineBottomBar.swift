@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The bottom bar for the timeline, showing either the compose bar or a
@@ -20,14 +20,14 @@ import SwiftUI
 /// so the parent can adjust content insets for the underlying scroll view.
 struct TimelineBottomBar: View {
     @Bindable var compose: ComposeViewModel
-    let viewModel: any TimelineViewModelProtocol
+    let viewModel: TimelineViewModel
     let roomId: String
     var successorRoomId: String?
     var onRoomTap: ((String) -> Void)?
     var onSendWillScroll: () -> Void
     var onHeightChanged: (CGFloat) -> Void
 
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.gifSearchService) private var gifSearchService
 
@@ -59,8 +59,7 @@ struct TimelineBottomBar: View {
                 onSend: {
                     compose.send(
                         using: viewModel,
-                        matrixService: matrixService,
-                        roomId: roomId,
+                        client: client,
                         sendTypingNotifications: sendTypingNotifications
                     ) {
                         onSendWillScroll()
@@ -99,7 +98,7 @@ struct TimelineBottomBar: View {
                 Task {
                     defer { isJoiningSuccessor = false }
                     do {
-                        try await matrixService.joinRoom(idOrAlias: successorRoomId)
+                        try await client.joinRoom(roomId: successorRoomId)
                         // Wait briefly for the room list to sync so the
                         // successor appears in the sidebar before we navigate.
                         try? await Task.sleep(for: .milliseconds(500))

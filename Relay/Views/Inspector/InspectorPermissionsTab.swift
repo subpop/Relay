@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The Permissions tab of the inspector, showing grouped power level controls
@@ -35,9 +35,21 @@ struct InspectorPermissionsTab: View {
         Group {
             if let settings {
                 permissionsContent(settings)
-            } else {
+            } else if viewModel.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView {
+                    Label("No Permission Settings", systemImage: "slider.horizontal.3")
+                } description: {
+                    Text("Power level settings are unavailable for this room.")
+                } actions: {
+                    Button("Retry") {
+                        Task { await viewModel.retryLoading() }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .disabled(isSaving)
@@ -187,8 +199,8 @@ struct InspectorPermissionsTab: View {
     private func powerLevelRow(
         label: String,
         info: String? = nil,
-        value: Int64,
-        onChange: @escaping (Int64) -> Void
+        value: Int,
+        onChange: @escaping (Int) -> Void
     ) -> some View {
         HStack {
             Text(label)
@@ -203,9 +215,9 @@ struct InspectorPermissionsTab: View {
                 get: { value },
                 set: { onChange($0) }
             )) {
-                Text("Everyone").tag(Int64(0))
-                Text("Moderator").tag(Int64(50))
-                Text("Admin").tag(Int64(100))
+                Text("Everyone").tag(Int(0))
+                Text("Moderator").tag(Int(50))
+                Text("Admin").tag(Int(100))
                 // Show the current value as a custom option if it's non-standard.
                 if value != 0 && value != 50 && value != 100 {
                     Text("Custom (\(value))").tag(value)
@@ -230,16 +242,16 @@ struct InspectorPermissionsTab: View {
     /// Builds a new settings value with one field overridden and saves it.
     private func save(
         _ current: RoomPowerLevelSettings,
-        ban: Int64? = nil,
-        kick: Int64? = nil,
-        invite: Int64? = nil,
-        redact: Int64? = nil,
-        eventsDefault: Int64? = nil,
-        stateDefault: Int64? = nil,
-        usersDefault: Int64? = nil,
-        roomName: Int64? = nil,
-        roomTopic: Int64? = nil,
-        roomAvatar: Int64? = nil
+        ban: Int? = nil,
+        kick: Int? = nil,
+        invite: Int? = nil,
+        redact: Int? = nil,
+        eventsDefault: Int? = nil,
+        stateDefault: Int? = nil,
+        usersDefault: Int? = nil,
+        roomName: Int? = nil,
+        roomTopic: Int? = nil,
+        roomAvatar: Int? = nil
     ) {
         let updated = RoomPowerLevelSettings(
             ban: ban ?? current.ban,
@@ -292,6 +304,5 @@ private struct InfoPopoverButton: View {
 
 #Preview("Admin") {
     InspectorPermissionsTab(viewModel: .preview(asAdmin: true))
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 700)
 }

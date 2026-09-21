@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Inline search results displayed in the sidebar, replacing the room list.
@@ -21,8 +21,8 @@ import SwiftUI
 /// messages (server-side searched). Each section previews a few results
 /// with a "Show More" button to expand.
 struct SearchResultsList: View {
-    let rooms: [RoomSummary]
-    let searchModel: any SearchViewModelProtocol
+    let rooms: [RoomRowData]
+    @Bindable var searchModel: SearchViewModel
     @Binding var selectedRoomId: String?
     let onMessageSelected: (_ roomId: String, _ eventId: String) -> Void
 
@@ -90,7 +90,7 @@ struct SearchResultsList: View {
                     : Array(searchModel.messageResults.prefix(previewLimit))
                 ForEach(visible) { result in
                     MessageSearchRow(result: result) {
-                        onMessageSelected(result.roomId, result.eventId)
+                        onMessageSelected(result.roomId.value, result.eventId.value)
                     }
                 }
                 if searchModel.messageResults.count > previewLimit {
@@ -124,21 +124,48 @@ struct SearchResultsList: View {
 
 // MARK: - Previews
 
+private func previewSearchModel(
+    text: String, results: [MessageSearchResult], searching: Bool = false
+) -> SearchViewModel {
+    let model = SearchViewModel()
+    model.searchText = text
+    model.messageResults = results
+    model.isSearchingMessages = searching
+    return model
+}
+
+private let previewResults: [MessageSearchResult] = [
+    MessageSearchResult(
+        eventId: EventId(unchecked: "$evt1"),
+        roomId: RoomId(unchecked: "!room:matrix.org"),
+        roomName: "Swift Developers",
+        sender: UserId(unchecked: "@alice:matrix.org"),
+        senderDisplayName: "Alice",
+        body: "Has anyone tried the new concurrency features in Swift 6?",
+        timestamp: Date(timeIntervalSinceNow: -3600),
+        highlights: ["concurrency", "Swift"]
+    ),
+    MessageSearchResult(
+        eventId: EventId(unchecked: "$evt2"),
+        roomId: RoomId(unchecked: "!room:matrix.org"),
+        roomName: "Swift Developers",
+        sender: UserId(unchecked: "@bob:matrix.org"),
+        body: "The borrow checker can be tricky at first.",
+        timestamp: Date(timeIntervalSinceNow: -86400),
+        highlights: ["borrow checker"]
+    ),
+]
+
 #Preview("With Results") {
     @Previewable @State var selected: String?
 
     SearchResultsList(
-        rooms: Array(PreviewMatrixService.sampleRooms.prefix(5)),
-        searchModel: {
-            let m = PreviewSearchViewModel()
-            m.searchText = "test"
-            m.messageResults = PreviewMessageSearchService.sampleResults
-            return m
-        }(),
+        rooms: Array(PreviewFixtures.rooms.prefix(5)),
+        searchModel: previewSearchModel(text: "test", results: previewResults),
         selectedRoomId: $selected,
         onMessageSelected: { _, _ in }
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 300, height: 500)
 }
 
@@ -146,17 +173,13 @@ struct SearchResultsList: View {
     @Previewable @State var selected: String?
 
     SearchResultsList(
-        rooms: Array(PreviewMatrixService.sampleRooms.prefix(2)),
-        searchModel: {
-            let m = PreviewSearchViewModel()
-            m.searchText = "test"
-            m.isSearchingMessages = true
-            return m
-        }(),
+        rooms: Array(PreviewFixtures.rooms.prefix(2)),
+        searchModel: previewSearchModel(
+            text: "test", results: [], searching: true),
         selectedRoomId: $selected,
         onMessageSelected: { _, _ in }
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 300, height: 500)
 }
 
@@ -165,13 +188,10 @@ struct SearchResultsList: View {
 
     SearchResultsList(
         rooms: [],
-        searchModel: {
-            let m = PreviewSearchViewModel()
-            m.searchText = "zzzzz"
-            return m
-        }(),
+        searchModel: previewSearchModel(text: "zzzzz", results: []),
         selectedRoomId: $selected,
         onMessageSelected: { _, _ in }
     )
+    .environment(RelayClient())
     .frame(width: 300, height: 500)
 }

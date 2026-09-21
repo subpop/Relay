@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The Security & Privacy tab of the timeline inspector, showing room access settings,
@@ -39,10 +39,21 @@ struct InspectorSecurityTab: View {
                     visibilitySection(details)
                     joinRuleSection(details)
                     historySection(details)
-                } else {
+                } else if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
+                } else {
+                    ContentUnavailableView {
+                        Label("Couldn't Load Room", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(viewModel.loadError ?? "Room details are unavailable.")
+                    } actions: {
+                        Button("Retry") {
+                            Task { await viewModel.retryLoading() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
             }
             .padding(.vertical)
@@ -247,12 +258,10 @@ struct SecurityStatusRow: View {
 
 #Preview("Read Only") {
     InspectorSecurityTab(viewModel: .preview())
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 #Preview("Admin") {
     InspectorSecurityTab(viewModel: .preview(asAdmin: true))
-        .environment(\.matrixService, PreviewMatrixService())
         .frame(width: 280, height: 600)
 }
 

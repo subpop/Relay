@@ -13,8 +13,8 @@
 // limitations under the License.
 
 import AppKit
+import MatrixKit
 import OSLog
-import RelayInterface
 import UniformTypeIdentifiers
 
 private nonisolated let logger = Logger(subsystem: "Relay", category: "ComposeViewModel")
@@ -33,14 +33,14 @@ final class ComposeViewModel {
     var text = ""
 
     /// The message being replied to, if any.
-    var replyingTo: TimelineMessage?
+    var replyingTo: ObservableTimelineEvent?
 
     /// Transient flag that requests the compose text field to become first
     /// responder. Automatically reset to `false` after focus is applied.
     var shouldFocusTextField = false
 
     /// The message being edited, if any.
-    var editingMessage: TimelineMessage?
+    var editingMessage: ObservableTimelineEvent?
 
     /// Files staged for sending (shown as capsules in the compose bar).
     var attachments: [StagedAttachment] = []
@@ -103,9 +103,9 @@ final class ComposeViewModel {
             return Array(members.prefix(12))
         }
         return members.filter { member in
-            let name = member.displayName ?? member.userId
+            let name = member.displayName ?? member.userId.value
             return name.localizedStandardContains(query)
-                || member.userId.localizedStandardContains(query)
+                || member.userId.value.localizedStandardContains(query)
         }
     }
 
@@ -135,9 +135,9 @@ final class ComposeViewModel {
     /// which bridges into the `ComposeTextView.Coordinator.insertMention()` method.
     /// Also appends a ``Mention`` record for serialization at send time.
     func selectMention(_ member: RoomMemberDetails) {
-        let displayName = member.displayName ?? member.userId
-        insertMentionHandler?(member.userId, displayName)
-        mentions.append(Mention(userId: member.userId, displayName: displayName))
+        let displayName = member.displayName ?? member.userId.value
+        insertMentionHandler?(member.userId.value, displayName)
+        mentions.append(Mention(userId: member.userId.value, displayName: displayName))
         mentionQuery = nil
         mentionSelectedIndex = 0
     }
@@ -162,14 +162,12 @@ final class ComposeViewModel {
     ///
     /// - Parameters:
     ///   - viewModel: The timeline view model to send through.
-    ///   - matrixService: The Matrix service for typing notices.
-    ///   - roomId: The room to send in.
+    ///   - client: The client, used to donate a share-sheet interaction after sending.
     ///   - sendTypingNotifications: Whether typing notices are enabled.
     ///   - onScrollToBottom: Called when a new message is sent (not an edit).
     func send(
-        using viewModel: any TimelineViewModelProtocol,
-        matrixService: any MatrixServiceProtocol,
-        roomId: String,
+        using viewModel: TimelineViewModel,
+        client: RelayClient,
         sendTypingNotifications: Bool,
         onScrollToBottom: (() -> Void)? = nil
     ) {
@@ -185,13 +183,13 @@ final class ComposeViewModel {
         let messageText = markdownWithMentions().trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let editing = editingMessage {
-            let editId = editing.eventID
+            let editId = editing.eventId.value
             text = ""
             mentions = []
             editingMessage = nil
             Task {
                 if sendTypingNotifications {
-                    await matrixService.sendTypingNotice(roomId: roomId, isTyping: false)
+                    await viewModel.setTyping(false)
                 }
                 await viewModel.edit(
                     messageId: editId, newText: messageText, mentionedUserIds: mentionedUserIds
@@ -200,7 +198,7 @@ final class ComposeViewModel {
             return
         }
 
-        let replyEventId = replyingTo?.eventID
+        let replyEventId = replyingTo?.eventId.value
         text = ""
         mentions = []
         replyingTo = nil
@@ -208,7 +206,7 @@ final class ComposeViewModel {
         onScrollToBottom?()
         Task {
             if sendTypingNotifications {
-                await matrixService.sendTypingNotice(roomId: roomId, isTyping: false)
+                await viewModel.setTyping(false)
             }
             if !messageText.isEmpty {
                 await viewModel.send(
@@ -222,7 +220,7 @@ final class ComposeViewModel {
                     inReplyTo: replyEventId
                 )
             }
-            matrixService.donateOutgoingInteraction(roomId: roomId)
+            client.donateOutgoingInteraction(roomId: viewModel.roomId)
         }
     }
 
@@ -273,12 +271,12 @@ final class ComposeViewModel {
     /// Downloads and sends a GIF via the attachment pipeline.
     func sendGIF(
         _ gif: GIFSearchResult,
-        using viewModel: any TimelineViewModelProtocol,
+        using viewModel: TimelineViewModel,
         gifSearchService: any GIFSearchServiceProtocol,
         errorReporter: ErrorReporter,
         onScrollToBottom: (() -> Void)? = nil
     ) {
-        let replyEventId = replyingTo?.eventID
+        let replyEventId = replyingTo?.eventId.value
         replyingTo = nil
         onScrollToBottom?()
         Task {
@@ -331,10 +329,10 @@ final class ComposeViewModel {
         for provider in providers {
             // Prefer file URL — covers Finder drags and saved files.
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                provider.loadItem(
+                provider.loadDataRepresentation(
                     forTypeIdentifier: UTType.fileURL.identifier
                 ) { data, error in
-                    guard let data = data as? Data,
+                    guard let data,
                           let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true)
                     else {
                         if let error {

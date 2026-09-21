@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 // MARK: - View Model
@@ -25,10 +25,11 @@ final class SessionsSettingsViewModel {
     var errorReporter: ErrorReporter?
 
     @MainActor
-    func load(service: any MatrixServiceProtocol) async {
+    func load(client: RelayClient) async {
         do {
-            devices = try await service.getDevices().sorted(by: Self.deviceOrder)
-            isSessionVerified = await service.isCurrentSessionVerified()
+            await client.refreshVerificationState()
+            devices = try await client.devices().sorted(by: Self.deviceOrder)
+            isSessionVerified = client.isSessionVerified
         } catch {
             errorReporter?.report(.sessionsFailed(error.localizedDescription))
         }
@@ -42,17 +43,8 @@ final class SessionsSettingsViewModel {
         if let l = lhs.lastSeenTimestamp, let r = rhs.lastSeenTimestamp { return l > r }
         if lhs.lastSeenTimestamp != nil { return true }
         if rhs.lastSeenTimestamp != nil { return false }
-        return lhs.id < rhs.id
+        return lhs.id.value < rhs.id.value
     }
-}
-
-// MARK: - Verification Item
-
-/// A wrapper that gives a session verification view model an `Identifiable`
-/// identity for use with `.sheet(item:)`.
-struct VerificationItem: Identifiable {
-    let id = UUID()
-    let viewModel: any SessionVerificationViewModelProtocol
 }
 
 // MARK: - Sessions Tab
@@ -60,10 +52,10 @@ struct VerificationItem: Identifiable {
 /// The Sessions tab of the Settings window, listing the current device, other
 /// active sessions, and providing a button to start cross-device verification.
 struct SettingsSessionsTab: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @State private var viewModel = SessionsSettingsViewModel()
-    @State private var verificationItem: VerificationItem?
+    @State private var verificationModel: SessionVerificationViewModel?
 
     var body: some View {
         Form {
@@ -94,21 +86,12 @@ struct SettingsSessionsTab: View {
                 if others.count > 0 {
                     Section {
                         Button {
-                            Task {
-                                do {
-                                    // swiftlint:disable:next identifier_name
-                                    if let vm = try await matrixService.makeSessionVerificationViewModel() {
-                                        verificationItem = VerificationItem(viewModel: vm)
-                                    }
-                                } catch {
-                                    errorReporter.report(.verificationFailed(error.localizedDescription))
-                                }
-                            }
+                            verificationModel = client.makeSessionVerificationViewModel()
                         } label: {
                             Label("Verify Session", systemImage: "checkmark.shield")
                         }
                     } footer: {
-                        Text("Verify using another device or your security key.")
+                        Text("Verify using another one of your devices.")
                     }
                 }
 
@@ -124,10 +107,10 @@ struct SettingsSessionsTab: View {
         .formStyle(.grouped)
         .task {
             viewModel.errorReporter = errorReporter
-            await viewModel.load(service: matrixService)
+            await viewModel.load(client: client)
         }
-        .sheet(item: $verificationItem) { item in
-            VerificationSheet(viewModel: item.viewModel)
+        .sheet(item: $verificationModel) { model in
+            VerificationSheet(viewModel: model)
         }
     }
 }
@@ -174,7 +157,7 @@ private struct DeviceRow: View {
                 }
 
                 HStack(spacing: 4) {
-                    Text(device.id)
+                    Text(device.id.value)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
@@ -205,6 +188,6 @@ private struct DeviceRow: View {
         SettingsSessionsTab()
             .tabItem { Label("Sessions", systemImage: "desktopcomputer") }
     }
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 480)
 }

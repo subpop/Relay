@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A sheet for joining an existing Matrix room by room ID or alias.
 ///
 /// ``JoinRoomSheet`` presents a simple form with a single text field accepting
 /// a room identifier (e.g. `!abc:matrix.org` or `#room:matrix.org`). On submission
-/// it calls ``MatrixServiceProtocol/joinRoom(idOrAlias:)`` and navigates to the
+/// it calls ``RelayClient/joinRoom(idOrAlias:)`` and navigates to the
 /// joined room.
 struct JoinRoomSheet: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.dismiss) private var dismiss
     @Environment(\.errorReporter) private var errorReporter
 
@@ -108,14 +108,14 @@ struct JoinRoomSheet: View {
 
         Task {
             do {
-                try await matrixService.joinRoom(idOrAlias: identifier)
+                try await client.joinRoom(idOrAlias: identifier)
 
                 // Wait briefly for the room list to sync.
                 try? await Task.sleep(for: .milliseconds(500))
-                if let joined = matrixService.rooms.first(where: {
-                    $0.id == identifier || $0.canonicalAlias == identifier
+                if let joined = client.rooms.first(where: {
+                    $0.roomId.value == identifier || $0.canonicalAlias == identifier
                 }) {
-                    selectedRoomId = joined.id
+                    selectedRoomId = joined.roomId.value
                 }
                 dismiss()
             } catch {
@@ -130,5 +130,5 @@ struct JoinRoomSheet: View {
 
 #Preview("Join Room") {
     JoinRoomSheet(selectedRoomId: .constant(nil))
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
 }

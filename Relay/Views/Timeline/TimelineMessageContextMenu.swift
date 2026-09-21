@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 
 /// Ordered contextual-menu sections for a timeline bubble (SwiftUI + NSTextView).
 enum TimelineMessageContextMenuEntry: Equatable {
@@ -34,27 +34,28 @@ enum TimelineMessageContextMenu {
     ///   - permissions: The current user's room-level permissions. When `nil`
     ///     (e.g. in previews), actions default to standard user capabilities.
     static func entries(
-        for message: TimelineMessage,
+        for message: ObservableTimelineEvent,
+        isOutgoing: Bool,
         permissions: RoomPermissions? = nil
     ) -> [TimelineMessageContextMenuEntry] {
         let canSend = permissions?.canSendMessages ?? true
 
         var result: [TimelineMessageContextMenuEntry] = [.copyMessage]
-        if message.mediaInfo != nil {
+        if message.mediaDownload != nil {
             result.append(.saveMedia)
         }
         if canSend {
             result.insert(.reply, at: 0)
             result.append(.addReaction)
         }
-        if (permissions?.canPin ?? false) && message.eventID.hasPrefix("$") {
+        if (permissions?.canPin ?? false) && message.eventId.value.hasPrefix("$") {
             result.append(.togglePin)
         }
-        if message.isOutgoing && message.kind == .text && canSend {
+        if isOutgoing, canSend, case .text = message.kind {
             result.append(.edit)
         }
-        if (message.isOutgoing || (permissions?.canRedactOther ?? false))
-            && message.kind != .redacted {
+        if (isOutgoing || (permissions?.canRedactOther ?? false))
+            && !message.isRedacted {
             result.append(.separatorBeforeDelete)
             result.append(.delete)
         }
@@ -64,10 +65,10 @@ enum TimelineMessageContextMenu {
 
 /// Actions that timeline rows request via ``TimelineRowView/onContextAction``.
 enum TimelineRowContextAction {
-    case reply(TimelineMessage)
+    case reply(ObservableTimelineEvent)
     case copy(String)
-    case saveMedia(TimelineMessage)
+    case saveMedia(ObservableTimelineEvent)
     case togglePin(String)
-    case edit(TimelineMessage)
-    case delete(TimelineMessage)
+    case edit(ObservableTimelineEvent)
+    case delete(ObservableTimelineEvent)
 }

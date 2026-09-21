@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A sidebar row for a room the user has been invited to but not yet joined.
@@ -21,7 +20,7 @@ import SwiftUI
 /// avatar, name, inviter information, and an inline Join button. A swipe action
 /// reveals a Decline button for rejecting the invitation.
 struct InviteListRow: View {
-    let room: RoomSummary
+    let room: InviteRowData
     let onAccept: () -> Void
     let onDecline: () -> Void
 
@@ -112,12 +111,7 @@ struct InviteListRow: View {
 
 #Preview("Invite Row") {
     InviteListRow(
-        room: RoomSummary(
-            id: "!invite:matrix.org",
-            name: "Design Team",
-            membership: .invited,
-            inviterName: "Alice"
-        ),
+        room: PreviewFixtures.invite,
         onAccept: {},
         onDecline: {}
     )
@@ -126,10 +120,9 @@ struct InviteListRow: View {
 
 #Preview("Invite Row - No Inviter") {
     InviteListRow(
-        room: RoomSummary(
-            id: "!invite2:matrix.org",
-            name: "Engineering",
-            membership: .invited
+        room: InviteRowData(
+            roomId: "!invite2:example.com",
+            name: "Engineering"
         ),
         onAccept: {},
         onDecline: {}
@@ -139,11 +132,9 @@ struct InviteListRow: View {
 
 #Preview("Invite Row - DM") {
     InviteListRow(
-        room: RoomSummary(
-            id: "!dm-invite:matrix.org",
+        room: InviteRowData(
+            roomId: "!dm-invite:example.com",
             name: "Bob",
-            isDirect: true,
-            membership: .invited,
             inviterName: "Bob"
         ),
         onAccept: {},
@@ -154,22 +145,15 @@ struct InviteListRow: View {
 #Preview("Compact") {
     HStack(spacing: 0) {
         InviteListRow(
-            room: RoomSummary(
-                id: "!invite:matrix.org",
-                name: "Design Team",
-                membership: .invited,
-                inviterName: "Alice"
-            ),
+            room: PreviewFixtures.invite,
             onAccept: {},
             onDecline: {}
         )
 
         InviteListRow(
-            room: RoomSummary(
-                id: "!dm-invite:matrix.org",
+            room: InviteRowData(
+                roomId: "!dm-invite:example.com",
                 name: "Bob",
-                isDirect: true,
-                membership: .invited,
                 inviterName: "Bob"
             ),
             onAccept: {},

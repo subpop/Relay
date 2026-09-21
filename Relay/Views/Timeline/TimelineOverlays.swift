@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Groups the three `@State` properties that describe the currently open
@@ -48,8 +48,9 @@ struct ReplyPreviewOverlay: View {
 
                 MessageView(
                     message: reply,
+                    isOutgoing: reply.sender.value == actions.currentUserID,
                     isLastInGroup: true,
-                    showSenderName: !reply.isOutgoing
+                    showSenderName: reply.sender.value != actions.currentUserID
                 )
                 .environment(\.timelineActions, actions)
                 .allowsHitTesting(false)

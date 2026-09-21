@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 // MARK: - Swipe Offset Environment
@@ -81,10 +81,15 @@ struct TimelineRowView: View, Equatable {
     /// the reaction picker from the context menu.
     @State private var lastBubbleFrame: CGRect = .zero
 
-    nonisolated static func == (lhs: TimelineRowView, rhs: TimelineRowView) -> Bool {
-        lhs.row.message == rhs.row.message
+    static func == (lhs: TimelineRowView, rhs: TimelineRowView) -> Bool {
+        lhs.row.message.eventId == rhs.row.message.eventId
             && lhs.row.info == rhs.row.info
             && lhs.row.isPaginationTrigger == rhs.row.isPaginationTrigger
+            && lhs.row.message.kind == rhs.row.message.kind
+            && lhs.row.message.isEdited == rhs.row.message.isEdited
+            && lhs.row.message.sendState == rhs.row.message.sendState
+            && lhs.row.message.reactions == rhs.row.message.reactions
+            && lhs.row.message.ownReactions == rhs.row.message.ownReactions
             && lhs.swipeOffset == rhs.swipeOffset
             && lhs.swipeIsLocked == rhs.swipeIsLocked
             && lhs.isHighlighted == rhs.isHighlighted
@@ -92,8 +97,33 @@ struct TimelineRowView: View, Equatable {
             && lhs.showURLPreviews == rhs.showURLPreviews
     }
 
-    private var message: TimelineMessage { row.message }
+    private var message: ObservableTimelineEvent { row.message }
     private var info: MessageGroupInfo { row.info }
+
+    /// Whether the message was sent by the local user.
+    private var isOutgoing: Bool {
+        actions.currentUserID != nil && message.sender.value == actions.currentUserID
+    }
+
+    /// Row tooltip for system events: the timestamp plus the Matrix IDs
+    /// behind membership rows, so descriptions can show display names
+    /// while the IDs stay one hover away.
+    private var systemEventTooltip: String {
+        let time = message.timestamp.formatted(date: .omitted, time: .shortened)
+        let isMembership: Bool = switch message.kind {
+        case .state(let type, _): type == "m.room.member"
+        case .profileChange: true
+        default: false
+        }
+        guard isMembership else { return time }
+        var parts = [time, message.sender.value]
+        if let target = message.targetUserId?.value,
+           target != message.sender.value
+        {
+            parts.append(target)
+        }
+        return parts.joined(separator: " · ")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -126,15 +156,15 @@ struct TimelineRowView: View, Equatable {
         if let collapsedEvents = row.collapsedSystemEvents {
             CollapsedSystemEventsView(
                 messages: collapsedEvents,
-                groupID: message.id,
+                groupID: message.eventId.value,
                 expandedGroups: actions.expandedGroups
             )
-            .id(message.id)
+            .id(message.eventId.value)
             .onAppear { onAppear(row) }
         } else if message.isSystemEvent {
             SystemEventView(message: message)
-                .id(message.id)
-                .help(message.formattedTime)
+                .id(message.eventId.value)
+                .help(systemEventTooltip)
                 .onAppear { onAppear(row) }
                 .messageHighlight(isHighlighted) {
                     actions.highlightDismissed()
@@ -142,6 +172,7 @@ struct TimelineRowView: View, Equatable {
         } else {
             MessageView(
                 message: message,
+                isOutgoing: isOutgoing,
                 isLastInGroup: info.isLastInGroup,
                 showSenderName: info.showSenderName,
                 replyIsAdjacentAbove: info.replyIsAdjacentAbove,
@@ -151,8 +182,8 @@ struct TimelineRowView: View, Equatable {
                 // the avatar gutter and fight the bubble's own updates).
                 onBubbleFrameChange: { lastBubbleFrame = $0 }
             )
-            .id(message.id)
-            .help(message.formattedTime)
+            .id(message.eventId.value)
+            .help(message.timestamp.formatted(date: .omitted, time: .shortened))
             .onAppear { onAppear(row) }
             .contextMenu {
                 contextMenu
@@ -167,7 +198,13 @@ struct TimelineRowView: View, Equatable {
 
     @ViewBuilder
     private var contextMenu: some View {
-        ForEach(TimelineMessageContextMenu.entries(for: message, permissions: actions.permissions).enumerated(), id: \.offset) { _, entry in
+        ForEach(
+            TimelineMessageContextMenu.entries(
+                for: message, isOutgoing: isOutgoing,
+                permissions: actions.permissions
+            ).enumerated(),
+            id: \.offset
+        ) { _, entry in
             contextMenuEntry(entry)
         }
     }
@@ -195,13 +232,13 @@ struct TimelineRowView: View, Equatable {
             }
         case .addReaction:
             Button {
-                actions.presentReactionPicker(message.eventID, lastBubbleFrame, message.isOutgoing)
+                actions.presentReactionPicker(message.eventId.value, lastBubbleFrame, isOutgoing)
             } label: {
-                Label("Add Reaction\u{2026}", systemImage: "face.smiling")
+                Label("Add Reaction…", systemImage: "face.smiling")
             }
         case .togglePin:
             Button {
-                actions.contextAction(.togglePin(message.eventID))
+                actions.contextAction(.togglePin(message.eventId.value))
             } label: {
                 Label("Pin/Unpin", systemImage: "pin")
             }
@@ -262,7 +299,9 @@ func dateSectionLabel(for date: Date) -> String {
 
 // MARK: - Previews
 
-private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .default) -> some View {
+private func previewRow(
+    _ message: ObservableTimelineEvent, info: MessageGroupInfo = .init()
+) -> some View {
     TimelineRowView(
         row: .init(message: message, info: info, isPaginationTrigger: false),
         isHighlighted: false,
@@ -273,9 +312,56 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
 }
 
+/// Sample conversation for row previews.
+private func previewMessages() -> [ObservableTimelineEvent] {
+    [
+        PreviewFixtures.event(
+            "1", sender: "@alice:matrix.org", displayName: "Alice",
+            body: "Hey, has anyone tried the **new build**?",
+            minutesAgo: 30
+        ),
+        PreviewFixtures.event(
+            "2", sender: "@me:matrix.org",
+            body: "Just pushed a fix for the sync issue.",
+            minutesAgo: 25
+        ),
+        PreviewFixtures.event(
+            "3", sender: "@alice:matrix.org", displayName: "Alice",
+            body: "Nice, rooms are loading *way* faster now.",
+            minutesAgo: 20,
+            reply: PreviewFixtures.reply(
+                "2", sender: "@me:matrix.org", displayName: "Me",
+                body: "Just pushed a fix for the sync issue.")
+        ),
+        PreviewFixtures.event(
+            "4", sender: "@me:matrix.org",
+            body: "Check out this new feature!",
+            minutesAgo: 10,
+            reactions: [
+                "🎉": ["@alice:matrix.org", "@bob:matrix.org", "@charlie:matrix.org"],
+                "👍": ["@bob:matrix.org", "@me:matrix.org"],
+            ],
+            ownReactions: ["👍"]
+        ),
+        PreviewFixtures.event(
+            "5", sender: "@charlie:matrix.org", displayName: "Charlie",
+            body: "Charlie joined the room.",
+            kind: .state(type: "m.room.member", description: "Charlie joined the room."),
+            minutesAgo: 5
+        ),
+    ]
+}
+
+private func previewRows(_ messages: [ObservableTimelineEvent]) -> [MessageRow] {
+    MessageRowBuilder.buildRows(
+        for: messages,
+        localUserId: UserId(unchecked: "@me:matrix.org"),
+        hasReachedStart: true
+    )
+}
+
 #Preview("Conversation") {
-    let messages = PreviewTimelineViewModel.sampleMessages
-    let rows = MessageRowBuilder.buildRows(for: messages, hasReachedStart: true)
+    let rows = previewRows(previewMessages())
 
     ScrollView {
         VStack(spacing: 2) {
@@ -297,9 +383,10 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
 #Preview("Incoming Message") {
     previewRow(
-        .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-              body: "Hey, has anyone tried the **new build**? I heard the timeline loads much faster now.",
-              timestamp: .now, isOutgoing: false),
+        PreviewFixtures.event(
+            "1", sender: "@alice:matrix.org", displayName: "Alice",
+            body: "Hey, has anyone tried the **new build**? I heard the timeline loads much faster now."
+        ),
         info: .init(isFirst: true, showDateHeader: true, isLastInGroup: true, showSenderName: true)
     )
     .padding()
@@ -308,9 +395,10 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
 #Preview("Outgoing Message") {
     previewRow(
-        .init(id: "2", senderID: "@me:matrix.org",
-              body: "Just pushed a fix for the sync issue. The timeline should load instantly from cache now.",
-              timestamp: .now, isOutgoing: true),
+        PreviewFixtures.event(
+            "2", sender: "@me:matrix.org",
+            body: "Just pushed a fix for the sync issue. The timeline should load instantly from cache now."
+        ),
         info: .init(showDateHeader: false, isLastInGroup: true)
     )
     .padding()
@@ -319,12 +407,13 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
 #Preview("Reply") {
     previewRow(
-        .init(id: "3", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-              body: "Nice, rooms are loading *way* faster now.",
-              timestamp: .now, isOutgoing: false,
-              replyDetail: .init(eventID: "2", senderID: "@me:matrix.org",
-                                 senderDisplayName: "Me",
-                                 body: "Just pushed a fix for the sync issue.")),
+        PreviewFixtures.event(
+            "3", sender: "@alice:matrix.org", displayName: "Alice",
+            body: "Nice, rooms are loading *way* faster now.",
+            reply: PreviewFixtures.reply(
+                "2", sender: "@me:matrix.org", displayName: "Me",
+                body: "Just pushed a fix for the sync issue.")
+        ),
         info: .init(isLastInGroup: true, showSenderName: true)
     )
     .padding()
@@ -333,14 +422,16 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
 #Preview("Reactions") {
     previewRow(
-        .init(id: "4", senderID: "@me:matrix.org",
-              body: "Check out this new feature!",
-              timestamp: .now, isOutgoing: true,
-              reactions: [
-                .init(key: "\u{1F389}", count: 3, senderIDs: ["@alice:matrix.org", "@bob:matrix.org", "@charlie:matrix.org"], highlightedByCurrentUser: false),
-                .init(key: "\u{1F680}", count: 1, senderIDs: ["@alice:matrix.org"], highlightedByCurrentUser: false),
-                .init(key: "\u{1F44D}", count: 2, senderIDs: ["@bob:matrix.org", "@me:matrix.org"], highlightedByCurrentUser: true)
-              ]),
+        PreviewFixtures.event(
+            "4", sender: "@me:matrix.org",
+            body: "Check out this new feature!",
+            reactions: [
+                "🎉": ["@alice:matrix.org", "@bob:matrix.org", "@charlie:matrix.org"],
+                "🚀": ["@alice:matrix.org"],
+                "👍": ["@bob:matrix.org", "@me:matrix.org"],
+            ],
+            ownReactions: ["👍"]
+        ),
         info: .init(isLastInGroup: true)
     )
     .padding()
@@ -349,17 +440,18 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
 #Preview("System Event") {
     previewRow(
-        .init(id: "5", senderID: "@charlie:matrix.org", senderDisplayName: "Charlie",
-              body: "joined the room.",
-              timestamp: .now, isOutgoing: false, kind: .membership(AttributedString("joined the room.")))
+        PreviewFixtures.event(
+            "5", sender: "@charlie:matrix.org", displayName: "Charlie",
+            body: "joined the room.",
+            kind: .state(type: "m.room.member", description: "joined the room.")
+        )
     )
     .padding()
     .frame(width: 450)
 }
 
 #Preview("Unread Marker") {
-    let messages = Array(PreviewTimelineViewModel.sampleMessages.prefix(5))
-    let rows = MessageRowBuilder.buildRows(for: messages, hasReachedStart: true)
+    let rows = previewRows(previewMessages())
 
     ScrollView {
         VStack(spacing: 2) {
@@ -367,7 +459,7 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
                 TimelineRowView(
                     row: row,
                     isHighlighted: false,
-                    isUnreadDivider: row.message.id == "5",
+                    isUnreadDivider: row.message.eventId.value == "$preview-5",
                     showURLPreviews: true,
                     onAppear: { _ in }
                 )
@@ -383,9 +475,10 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
     VStack(spacing: 16) {
         TimelineRowView(
             row: .init(
-                message: .init(id: "1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                      body: "Incoming message with swipe",
-                      timestamp: .now, isOutgoing: false),
+                message: PreviewFixtures.event(
+                    "1", sender: "@alice:matrix.org", displayName: "Alice",
+                    body: "Incoming message with swipe"
+                ),
                 info: .init(isLastInGroup: true, showSenderName: true),
                 isPaginationTrigger: false
             ),
@@ -398,9 +491,10 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
         TimelineRowView(
             row: .init(
-                message: .init(id: "2", senderID: "@me:matrix.org",
-                      body: "Outgoing message with swipe",
-                      timestamp: .now, isOutgoing: true),
+                message: PreviewFixtures.event(
+                    "2", sender: "@me:matrix.org",
+                    body: "Outgoing message with swipe"
+                ),
                 info: .init(isLastInGroup: true),
                 isPaginationTrigger: false
             ),
@@ -413,9 +507,9 @@ private func previewRow(_ message: TimelineMessage, info: MessageGroupInfo = .de
 
         TimelineRowView(
             row: .init(
-                message: .init(id: "3", senderID: "@me:matrix.org",
-                      body: "Short",
-                      timestamp: .now, isOutgoing: true),
+                message: PreviewFixtures.event(
+                    "3", sender: "@me:matrix.org", body: "Short"
+                ),
                 info: .init(isLastInGroup: true),
                 isPaginationTrigger: false
             ),

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Observable state for the swipe-to-reply gesture. Each ``TimelineRowView``
@@ -116,10 +116,12 @@ final class SwipeScrollHandler {
     var swipeState = TimelineSwipeState()
     var hoveredRowID: String?
     var rows: [MessageRow] = [] {
-        didSet { rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.message.id, $0) }) }
+        // Last wins on duplicates: rows must be unique by event, but a
+        // trapping build here would crash the timeline on bad input.
+        didSet { rowsByID = Dictionary(rows.map { ($0.message.eventId.value, $0) }, uniquingKeysWith: { _, new in new }) }
     }
     private var rowsByID: [String: MessageRow] = [:]
-    var onReply: (TimelineMessage) -> Void = { _ in }
+    var onReply: (ObservableTimelineEvent) -> Void = { _ in }
     var onDismiss: () -> Void = {}
 
     private var scrollMonitor: Any?

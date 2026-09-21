@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Renders a single chat message row with avatar, sender name, bubble content,
@@ -20,7 +20,10 @@ import SwiftUI
 /// around ``MessageBubbleContent``.
 struct MessageView: View {
     /// The timeline message to render.
-    let message: TimelineMessage
+    let message: ObservableTimelineEvent
+
+    /// Whether the message was sent by the local user.
+    let isOutgoing: Bool
 
     /// Whether this message is the last in a consecutive group from the same sender.
     /// Controls avatar visibility.
@@ -45,10 +48,10 @@ struct MessageView: View {
     /// (both incoming or both outgoing). Only in this case can we skip the
     /// preview bubble, since the user can see the original directly above.
     private var replyIsAdjacentSameSide: Bool {
-        guard replyIsAdjacentAbove, let reply = message.replyDetail else { return false }
+        guard replyIsAdjacentAbove, let reply = message.reply else { return false }
         let replyIsOutgoing = actions.currentUserID != nil
-            && reply.senderID == actions.currentUserID
-        return message.isOutgoing == replyIsOutgoing
+            && reply.senderID.value == actions.currentUserID
+        return isOutgoing == replyIsOutgoing
     }
 
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
@@ -66,7 +69,7 @@ struct MessageView: View {
     var body: some View {
         bubbleContent
             .offset(x: swipeOffset)
-            .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
+            .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
     }
 
     // MARK: - Bubble Content
@@ -74,15 +77,15 @@ struct MessageView: View {
     /// The avatar, sender name, and message bubble — everything that slides
     /// right during a swipe-to-reply gesture.
     private var bubbleContent: some View {
-        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
+        VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
             HStack(alignment: .bottom, spacing: 6) {
-                if !message.isOutgoing {
+                if !isOutgoing {
                     if isLastInGroup {
                         AvatarView(
                             name: message.displayName,
-                            mxcURL: message.senderAvatarURL,
+                            mxcURL: message.senderAvatarURL?.value,
                             size: 28,
-                            colorID: message.senderID
+                            colorID: message.sender.value
                         )
                         .onTapGesture(count: 2) { actions.avatarDoubleTap(message) }
                     } else {
@@ -91,14 +94,14 @@ struct MessageView: View {
                     }
                 }
 
-                VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 1) {
-                    if message.replyDetail != nil {
-                        if !replyIsAdjacentSameSide, let reply = message.replyDetail {
+                VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 1) {
+                    if message.reply != nil {
+                        if !replyIsAdjacentSameSide, let reply = message.reply {
                             ReplyPreviewBubble(reply: reply)
                         }
 
                         HStack(spacing: 0) {
-                            if message.isOutgoing {
+                            if isOutgoing {
                                 Spacer(minLength: 0)
                             }
                             Rectangle()
@@ -106,13 +109,13 @@ struct MessageView: View {
                                 .frame(width: 2, height: replyIsAdjacentSameSide ? 12 : 24)
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 2)
-                            if !message.isOutgoing {
+                            if !isOutgoing {
                                 Spacer(minLength: 0)
                             }
                         }
                     }
 
-                    if showSenderName && !message.isOutgoing {
+                    if showSenderName && !isOutgoing {
                         Text(message.displayName)
                             .scaledChromeFont(.caption1, weight: .medium)
                             .foregroundStyle(.secondary)
@@ -122,7 +125,7 @@ struct MessageView: View {
 
                     messageBubble
                 }
-                .frame(maxWidth: 500, alignment: message.isOutgoing ? .trailing : .leading)
+                .frame(maxWidth: 500, alignment: isOutgoing ? .trailing : .leading)
             }
         }
     }
@@ -134,6 +137,7 @@ struct MessageView: View {
     private var messageBubble: some View {
         MessageBubbleContent(
             message: message,
+            isOutgoing: isOutgoing,
             showURLPreviews: showURLPreviews,
             onPresentReactionPicker: {
                 presentReactionPickerForBubble()
@@ -146,13 +150,13 @@ struct MessageView: View {
                     .offset(x: -swipeOffset)
             }
         }
-        .overlay(alignment: message.isOutgoing ? .topLeading : .topTrailing) {
+        .overlay(alignment: isOutgoing ? .topLeading : .topTrailing) {
             if !message.reactions.isEmpty {
                 MessageReactionBadges(
-                    reactions: message.reactions,
-                    isOutgoing: message.isOutgoing,
+                    reactions: message.reactionGroups,
+                    isOutgoing: isOutgoing,
                     coloredBubbles: coloredBubbles,
-                    onToggle: { key in actions.toggleReaction(message.eventID, key) }
+                    onToggle: { key in actions.toggleReaction(message.eventId.value, key) }
                 )
             }
         }
@@ -164,7 +168,7 @@ struct MessageView: View {
             // Keep an open reaction picker anchored to this bubble across
             // layout changes (the timeline ignores this unless this message's
             // picker is currently open).
-            actions.updateReactionPickerFrame(message.eventID, newFrame)
+            actions.updateReactionPickerFrame(message.eventId.value, newFrame)
             // Report the precise bubble frame up so the row can present the
             // context-menu picker against the bubble, not the whole row.
             onBubbleFrameChange?(newFrame)
@@ -178,7 +182,7 @@ struct MessageView: View {
 
     /// Presents the reaction picker overlay for this message's bubble.
     private func presentReactionPickerForBubble() {
-        actions.presentReactionPicker(message.eventID, bubbleFrame, message.isOutgoing)
+        actions.presentReactionPicker(message.eventId.value, bubbleFrame, isOutgoing)
     }
 
     // MARK: - Swipe Action Bar
@@ -200,7 +204,6 @@ struct MessageView: View {
         .buttonStyle(.plain)
         .allowsHitTesting(swipeIsLocked)
     }
-
 }
 
 // MARK: - Previews
@@ -208,132 +211,46 @@ struct MessageView: View {
 #Preview("Conversation") {
     VStack(spacing: 2) {
         MessageView(
-            message: TimelineMessage(
-                id: "1",
-                senderID: "@alice:matrix.org",
-                senderDisplayName: "Alice",
+            message: PreviewFixtures.event(
+                "1", sender: "@alice:matrix.org", displayName: "Alice",
                 body: "Hey, check out **this link**: https://matrix.org",
-                timestamp: .now.addingTimeInterval(-120),
-                isOutgoing: false
+                minutesAgo: 2
             ),
+            isOutgoing: false,
             showSenderName: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "1b",
-                senderID: "@alice:matrix.org",
-                senderDisplayName: "Alice",
+            message: PreviewFixtures.event(
+                "1b", sender: "@alice:matrix.org", displayName: "Alice",
                 body: "It supports *italic*, **bold**, and `code`!",
-                timestamp: .now.addingTimeInterval(-110),
-                isOutgoing: false,
-                reactions: [
-                    .init(
-                        key: "\u{2764}\u{FE0F}", count: 1,
-                        senderIDs: ["@me:matrix.org"],
-                        highlightedByCurrentUser: true
-                    ),
-                    .init(
-                        key: "🤖", count: 1,
-                        senderIDs: ["@bob:matrix.org"],
-                        highlightedByCurrentUser: false
-                    ),
-                    .init(
-                        key: "🦞", count: 1,
-                        senderIDs: ["@bob:matrix.org"],
-                        highlightedByCurrentUser: false
-                    ),
-                    .init(
-                        key: "🤡", count: 1,
-                        senderIDs: ["@bob:matrix.org"],
-                        highlightedByCurrentUser: false
-                    )
-                ]
-            )
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "1c",
-                senderID: "@alice:matrix.org",
-                senderDisplayName: "Alice",
-                body: "",
-                formattedBody: "<blockquote>Per your email:\n<blockquote>When is the schedule release date?</blockquote>\n</blockquote>\nTuesday",
-                timestamp: .now.addingTimeInterval(-100),
-                isOutgoing: false,
-                reactions: [],
+                minutesAgo: 1.8,
+                reactions: ["❤️": ["@me:matrix.org"], "🤖": ["@bob:matrix.org"]],
+                ownReactions: ["❤️"]
             ),
+            isOutgoing: false
         )
         MessageView(
-            message: TimelineMessage(
-                id: "2",
-                senderID: "@me:matrix.org",
-                body: "Nice \u{2014} I'll take a look.",
-                timestamp: .now.addingTimeInterval(-60),
-                isOutgoing: true,
-                reactions: [
-                    .init(
-                        key: "\u{1F44D}", count: 2,
-                        senderIDs: ["@alice:matrix.org", "@bob:matrix.org"],
-                        highlightedByCurrentUser: false
-                    ),
-                    .init(
-                        key: "\u{2764}\u{FE0F}", count: 1,
-                        senderIDs: ["@alice:matrix.org"],
-                        highlightedByCurrentUser: false
-                    ),
-                    .init(
-                        key: "\u{1F389}", count: 1,
-                        senderIDs: ["@me:matrix.org"],
-                        highlightedByCurrentUser: true
-                    )
-                ],
-                replyDetail: .init(
-                    eventID: "1",
-                    senderID: "@alice:matrix.org",
-                    senderDisplayName: "Alice",
-                    body: "Hey, check out **this link**: https://matrix.org"
-                )
-            )
+            message: PreviewFixtures.event(
+                "2", sender: "@me:matrix.org",
+                body: "Nice — I'll take a look.",
+                minutesAgo: 1,
+                reply: PreviewFixtures.reply(
+                    "1", sender: "@alice:matrix.org", displayName: "Alice",
+                    body: "Hey, check out **this link**: https://matrix.org")
+            ),
+            isOutgoing: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "3",
-                senderID: "@bob:matrix.org",
-                senderDisplayName: "Bob",
+            message: PreviewFixtures.event(
+                "3", sender: "@bob:matrix.org", displayName: "Bob",
                 body: "Hey @me:matrix.org, can you review the PR when you get a chance?",
-                timestamp: .now.addingTimeInterval(-30),
-                isOutgoing: false,
-                isHighlighted: true,
-                replyDetail: .init(
-                    eventID: "2",
-                    senderID: "@me:matrix.org",
-                    senderDisplayName: "Me",
-                    body: "Nice \u{2014} I'll take a look."
-                )
+                minutesAgo: 0.5, isHighlighted: true,
+                reply: PreviewFixtures.reply(
+                    "2", sender: "@me:matrix.org", displayName: "Me",
+                    body: "Nice — I'll take a look.")
             ),
+            isOutgoing: false,
             showSenderName: true
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "4",
-                senderID: "@me:matrix.org",
-                body: "Sure. It's up on [GitHub](https://github.com).",
-                timestamp: .now.addingTimeInterval(-20),
-                isOutgoing: true,
-                reactions: [],
-                replyDetail: nil
-            )
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "5",
-                senderID: "@alice:matrix.org",
-                body: "> Sure. It's up on GitHub.\nWhich project?",
-                formattedBody: "<blockquote>Sure. It's up on GitHub.</blockquote>\nWhich project?",
-                timestamp: .now.addingTimeInterval(-10),
-                isOutgoing: false,
-                reactions: [],
-                replyDetail: nil
-            )
         )
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
@@ -344,30 +261,25 @@ struct MessageView: View {
 #Preview("Image Message") {
     VStack(spacing: 6) {
         MessageView(
-            message: TimelineMessage(
-                id: "img1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "Image", timestamp: .now, isOutgoing: false,
-                kind: .image(.init(
-                    mxcURL: "mxc://matrix.org/example",
-                    filename: "photo.jpg",
-                    mimetype: "image/jpeg",
-                    width: 800, height: 600
-                ))
+            message: PreviewFixtures.event(
+                "img1", sender: "@alice:matrix.org", displayName: "Alice",
+                body: "photo.jpg",
+                kind: .image(
+                    body: "photo.jpg", url: "mxc://matrix.org/example",
+                    info: MediaInfo(mimeType: "image/jpeg", width: 800, height: 600))
             ),
+            isOutgoing: false,
             showSenderName: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "img2", senderID: "@me:matrix.org",
-                body: "Check this out", timestamp: .now, isOutgoing: true,
-                kind: .image(.init(
-                    mxcURL: "mxc://matrix.org/example2",
-                    filename: "screenshot.png",
-                    mimetype: "image/png",
-                    width: 400, height: 700,
-                    caption: "Check this out"
-                ))
-            )
+            message: PreviewFixtures.event(
+                "img2", sender: "@me:matrix.org",
+                body: "screenshot.png",
+                kind: .image(
+                    body: "screenshot.png", url: "mxc://matrix.org/example2",
+                    info: MediaInfo(mimeType: "image/png", width: 400, height: 700))
+            ),
+            isOutgoing: true
         )
     }
     .padding()
@@ -377,31 +289,19 @@ struct MessageView: View {
 #Preview("Emoji-Only Messages") {
     VStack(spacing: 2) {
         MessageView(
-            message: TimelineMessage(
-                id: "e1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "\u{1F44B}", timestamp: .now.addingTimeInterval(-60), isOutgoing: false
+            message: PreviewFixtures.event(
+                "e1", sender: "@alice:matrix.org", displayName: "Alice",
+                body: "👋", minutesAgo: 1
             ),
+            isOutgoing: false,
             showSenderName: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "e2", senderID: "@me:matrix.org",
-                body: "\u{2764}\u{FE0F}\u{1F525}\u{1F389}", timestamp: .now.addingTimeInterval(-30), isOutgoing: true
-            )
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "e3", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                body: "\u{1F602}\u{1F602}\u{1F602}\u{1F602}\u{1F602}", timestamp: .now, isOutgoing: false
+            message: PreviewFixtures.event(
+                "e2", sender: "@me:matrix.org",
+                body: "❤️🔥🎉", minutesAgo: 0.5
             ),
-            showSenderName: true
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "e4", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "Hello \u{1F44B}", timestamp: .now, isOutgoing: false
-            ),
-            showSenderName: true
+            isOutgoing: true
         )
     }
     .padding()
@@ -411,72 +311,54 @@ struct MessageView: View {
 #Preview("Special Types") {
     VStack(spacing: 6) {
         MessageView(
-            message: TimelineMessage(
-                id: "d1", senderID: "@mod:matrix.org", senderDisplayName: "Moderator",
-                body: "This message was deleted", timestamp: .now, isOutgoing: false, kind: .redacted
+            message: PreviewFixtures.event(
+                "d1", sender: "@mod:matrix.org", displayName: "Moderator",
+                body: "This message was deleted", kind: .redacted
             ),
+            isOutgoing: false,
             showSenderName: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "e1", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                body: "Waiting for encryption key", timestamp: .now, isOutgoing: false, kind: .encrypted
+            message: PreviewFixtures.event(
+                "v1", sender: "@alice:matrix.org", displayName: "Alice",
+                body: "vacation.mp4",
+                kind: .video(
+                    body: "vacation.mp4", url: "mxc://matrix.org/video1",
+                    info: MediaInfo(
+                        mimeType: "video/mp4", width: 1920, height: 1080,
+                        duration: 127_000))
             ),
+            isOutgoing: false,
             showSenderName: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "v1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "vacation.mp4", timestamp: .now, isOutgoing: false,
-                kind: .video(.init(
-                    mxcURL: "mxc://matrix.org/video1",
-                    filename: "vacation.mp4",
-                    mimetype: "video/mp4",
-                    width: 1920, height: 1080,
-                    duration: 127
-                ))
+            message: PreviewFixtures.event(
+                "a1", sender: "@bob:matrix.org", displayName: "Bob",
+                body: "voice-note.ogg",
+                kind: .audio(
+                    body: "voice-note.ogg", url: "mxc://matrix.org/audio1",
+                    info: MediaInfo(
+                        mimeType: "audio/ogg", size: 245_000, duration: 42_000))
             ),
+            isOutgoing: false,
             showSenderName: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "a1", senderID: "@bob:matrix.org", senderDisplayName: "Bob",
-                body: "voice-note.ogg", timestamp: .now, isOutgoing: false,
-                kind: .audio(.init(
-                    mxcURL: "mxc://matrix.org/audio1",
-                    filename: "voice-note.ogg",
-                    mimetype: "audio/ogg",
-                    size: 245_000,
-                    duration: 42
-                ))
+            message: PreviewFixtures.event(
+                "f1", sender: "@me:matrix.org",
+                body: "File",
+                kind: .file(
+                    body: "File", url: "mxc://matrix.org/file1",
+                    info: MediaInfo(mimeType: "application/octet-stream"))
             ),
-            showSenderName: true
+            isOutgoing: true
         )
         MessageView(
-            message: TimelineMessage(
-                id: "a2", senderID: "@me:matrix.org",
-                body: "podcast-clip.mp3", timestamp: .now, isOutgoing: true,
-                kind: .audio(.init(
-                    mxcURL: "mxc://matrix.org/audio2",
-                    filename: "podcast-clip.mp3",
-                    mimetype: "audio/mpeg",
-                    size: 3_200_000,
-                    duration: 185
-                ))
-            )
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "f1", senderID: "@me:matrix.org",
-                body: "File", timestamp: .now, isOutgoing: true,
-                kind: .file(.init(mxcURL: "mxc://matrix.org/file1", filename: "File", mimetype: "application/octet-stream"))
-            )
-        )
-        MessageView(
-            message: TimelineMessage(
-                id: "em1", senderID: "@alice:matrix.org", senderDisplayName: "Alice",
-                body: "waves hello", timestamp: .now, isOutgoing: false, kind: .emote
+            message: PreviewFixtures.event(
+                "em1", sender: "@alice:matrix.org", displayName: "Alice",
+                body: "waves hello", kind: .emote(body: "waves hello")
             ),
+            isOutgoing: false,
             showSenderName: true
         )
     }

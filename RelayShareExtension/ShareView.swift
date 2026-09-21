@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import RelayShared
 import SwiftUI
 
 /// The main UI for the Relay share extension.
@@ -126,16 +127,8 @@ struct ShareView: View {
 
         if provider.hasItemConformingToTypeIdentifier("public.image") {
             thumbnail = await withCheckedContinuation { continuation in
-                provider.loadItem(forTypeIdentifier: "public.image") { item, _ in
-                    let image: NSImage?
-                    if let data = item as? Data {
-                        image = NSImage(data: data)
-                    } else if let url = item as? URL, let nsImage = NSImage(contentsOf: url) {
-                        image = nsImage
-                    } else {
-                        image = nil
-                    }
-                    continuation.resume(returning: image)
+                provider.loadObject(ofClass: NSImage.self) { image, _ in
+                    continuation.resume(returning: image as? NSImage)
                 }
             }
         }
@@ -193,13 +186,3 @@ private struct RoomGridItem: View {
     }
 }
 
-// MARK: - ShareableRoom (local copy)
-
-/// Lightweight copy of the ``ShareableRoom`` model for the share extension.
-struct ShareableRoom: Codable, Identifiable {
-    let id: String
-    let name: String
-    let isDirect: Bool
-    let avatarData: Data?
-    let lastActivityTimestamp: Date?
-}

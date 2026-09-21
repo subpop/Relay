@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A confirmation sheet shown before leaving a space.
@@ -20,7 +20,7 @@ import SwiftUI
 /// Displays the space name, a list of child rooms with checkboxes (all selected by
 /// default), ownership warnings, and a destructive "Leave" button.
 struct LeaveSpaceSheet: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.dismiss) private var dismiss
 
@@ -35,7 +35,7 @@ struct LeaveSpaceSheet: View {
         self.spaceName = spaceName
         self.spaceId = spaceId
         self.children = children
-        self._selectedRoomIds = State(initialValue: Set(children.map(\.roomId)))
+        self._selectedRoomIds = State(initialValue: Set(children.map { $0.roomId.value }))
     }
 
     private var allSelected: Bool {
@@ -77,7 +77,7 @@ struct LeaveSpaceSheet: View {
     private var selectButtons: some View {
         HStack {
             Button("Select All") {
-                selectedRoomIds = Set(children.map(\.roomId))
+                selectedRoomIds = Set(children.map { $0.roomId.value })
             }
             .disabled(allSelected)
 
@@ -100,12 +100,12 @@ struct LeaveSpaceSheet: View {
         List(children) { child in
             LeaveSpaceChildRow(
                 child: child,
-                isSelected: selectedRoomIds.contains(child.roomId),
+                isSelected: selectedRoomIds.contains(child.roomId.value),
                 onToggle: { isOn in
                     if isOn {
-                        selectedRoomIds.insert(child.roomId)
+                        selectedRoomIds.insert(child.roomId.value)
                     } else {
-                        selectedRoomIds.remove(child.roomId)
+                        selectedRoomIds.remove(child.roomId.value)
                     }
                 }
             )
@@ -138,9 +138,9 @@ struct LeaveSpaceSheet: View {
         isLeaving = true
         Task {
             do {
-                try await matrixService.confirmLeaveSpace(
+                _ = try await client.leaveSpace(
                     spaceId: spaceId,
-                    roomIds: Array(selectedRoomIds)
+                    leaveChildren: Array(selectedRoomIds)
                 )
                 dismiss()
             } catch {
@@ -165,10 +165,10 @@ private struct LeaveSpaceChildRow: View {
             set: { onToggle($0) }
         )) {
             HStack(spacing: 8) {
-                AvatarView(name: child.name, mxcURL: child.avatarURL, size: 28)
+                AvatarView(name: child.name ?? child.roomId.value, mxcURL: child.avatarURL?.value, size: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(child.name)
+                    Text(child.name ?? child.roomId.value)
                         .lineLimit(1)
 
                     if child.isLastOwner {
@@ -190,10 +190,10 @@ private struct LeaveSpaceChildRow: View {
         spaceName: "Work",
         spaceId: "!space-work:matrix.org",
         children: [
-            LeaveSpaceChild(roomId: "!general:matrix.org", name: "General", memberCount: 42),
-            LeaveSpaceChild(roomId: "!design:matrix.org", name: "Design", memberCount: 15),
-            LeaveSpaceChild(roomId: "!admin:matrix.org", name: "Admin", isLastOwner: true, memberCount: 3)
+            LeaveSpaceChild(roomId: RoomId(unchecked: "!general:matrix.org"), name: "General", memberCount: 42),
+            LeaveSpaceChild(roomId: RoomId(unchecked: "!design:matrix.org"), name: "Design", memberCount: 15),
+            LeaveSpaceChild(roomId: RoomId(unchecked: "!admin:matrix.org"), name: "Admin", isLastOwner: true, memberCount: 3)
         ]
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
 }

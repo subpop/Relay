@@ -12,59 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// The primary navigation view shown after login, with a room list sidebar and detail area.
-///
-/// ``MainView`` uses a `NavigationSplitView` with the room list in the sidebar and the
-/// selected room's detail view (or compose view) in the detail area. An optional inspector
-/// panel on the trailing edge shows room info or a selected user's profile.
-/// Identifies a space the user wants to leave, carrying the children for confirmation.
-struct LeaveSpaceItem: Identifiable {
-    let id: String
-    let name: String
-    let children: [LeaveSpaceChild]
-}
-
-struct MainView: View { // swiftlint:disable:this type_body_length
-    @Environment(\.matrixService) private var matrixService
+struct MainView: View {
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
-    @Environment(AppActions.self) private var appActions
     @Environment(\.callManager) private var callManager
     @Environment(\.openWindow) private var openWindow
+    @Environment(AppActions.self) private var appActions
     @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @State private var selectedSpaceId: String?
-    @State private var leaveSpaceItem: LeaveSpaceItem?
-    @State private var searchModel: SearchViewModel = SearchViewModel()
-    @State private var messageSearchService: (any MessageSearchServiceProtocol)?
-    @State private var showingInspector = false
-    @State private var showingPinnedMessages = false
-    @State private var focusedMessageId: String?
-    @State private var incomingVerificationItem: VerificationItem?
-    @State private var previewingLinkedRoom: DirectoryRoom?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var isJoiningLinkedRoom = false
-    @State private var inspectorSelectedProfile: UserProfile?
-    @State private var inspectorInitialTab: InspectorTab?
-    @State private var isPreparingCall = false
-    @State private var showCallConfirmation = false
-    @State private var showPermissionDeniedAlert = false
-    @State private var messageSearchTask: Task<Void, Never>?
-    @FocusState private var isSearchFocused: Bool
-    @Namespace private var toolbarNamespace
-
-    private func scrollToMessage(_ eventId: String) {
-        showingPinnedMessages = false
-        focusedMessageId = eventId
-    }
-
-    private func showUserProfile(_ profile: UserProfile) {
-        inspectorSelectedProfile = profile
-        showingInspector = true
-    }
-
     @State private var showQuickSwitch = false
+    @State private var timelineViewModel: TimelineViewModel?
+    @State private var focusedMessageId: String?
+    @State private var showInspector = false
+    @State private var inspectorProfile: UserProfile?
+    @State private var inspectorTab: InspectorTab?
+    @State private var searchModel = SearchViewModel()
+    @FocusState private var isSearchFocused: Bool
+    @State private var verificationModel: SessionVerificationViewModel?
+    @Namespace private var toolbarNamespace
 
     var body: some View {
         navigationContent
@@ -79,6 +49,28 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 showQuickSwitch = true
             }
         }
+        .onChange(of: client.shouldPresentVerificationSheet) { _, shouldPresent in
+            guard shouldPresent else { return }
+            client.shouldPresentVerificationSheet = false
+            presentVerificationSheet()
+        }
+        .onChange(of: client.pendingVerificationRequest) { _, request in
+            guard request != nil, verificationModel == nil else { return }
+            presentVerificationSheet()
+        }
+        .sheet(item: $verificationModel) { model in
+            VerificationSheet(viewModel: model)
+        }
+    }
+
+    /// Presents the session verification sheet, acknowledging a pending
+    /// incoming request when one exists.
+    private func presentVerificationSheet() {
+        if let request = client.pendingVerificationRequest {
+            verificationModel = SessionVerificationViewModel(client: client, incoming: request)
+        } else {
+            verificationModel = client.makeSessionVerificationViewModel()
+        }
     }
 
     private var quickSwitchOverlay: some View {
@@ -89,6 +81,7 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 
             VStack {
                 QuickRoomSwitchView(
+                    rooms: roomRows,
                     selectedRoomId: $selectedRoomId,
                     isPresented: $showQuickSwitch
                 )
@@ -111,18 +104,19 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 .navigationSplitViewColumnWidth(min: 440, ideal: 540)
                 .frame(minHeight: 340)
         }
-        .searchable(text: $searchModel.searchText, placement: .sidebar, prompt: "Search\u{2026}")
-        .searchFocused($isSearchFocused)
-        .onSubmit(of: .search) {
-            triggerMessageSearch()
-        }
         .navigationTitle("")
         .toolbar { windowToolbarContent }
+        .searchable(text: $searchModel.searchText, placement: .sidebar, prompt: "Search…")
+        .searchFocused($isSearchFocused)
+        .onSubmit(of: .search) {
+            searchModel.errorReporter = errorReporter
+            searchModel.searchMessages(client: client)
+        }
         .onChange(of: searchModel.searchText) {
             if searchModel.isActive {
-                triggerMessageSearch()
+                searchModel.errorReporter = errorReporter
+                searchModel.searchMessages(client: client)
             } else {
-                messageSearchService?.cancel()
                 searchModel.messageResults = []
             }
         }
@@ -143,97 +137,106 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 isSearchFocused = true
             }
         }
-        .onAppear {
-            messageSearchService = matrixService.makeMessageSearchService()
+        .sheet(isPresented: Binding(
+            get: { appActions.showCreateRoom },
+            set: { appActions.showCreateRoom = $0 }
+        )) {
+            CreateEntitySheet(kind: .room, selectedRoomId: $selectedRoomId)
         }
-        .modifier(SheetModifiers(
-            incomingVerificationItem: $incomingVerificationItem,
-            previewingLinkedRoom: $previewingLinkedRoom,
-            leaveSpaceItem: $leaveSpaceItem,
-            selectedRoomId: $selectedRoomId,
-            appActions: appActions,
-            matrixService: matrixService,
-            errorReporter: errorReporter,
-            isJoiningLinkedRoom: $isJoiningLinkedRoom
-        ))
-        .sheet(isPresented: Bindable(appActions).showRoomDirectory) {
+        .sheet(isPresented: Binding(
+            get: { appActions.showCreateSpace },
+            set: { appActions.showCreateSpace = $0 }
+        )) {
+            CreateEntitySheet(kind: .space, selectedRoomId: $selectedRoomId)
+        }
+        .sheet(isPresented: Binding(
+            get: { appActions.showJoinRoom },
+            set: { appActions.showJoinRoom = $0 }
+        )) {
+            JoinRoomSheet(selectedRoomId: $selectedRoomId)
+        }
+        .sheet(isPresented: Binding(
+            get: { appActions.showRoomDirectory },
+            set: { appActions.showRoomDirectory = $0 }
+        )) {
             RoomDirectoryView(selectedRoomId: $selectedRoomId)
-        }
-        .onChange(of: selectedRoomId) { oldRoomId, _ in
-            if let oldRoomId {
-                matrixService.suspendTimeline(roomId: oldRoomId)
-            }
         }
         .onChange(of: selectedSpaceId) {
             if selectedSpaceId != nil {
                 selectedRoomId = nil
             }
         }
-        .onChange(of: matrixService.spaces.map(\.id)) {
-            if let selectedSpaceId, !matrixService.spaces.contains(where: { $0.id == selectedSpaceId }) {
+        .onChange(of: client.spaces.map(\.roomId.value)) {
+            if let selectedSpaceId,
+                !client.spaces.contains(where: { $0.roomId.value == selectedSpaceId })
+            {
                 self.selectedSpaceId = nil
             }
         }
-        .onChange(of: matrixService.pendingDeepLink) { _, deepLink in
+        .onChange(of: client.pendingDeepLink) { _, deepLink in
             guard let deepLink else { return }
             handleDeepLink(deepLink)
         }
         .onAppear {
-            if let deepLink = matrixService.pendingDeepLink {
+            if let deepLink = client.pendingDeepLink {
                 handleDeepLink(deepLink)
             }
         }
-        .alert(
-            "Microphone & Camera Access",
-            isPresented: $showPermissionDeniedAlert
-        ) {
-            Button("Open System Settings") {
-                NSWorkspace.shared.open(
-                    URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-                )
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Relay needs microphone and camera access to make calls. Grant access in System Settings \u{203A} Privacy & Security.")
-        }
+    }
+
+    // MARK: - Rows
+
+    /// Joined rooms mapped for rows and the quick switcher.
+    private var roomRows: [RoomRowData] {
+        client.rooms
+            .filter { $0.membership == .join }
+            .map { RoomRowData.from(room: $0, isMuted: client.isMuted(roomId: $0.roomId.value), client: client) }
+    }
+
+    /// Joined spaces mapped for the rail.
+    private var spaceRows: [RoomRowData] {
+        client.spaces.map { RoomRowData.from(room: $0, isMuted: false) }
     }
 
     // MARK: - Space Rail
 
+    /// Extra width the sidebar column needs when the space rail is visible.
+    private var spaceRailInset: CGFloat {
+        client.spaces.isEmpty ? 0 : SpaceRail.width
+    }
+
     private var spaceRailView: some View {
-        SpaceRail(selectedSpaceId: $selectedSpaceId, onSpaceTapped: {
-            selectedRoomId = nil
-        }, onCreateSpace: {
-            appActions.showCreateSpace = true
-        }, onLeaveSpace: { space in
-            Task {
-                do {
-                    let children = try await matrixService.leaveSpace(spaceId: space.id)
-                    leaveSpaceItem = LeaveSpaceItem(
-                        id: space.id,
-                        name: space.name,
-                        children: children
-                    )
-                } catch {
-                    errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+        SpaceRail(
+            spaces: spaceRows,
+            rooms: roomRows,
+            selectedSpaceId: $selectedSpaceId,
+            onSpaceTapped: {
+                selectedRoomId = nil
+            },
+            onCreateSpace: {
+                appActions.showCreateSpace = true
+            },
+            onLeaveSpace: { space in
+                Task {
+                    do {
+                        try await client.leaveRoom(id: space.roomId)
+                    } catch {
+                        errorReporter.report(.roomLeaveFailed(error.localizedDescription))
+                    }
                 }
             }
-        })
+        )
     }
 
     // MARK: - Sidebar
-
-    /// Extra width the sidebar column needs when the space rail is visible.
-    private var spaceRailInset: CGFloat {
-        matrixService.spaces.isEmpty ? 0 : SpaceRail.width
-    }
 
     @ViewBuilder
     private var sidebarColumn: some View {
         Group {
             if searchModel.isActive {
                 SearchResultsList(
-                    rooms: searchModel.filteredRooms(from: matrixService.rooms, spaceId: selectedSpaceId),
+                    rooms: searchModel.filteredRooms(
+                        from: roomRows, spaceId: selectedSpaceId),
                     searchModel: searchModel,
                     selectedRoomId: $selectedRoomId,
                     onMessageSelected: { roomId, eventId in
@@ -253,9 +256,9 @@ struct MainView: View { // swiftlint:disable:this type_body_length
                 )
             }
         }
-        .environment(\.hasSpaceRail, !matrixService.spaces.isEmpty)
+        .environment(\.hasSpaceRail, !client.spaces.isEmpty)
         .safeAreaInset(edge: .leading, spacing: 0) {
-            if !matrixService.spaces.isEmpty {
+            if !client.spaces.isEmpty {
                 spaceRailView
             }
         }
@@ -263,60 +266,38 @@ struct MainView: View { // swiftlint:disable:this type_body_length
 
     // MARK: - Detail
 
+    /// The currently selected room, if any.
+    private var currentRoom: ObservableRoom? {
+        guard let selectedRoomId else { return nil }
+        return client.rooms.first { $0.roomId.value == selectedRoomId }
+            ?? client.invitedRooms.first { $0.roomId.value == selectedRoomId }
+    }
+
     @ViewBuilder
     private var detailContent: some View {
-        if let selectedRoomId, let summary = currentRoom, summary.isInvited, summary.isSpace {
-            SpaceInvitePreview(
-                invite: summary,
-                onAccept: { acceptInvite(summary) },
-                onDecline: { declineInvite(summary) }
-            )
-        } else if let selectedRoomId, let summary = currentRoom, summary.isInvited {
-            RoomPreviewView(
-                room: DirectoryRoom(
-                    roomId: summary.id,
-                    name: summary.name,
-                    topic: summary.topic,
-                    alias: summary.canonicalAlias,
-                    avatarURL: summary.avatarURL
-                ),
-                onJoin: { acceptInvite(summary) },
-                onClose: { self.selectedRoomId = nil },
-                inviterName: summary.inviterName,
-                inviterAvatarURL: summary.inviterAvatarURL,
-                onDecline: { declineInvite(summary) },
-                showsHeader: false
-            )
-        } else if let selectedRoomId,
-                  let summary = currentRoom, !summary.isInvited,
-                  let viewModel = matrixService.makeTimelineViewModel(roomId: selectedRoomId) {
-            TimelineView(
-                roomId: selectedRoomId,
-                roomName: summary.name,
-                roomAvatarURL: summary.avatarURL,
-                viewModel: viewModel,
-                focusedMessageId: $focusedMessageId,
-                onUserTap: { profile in showUserProfile(profile) },
-                onRoomTap: { identifier in handleRoomTap(identifier) }
-            )
-            .id(selectedRoomId)
-            .inspector(isPresented: $showingInspector) {
-                inspectorPanel(roomId: selectedRoomId)
-                    .id(selectedRoomId)
-                    .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
-            }
-        } else if let selectedSpaceId,
-                  let spaceSummary = matrixService.spaces.first(where: { $0.id == selectedSpaceId }) {
+        if let room = currentRoom, room.membership == .invite {
+            inviteCard(for: room)
+        } else if let room = currentRoom {
+            timelineView(for: room)
+                .id(room.roomId.value)
+                .inspector(isPresented: $showInspector) {
+                    inspectorPanel(roomId: room.roomId.value)
+                        .id(room.roomId.value)
+                        .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
+                }
+        } else if let selectedSpaceId, let space = client.spaces.first(where: {
+            $0.roomId.value == selectedSpaceId
+        }) {
             SpaceDetailView(
                 spaceId: selectedSpaceId,
-                spaceSummary: spaceSummary,
+                spaceSummary: RoomRowData.from(room: space, isMuted: false),
                 selectedRoomId: $selectedRoomId,
                 onOpenSettings: {
-                    inspectorInitialTab = .general
-                    showingInspector.toggle()
+                    inspectorTab = .general
+                    showInspector.toggle()
                 }
             )
-            .inspector(isPresented: $showingInspector) {
+            .inspector(isPresented: $showInspector) {
                 spaceInspectorPanel(spaceId: selectedSpaceId)
                     .id(selectedSpaceId)
                     .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
@@ -330,21 +311,96 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Toolbar
+    /// The inspector panel for the selected room.
+    @ViewBuilder
+    private func inspectorPanel(roomId: String) -> some View {
+        TimelineInspectorView(
+            roomId: roomId,
+            selectedProfile: $inspectorProfile,
+            initialTab: $inspectorTab,
+            onScrollToMessage: { [self] eventId in
+                focusedMessageId = eventId
+            }
+        )
+    }
 
-    private var currentRoom: RoomSummary? {
-        if selectedRoomId != nil, let room = matrixService.rooms.first(
-            where: { $0.id == selectedRoomId
-            }) {
-            room
+    /// The inspector panel for the selected space.
+    @ViewBuilder
+    private func spaceInspectorPanel(spaceId: String) -> some View {
+        TimelineInspectorView(
+            roomId: spaceId,
+            context: .space,
+            selectedProfile: $inspectorProfile,
+            initialTab: $inspectorTab
+        )
+    }
+
+    /// Inline invite card. The full room preview returns with the
+    /// directory UI.
+    private func inviteCard(for room: ObservableRoom) -> some View {
+        let invite = InviteRowData.from(room: room)
+        return VStack(spacing: 24) {
+            Spacer()
+            AvatarView(name: invite.name, mxcURL: invite.avatarURL, size: 80)
+            VStack(spacing: 8) {
+                Text(invite.name)
+                    .font(.title)
+                    .bold()
+                if let inviterName = invite.inviterName {
+                    Text("Invited by \(inviterName)")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            HStack(spacing: 12) {
+                Button("Decline", role: .destructive) {
+                    declineInvite(roomId: invite.roomId)
+                }
+                .controlSize(.large)
+                Button("Accept & Join") {
+                    acceptInvite(roomId: invite.roomId)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The timeline for the selected room, backed by a per-room view model
+    /// built when the selection changes.
+    @ViewBuilder
+    private func timelineView(for room: ObservableRoom) -> some View {
+        if let timelineViewModel, timelineViewModel.roomId == room.roomId.value {
+            TimelineView(
+                roomId: room.roomId.value,
+                roomName: room.displayName,
+                roomAvatarURL: room.avatarURL?.value,
+                viewModel: timelineViewModel,
+                focusedMessageId: $focusedMessageId,
+                onUserTap: { [self] profile in
+                    inspectorProfile = profile
+                    showInspector = true
+                },
+                onRoomTap: { [self] identifier in handleRoomTap(identifier) }
+            )
+            .id(room.roomId.value)
         } else {
-            nil
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .task(id: room.roomId.value) {
+                    timelineViewModel = await client.makeTimelineViewModel(
+                        roomId: room.roomId.value)
+                }
         }
     }
 
+    // MARK: - Toolbar
+
     @ToolbarContentBuilder
     private var windowToolbarContent: some ToolbarContent {
-        if let selectedRoomId, let room = currentRoom, room.isInvited {
+        if let room = currentRoom, room.membership == .invite {
             ToolbarItem(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left") {
                     self.selectedRoomId = nil
@@ -354,51 +410,26 @@ struct MainView: View { // swiftlint:disable:this type_body_length
             ToolbarItem(placement: .secondaryAction) {
                 inviteToolbarCapsule(for: room)
             }
-        } else if let selectedRoomId, currentRoom != nil {
+        } else if let room = currentRoom, room.membership == .join {
             ToolbarItem(placement: .principal) {
                 toolbarTitleCapsule
             }
-
             ToolbarItem(placement: .primaryAction) {
-                startCallButton(roomId: selectedRoomId)
+                Button("Start Call", systemImage: "phone.fill") {
+                    Task {
+                        await callManager.startCall(
+                            roomId: room.roomId.value,
+                            client: client,
+                            openWindow: openWindow,
+                            errorReporter: errorReporter)
+                    }
+                }
+                .help("Start a call")
+                .disabled(callManager.hasActiveCall || callManager.isPreparingCredentials)
             }
-        }
-    }
-
-    private func startCallButton(roomId: String) -> some View {
-        let hasOngoingCall = currentRoom?.hasRoomCall ?? false
-        let label = hasOngoingCall ? "Join Call" : "Start Call"
-        let confirmTitle = hasOngoingCall ? "Join Call" : "Start Call"
-        let confirmAction = hasOngoingCall ? "Join" : "Call"
-        return Button {
-            showCallConfirmation = true
-        } label: {
-            // Force the title to render alongside the icon on
-            // ongoing-call state so the toolbar pill visibly changes
-            // — default macOS toolbar style would hide the title and
-            // leave the pill indistinguishable from the idle state.
-            if hasOngoingCall {
-                Label(label, systemImage: "phone.fill")
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(Color.accentColor)
-            } else {
-                Label(label, systemImage: "phone.fill")
-            }
-        }
-        .help(label)
-        .disabled(callManager.hasActiveCall)
-        .confirmationDialog(
-            confirmTitle,
-            isPresented: $showCallConfirmation
-        ) {
-            Button(confirmAction) {
-                startCall(roomId: roomId)
-            }
-        } message: {
-            if let name = currentRoom?.name {
-                Text(hasOngoingCall ? "Join the call in \(name)?" : "Start a call in \(name)?")
-            } else {
-                Text(hasOngoingCall ? "Join the call in this room?" : "Start a call in this room?")
+        } else if currentRoom != nil {
+            ToolbarItem(placement: .principal) {
+                toolbarTitleCapsule
             }
         }
     }
@@ -407,25 +438,26 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         GlassEffectContainer {
             HStack(spacing: 8) {
                 Button {
-                    showingInspector.toggle()
+                    showInspector.toggle()
                 } label: {
                     ToolbarRoomLabel(
                         room: currentRoom,
-                        showingInspector: showingInspector
+                        showingInspector: showInspector
                     )
                 }
-                .help(showingInspector ? "Hide Inspector" : "Show Inspector")
+                .help(showInspector ? "Hide Inspector" : "Show Inspector")
             }
         }
     }
 
-    private func inviteToolbarCapsule(for invite: RoomSummary) -> some View {
+    private func inviteToolbarCapsule(for room: ObservableRoom) -> some View {
         HStack(spacing: 0) {
-            AvatarView(name: invite.name,
-                       mxcURL: invite.avatarURL,
-                       size: 28)
+            AvatarView(
+                name: room.displayName,
+                mxcURL: room.avatarURL?.value,
+                size: 28)
             .padding(.leading, 4)
-            Text(invite.name)
+            Text(room.displayName)
                 .font(.title3)
                 .fontWeight(.semibold)
                 .padding(.horizontal, 12)
@@ -433,71 +465,21 @@ struct MainView: View { // swiftlint:disable:this type_body_length
         }
     }
 
-    // MARK: - Call Handling
-
-    private func startCall(roomId: String) {
-        guard !callManager.hasActiveCall else { return }
-
-        Task {
-            // If the user has previously denied microphone or camera access,
-            // show an alert directing them to System Settings rather than
-            // starting a call that will immediately fail.
-            if MediaPermissions.isDenied {
-                showPermissionDeniedAlert = true
-                return
-            }
-
-            callManager.isPreparingCredentials = true
-            callManager.callRoomId = roomId
-
-            guard let viewModel = await matrixService.makeCallViewModel(roomId: roomId) else {
-                callManager.isPreparingCredentials = false
-                callManager.callRoomId = nil
-                return
-            }
-
-            // Defer the observable state change + window open to the next
-            // run-loop iteration. Setting activeCallViewModel invalidates
-            // the CallWindowView body across window boundaries; if that
-            // fires during an active layout pass the recursive constraint
-            // update crash occurs.
-            let openWindowAction = openWindow
-            DispatchQueue.main.async {
-                callManager.activeCallViewModel = viewModel
-                openWindowAction(id: "call")
-            }
-
-            do {
-                let creds = try await matrixService.callCredentials(for: roomId)
-                try await viewModel.connect(url: creds.livekitURL, token: creds.token, sfuServiceURL: creds.sfuServiceURL)
-                callManager.isPreparingCredentials = false
-            } catch {
-                // Surface the failure and fully tear down the call so the
-                // toolbar call button (disabled while `hasActiveCall`) is
-                // re-enabled. Without this the failed view model stays set
-                // and the button is stuck disabled until the app restarts —
-                // the `.failed` overlay's Dismiss is the only other path and
-                // its window is easily missed behind the main window.
-                errorReporter.report(.callFailed(error.localizedDescription))
-                await callManager.endCall()
-            }
-        }
-    }
-
     // MARK: - Deep Link Handling
 
     /// Handles an incoming ``MatrixURI`` deep link by navigating to the referenced entity.
     private func handleDeepLink(_ uri: MatrixURI) {
-        matrixService.pendingDeepLink = nil
+        client.pendingDeepLink = nil
 
         switch uri {
         case .room(let alias, _), .roomId(let alias, _):
             handleRoomTap(alias)
-        case .user(let userId):
-            let profile = UserProfile(userId: userId)
-            showUserProfile(profile)
-        case .event(let roomId, _, _):
-            handleRoomTap(roomId)
+        case .event(let roomId, let eventId, _):
+            selectedRoomId = roomId
+            focusedMessageId = eventId
+        case .user:
+            // User deep links have no destination in the main view.
+            break
         }
     }
 
@@ -506,60 +488,24 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     /// Handles a tap on a `matrix.to` room link.
     ///
     /// If the user is already a member of the room, the sidebar selection
-    /// navigates to it directly. Otherwise a room preview sheet is shown.
+    /// navigates to it directly. Joining unjoined rooms returns with the
+    /// directory UI.
     private func handleRoomTap(_ identifier: String) {
-        // Check if the user is already a member by room ID or canonical alias.
-        if let joined = matrixService.rooms.first(where: {
-            $0.id == identifier || $0.canonicalAlias == identifier
+        if let joined = client.rooms.first(where: {
+            $0.roomId.value == identifier || $0.canonicalAlias == identifier
         }) {
-            selectedRoomId = joined.id
-            return
-        }
-
-        // Not a member -- show the room preview.
-        let room: DirectoryRoom
-        if identifier.hasPrefix("#") {
-            room = DirectoryRoom(roomId: identifier, alias: identifier)
-        } else {
-            room = DirectoryRoom(roomId: identifier)
-        }
-        previewingLinkedRoom = room
-    }
-
-    /// Joins a room opened from a `matrix.to` link and navigates to it.
-    private func joinLinkedRoom(_ room: DirectoryRoom) {
-        guard !isJoiningLinkedRoom else { return }
-        isJoiningLinkedRoom = true
-
-        Task {
-            do {
-                let idOrAlias = room.alias ?? room.roomId
-                try await matrixService.joinRoom(idOrAlias: idOrAlias)
-
-                // Wait briefly for the room list to sync.
-                try? await Task.sleep(for: .milliseconds(500))
-                if let joined = matrixService.rooms.first(where: {
-                    $0.id == room.roomId
-                }) {
-                    selectedRoomId = joined.id
-                }
-                previewingLinkedRoom = nil
-            } catch {
-                errorReporter.report(.roomJoinFailed(error.localizedDescription))
-            }
-            isJoiningLinkedRoom = false
+            selectedRoomId = joined.roomId.value
         }
     }
 
     // MARK: - Invite Actions
 
     /// Accepts an invitation and keeps the room selected so the detail
-    /// transitions from the invite preview to the timeline once the
-    /// membership changes to `.joined`.
-    private func acceptInvite(_ invite: RoomSummary) {
+    /// transitions once the membership changes to `.joined`.
+    private func acceptInvite(roomId: String) {
         Task {
             do {
-                try await matrixService.acceptInvite(roomId: invite.id)
+                try await client.acceptInvite(roomId: roomId)
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
             }
@@ -567,185 +513,39 @@ struct MainView: View { // swiftlint:disable:this type_body_length
     }
 
     /// Declines an invitation and deselects the room.
-    private func declineInvite(_ invite: RoomSummary) {
+    private func declineInvite(roomId: String) {
         selectedRoomId = nil
         Task {
             do {
-                try await matrixService.declineInvite(roomId: invite.id)
+                try await client.declineInvite(roomId: roomId)
             } catch {
                 errorReporter.report(.roomLeaveFailed(error.localizedDescription))
             }
         }
     }
-
-    // MARK: - Message Search
-
-    private func triggerMessageSearch() {
-        messageSearchTask?.cancel()
-        let term = searchModel.searchText.trimmingCharacters(in: .whitespaces)
-        guard !term.isEmpty, let service = messageSearchService else {
-            searchModel.messageResults = []
-            searchModel.isSearchingMessages = false
-            return
-        }
-
-        searchModel.isSearchingMessages = true
-        messageSearchTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            do {
-                try await service.search(term: term, filter: nil)
-                searchModel.messageResults = service.results
-            } catch {
-                errorReporter.report(.searchFailed(error.localizedDescription))
-            }
-            searchModel.isSearchingMessages = false
-        }
-    }
-
-    // MARK: - Inspector Panel
-
-    private func dismissInspector() {
-        showingInspector = false
-    }
-
-    private func inspectorPanel(roomId: String) -> some View {
-        TimelineInspectorView(
-            roomId: roomId,
-            context: .room,
-            selectedProfile: $inspectorSelectedProfile,
-            onMessageUser: { userId in
-                Task {
-                    do {
-                        let dmRoomId = try await matrixService.createDirectMessage(userId: userId)
-                        selectedRoomId = dmRoomId
-                        showingInspector = false
-                    } catch {
-                        errorReporter.report(.dmCreationFailed(error.localizedDescription))
-                    }
-                }
-            },
-            onScrollToMessage: scrollToMessage
-        )
-    }
-
-    private func spaceInspectorPanel(spaceId: String) -> some View {
-        TimelineInspectorView(
-            roomId: spaceId,
-            context: .space,
-            initialTab: $inspectorInitialTab,
-            onMessageUser: { userId in
-                Task {
-                    do {
-                        let dmRoomId = try await matrixService.createDirectMessage(userId: userId)
-                        selectedRoomId = dmRoomId
-                        showingInspector = false
-                    } catch {
-                        errorReporter.report(.dmCreationFailed(error.localizedDescription))
-                    }
-                }
-            }
-        )
-    }
 }
 
-// MARK: - Sheet Modifiers
-
-/// Groups sheet presentations to reduce the complexity of ``MainView/body``.
-private struct SheetModifiers: ViewModifier {
-    @Binding var incomingVerificationItem: VerificationItem?
-    @Binding var previewingLinkedRoom: DirectoryRoom?
-    @Binding var leaveSpaceItem: LeaveSpaceItem?
-    @Binding var selectedRoomId: String?
-    let appActions: AppActions
-    let matrixService: any MatrixServiceProtocol
-    let errorReporter: ErrorReporter
-    @Binding var isJoiningLinkedRoom: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: matrixService.shouldPresentVerificationSheet) { _, shouldPresent in
-                guard shouldPresent else { return }
-                matrixService.shouldPresentVerificationSheet = false
-                Task {
-                    // swiftlint:disable:next identifier_name
-                    if let vm = try? await matrixService.makeSessionVerificationViewModel(acceptingIncomingRequest: true) {
-                        matrixService.pendingVerificationRequest = nil
-                        incomingVerificationItem = VerificationItem(viewModel: vm)
-                    }
-                }
-            }
-            .sheet(item: $incomingVerificationItem) { item in
-                VerificationSheet(viewModel: item.viewModel)
-            }
-            .sheet(isPresented: Bindable(appActions).showCreateRoom) {
-                CreateEntitySheet(kind: .room, selectedRoomId: $selectedRoomId)
-            }
-            .sheet(isPresented: Bindable(appActions).showCreateSpace) {
-                CreateEntitySheet(kind: .space)
-            }
-            .sheet(isPresented: Bindable(appActions).showJoinRoom) {
-                JoinRoomSheet(selectedRoomId: $selectedRoomId)
-            }
-            .sheet(item: $previewingLinkedRoom) { room in
-                RoomPreviewView(
-                    room: room,
-                    onJoin: { joinLinkedRoom(room) },
-                    onClose: { previewingLinkedRoom = nil }
-                )
-                .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500)
-            }
-            .sheet(item: $leaveSpaceItem) { item in
-                LeaveSpaceSheet(spaceName: item.name, spaceId: item.id, children: item.children)
-            }
-    }
-
-    private func joinLinkedRoom(_ room: DirectoryRoom) {
-        guard !isJoiningLinkedRoom else { return }
-        isJoiningLinkedRoom = true
-
-        Task {
-            do {
-                let idOrAlias = room.alias ?? room.roomId
-                try await matrixService.joinRoom(idOrAlias: idOrAlias)
-
-                try? await Task.sleep(for: .milliseconds(500))
-                if let joined = matrixService.rooms.first(where: {
-                    $0.id == room.roomId
-                }) {
-                    selectedRoomId = joined.id
-                }
-                previewingLinkedRoom = nil
-            } catch {
-                errorReporter.report(.roomJoinFailed(error.localizedDescription))
-            }
-            isJoiningLinkedRoom = false
-        }
-    }
-}
-
-/// The label content for the room title toolbar capsule.
-///
-/// Reads `controlSize` from the environment to shrink the avatar when
-/// rendered inside the toolbar overflow menu.
 private struct ToolbarRoomLabel: View {
-    let room: RoomSummary?
+    let room: ObservableRoom?
     let showingInspector: Bool
 
     @Environment(\.controlSize) private var controlSize
 
     private var avatarSize: CGFloat {
-        controlSize == .regular ? 28 : 16
+        controlSize == .regular ? 36 : 28
     }
 
     var body: some View {
         HStack(spacing: 0) {
             if let room {
-                AvatarView(name: room.name,
-                           mxcURL: room.avatarURL,
-                           size: avatarSize)
+                AvatarView(
+                    name: room.displayName,
+                    mxcURL: room.avatarURL?.value,
+                    size: avatarSize)
                 .fixedSize()
-                Text(room.name)
+                .padding(.leading, 6)
+
+                Text(room.displayName)
                     .font(.title3)
                     .fontWeight(.semibold)
                     .lineLimit(1)
@@ -757,6 +557,7 @@ private struct ToolbarRoomLabel: View {
                 Image(systemName: showingInspector ? "xmark" : "chevron.right")
                     .font(.system(size: 12, weight: showingInspector ? .bold : .semibold))
                     .foregroundStyle(.secondary)
+                    .padding(.trailing, 6)
             }
         }
         .contentShape(.capsule)
@@ -765,7 +566,7 @@ private struct ToolbarRoomLabel: View {
 
 #Preview {
     MainView()
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
         .environment(AppActions())
         .frame(width: 900, height: 600)
 }

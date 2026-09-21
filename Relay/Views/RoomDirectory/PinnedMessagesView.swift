@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Displays a compact list of pinned messages for a room.
@@ -21,7 +21,7 @@ import SwiftUI
 /// each one as a compact row with sender avatar, name, message preview, and timestamp.
 /// It is used both in the toolbar capsule popover and inline in ``RoomInfoView``.
 struct PinnedMessagesView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     /// The Matrix room identifier to fetch pinned messages for.
     let roomId: String
@@ -34,7 +34,7 @@ struct PinnedMessagesView: View {
     /// caller can scroll the main timeline to that message.
     var onSelectMessage: ((String) -> Void)?
 
-    @State private var pinnedMessages: [TimelineMessage]?
+    @State private var pinnedMessages: [ObservableTimelineEvent]?
 
     var body: some View {
         Group {
@@ -50,16 +50,16 @@ struct PinnedMessagesView: View {
             }
         }
         .task {
-            pinnedMessages = await matrixService.pinnedMessages(roomId: roomId)
+            pinnedMessages = await client.pinnedMessages(roomId: roomId)
         }
     }
 
     // MARK: - Message List
 
     @ViewBuilder
-    private func messageList(_ messages: [TimelineMessage]) -> some View {
+    private func messageList(_ messages: [ObservableTimelineEvent]) -> some View {
         let content = VStack(spacing: 0) {
-            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+            ForEach(messages.enumerated(), id: \.element.eventId) { index, message in
                 if index > 0 {
                     Divider().padding(.leading, 40)
                 }
@@ -82,13 +82,13 @@ struct PinnedMessagesView: View {
     // MARK: - Row
 
     @ViewBuilder
-    private func pinnedMessageRow(_ message: TimelineMessage) -> some View {
+    private func pinnedMessageRow(_ message: ObservableTimelineEvent) -> some View {
         let content = HStack(alignment: .top, spacing: 8) {
             AvatarView(
                 name: message.displayName,
-                mxcURL: message.senderAvatarURL,
+                mxcURL: message.senderAvatarURL?.value,
                 size: 24,
-                colorID: message.senderID
+                colorID: message.sender.value
             )
             .padding(.top, 2)
 
@@ -101,7 +101,7 @@ struct PinnedMessagesView: View {
 
                     Spacer()
 
-                    Text(message.formattedTime)
+                    Text(message.timestamp.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -118,7 +118,7 @@ struct PinnedMessagesView: View {
 
         if let onSelectMessage {
             Button {
-                onSelectMessage(message.eventID)
+                onSelectMessage(message.eventId.value)
             } label: {
                 content
             }
@@ -133,15 +133,15 @@ struct PinnedMessagesView: View {
 
     /// Extracts plain display text from a pinned message, resolving HTML or
     /// Markdown formatting so mention links and other markup render as text.
-    private static func previewText(for message: TimelineMessage) -> String {
-        let detail = TimelineMessage.ReplyDetail(
-            eventID: message.eventID,
-            senderID: message.senderID,
+    private static func previewText(for message: ObservableTimelineEvent) -> String {
+        let reply = ResolvedReply(
+            eventID: message.eventId,
+            senderID: message.sender,
             senderDisplayName: message.senderDisplayName,
             body: message.body,
             formattedBody: message.formattedBody
         )
-        return ReplyPreviewBubble.replyPreviewText(detail)
+        return ReplyPreviewBubble.replyPreviewText(reply)
     }
 
     // MARK: - Empty State
@@ -161,10 +161,10 @@ struct PinnedMessagesView: View {
 
 #Preview("With Messages") {
     PinnedMessagesView(roomId: "!design:matrix.org")
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
 }
 
 #Preview("Empty") {
     PinnedMessagesView(roomId: "!hq:matrix.org")
-        .environment(\.matrixService, PreviewMatrixService())
+        .environment(RelayClient())
 }

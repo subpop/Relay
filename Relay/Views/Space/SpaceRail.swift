@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A vertical icon rail on the leading edge of the sidebar for switching between spaces.
@@ -24,23 +23,26 @@ struct SpaceRail: View {
     /// The fixed width of the space rail column.
     static let width: CGFloat = 52
 
-    @Environment(\.matrixService) private var matrixService
+    /// All joined spaces plus the rooms they contain (for unread badges).
+    var spaces: [RoomRowData] = []
+    /// All joined rooms (for space unread badges).
+    var rooms: [RoomRowData] = []
     @Binding var selectedSpaceId: String?
     var onSpaceTapped: (() -> Void)?
     var onCreateSpace: (() -> Void)?
-    var onLeaveSpace: ((RoomSummary) -> Void)?
+    var onLeaveSpace: ((RoomRowData) -> Void)?
 
     /// Top-level spaces (those not nested inside another joined space).
-    private var topLevelSpaces: [RoomSummary] {
-        matrixService.spaces.filter { $0.parentSpaceIds.isEmpty }
+    private var topLevelSpaces: [RoomRowData] {
+        spaces.filter { $0.parentSpaceIds.isEmpty }
     }
 
     /// All joined sub-spaces that belong to the given top-level space, at any depth.
     ///
     /// This flattens the hierarchy so that a chain like Work → Engineering → Backend
     /// shows Engineering and Backend as peers under Work in the rail.
-    private func subSpaces(of parentId: String) -> [RoomSummary] {
-        matrixService.spaces.filter {
+    private func subSpaces(of parentId: String) -> [RoomRowData] {
+        spaces.filter {
             !$0.parentSpaceIds.isEmpty && $0.parentSpaceIds.contains(parentId)
         }
     }
@@ -59,7 +61,7 @@ struct SpaceRail: View {
             VStack(spacing: 8) {
                 homeButton
 
-                if !matrixService.spaces.isEmpty {
+                if !spaces.isEmpty {
                     SpaceRailDivider()
                 }
 
@@ -126,7 +128,7 @@ struct SpaceRail: View {
         }
     }
 
-    private func spaceButton(_ space: RoomSummary) -> some View {
+    private func spaceButton(_ space: RoomRowData) -> some View {
         SpaceRailButton(
             isSelected: selectedSpaceId == space.id,
             hasUnread: spaceHasUnread(space)
@@ -147,7 +149,7 @@ struct SpaceRail: View {
         }
     }
 
-    private func subSpaceButton(_ space: RoomSummary) -> some View {
+    private func subSpaceButton(_ space: RoomRowData) -> some View {
         SpaceRailButton(
             isSelected: selectedSpaceId == space.id,
             hasUnread: spaceHasUnread(space)
@@ -170,8 +172,8 @@ struct SpaceRail: View {
 
     // MARK: - Helpers
 
-    private func spaceHasUnread(_ space: RoomSummary) -> Bool {
-        matrixService.rooms.contains { room in
+    private func spaceHasUnread(_ space: RoomRowData) -> Bool {
+        rooms.contains { room in
             room.parentSpaceIds.contains(space.id)
                 && room.notificationCount > 0
                 && !room.isMuted
@@ -180,7 +182,7 @@ struct SpaceRail: View {
 
     /// A colored dot badge for the space icon, or nothing when there are no unreads.
     @ViewBuilder
-    private func spaceUnreadBadge(for space: RoomSummary) -> some View {
+    private func spaceUnreadBadge(for space: RoomRowData) -> some View {
         if let color = spaceUnreadColor(space) {
             Circle()
                 .fill(color)
@@ -192,11 +194,11 @@ struct SpaceRail: View {
     ///
     /// Returns red when any child room has unread mentions, keyword highlights, or is a
     /// DM with unread messages. Returns accent color for plain unread messages in group rooms.
-    private func spaceUnreadColor(_ space: RoomSummary) -> Color? {
+    private func spaceUnreadColor(_ space: RoomRowData) -> Color? {
         var hasUnread = false
         var hasHighPriority = false
 
-        for room in matrixService.rooms where room.parentSpaceIds.contains(space.id) && !room.isMuted {
+        for room in rooms where room.parentSpaceIds.contains(space.id) && !room.isMuted {
             if room.highlightCount > 0 || (room.isDirect && room.notificationCount > 0) {
                 hasHighPriority = true
                 break
@@ -248,10 +250,13 @@ struct SpaceRailDivider: View {
 
 #Preview("With Spaces") {
     @Previewable @State var selectedSpace: String?
-    SpaceRail(selectedSpaceId: $selectedSpace)
-        .environment(\.matrixService, PreviewMatrixService())
-        .frame(height: 400)
-        .background(.background)
+    SpaceRail(
+        spaces: PreviewFixtures.rooms.filter(\.isSpace),
+        rooms: PreviewFixtures.rooms,
+        selectedSpaceId: $selectedSpace
+    )
+    .frame(height: 400)
+    .background(.background)
 }
 
 #Preview("No Spaces") {

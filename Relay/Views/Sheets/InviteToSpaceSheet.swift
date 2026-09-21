@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A sheet for inviting a user to a space by their Matrix user ID.
@@ -66,5 +65,5 @@ struct InviteToSpaceSheet: View {
         spaceId: "!space-work:matrix.org",
         spaceName: "Work"
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
 }

@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A centered preview view for space invitations showing metadata and accept/decline buttons.
 struct SpaceInvitePreview: View {
-    let invite: RoomSummary
+    let invite: InviteRowData
     let onAccept: () -> Void
     let onDecline: () -> Void
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// Pure SwiftUI timeline renderer using `ScrollView` + `LazyVStack`.
@@ -39,11 +39,17 @@ struct TimelineScrollView: View {
     /// The ID of the bottom-most (newest) message currently visible, or `nil`.
     /// Reported whenever the visible set changes.
     let onBottomMostVisibleMessageChanged: (String?) -> Void
-    let onScrollSettled: () -> Void
 
     @State private var isUserScrolling = false
     @State private var isNearEndLatched = true
     @State private var visibleRowIDs: Set<String> = []
+    /// Reading position captured when backward pagination fires. Consumed by
+    /// the geometry handler once the page lands (or discarded when the user
+    /// grabs the scroll view, which cancels any pending correction).
+    @State private var pendingAnchor: PendingScrollAnchor?
+    /// Pace gate for backward-pagination triggers (one firing per entry
+    /// into the top zone, with cooldown).
+    @State private var backfillGate = TimelineScroller.BackfillGate()
     @State private var swipeState = TimelineSwipeState()
     @State private var swipeHandler = SwipeScrollHandler()
 
@@ -53,8 +59,8 @@ struct TimelineScrollView: View {
                 ForEach(rows) { row in
                     TimelineRowView(
                         row: row,
-                        isHighlighted: config.highlightedMessageID == row.message.eventID,
-                        isUnreadDivider: config.showUnreadMarker && row.message.id == config.firstUnreadMessageID,
+                        isHighlighted: config.highlightedMessageID == row.message.eventId.value,
+                        isUnreadDivider: row.id == config.firstUnreadMessageID,
                         showURLPreviews: config.showURLPreviews,
                         onAppear: { _ in },
                         swipeOffset: swipeState.swipingMessageId == row.id ? swipeState.offset : 0,
@@ -143,21 +149,46 @@ struct TimelineScrollView: View {
                     }
                 }
 
-                if new.nearTop, !rows.isEmpty, !config.isLoadingMore, isUserScrolling {
+                if backfillGate.shouldFire(nearTop: new.nearTop, now: .now),
+                    !rows.isEmpty, !config.isLoadingMore, isUserScrolling
+                {
+                    pendingAnchor = PendingScrollAnchor(
+                        id: rows.first(where: { visibleRowIDs.contains($0.id) })?.id ?? rows[0].id,
+                        rowCount: rows.count,
+                        contentHeight: new.contentHeight)
                     onPaginateBackward()
                 }
                 if !config.hasReachedBottom, new.nearBottom {
                     onPaginateForward()
                 }
+
+                // A landed backward page can leave the scroll offset unchanged,
+                // stranding the viewport on the newly loaded older events
+                // instead of the message being read. Re-pin the trigger-time
+                // top row when every displacement signal agrees.
+                if pendingAnchor != nil,
+                    let target = TimelineScroller.anchorTarget(
+                        pending: pendingAnchor,
+                        rowIDs: rows.map(\.id),
+                        contentHeight: new.contentHeight,
+                        isLoadingMore: config.isLoadingMore,
+                        isNearEnd: isNearEndLatched,
+                        nearTop: new.nearTop)
+                {
+                    pendingAnchor = nil
+                    scroller.anchorRow(id: target)
+                }
             }
         }
-        .onScrollPhaseChange { _, newPhase in
+        .onScrollPhaseChange { oldPhase, newPhase in
             // Ensure scroll state mutation callbacks are deferred until the
             // next main actor pass.
             Task { @MainActor in
                 isUserScrolling = newPhase == .interacting || newPhase == .decelerating
-                if newPhase == .idle {
-                    onScrollSettled()
+                if newPhase == .interacting, oldPhase != .interacting {
+                    // The user grabbed control; any pending re-anchor targets
+                    // a stale reading position.
+                    pendingAnchor = nil
                 }
             }
         }
@@ -227,7 +258,6 @@ struct TimelineScrollView: View {
     // MARK: - Config
 
     struct TimelineConfig: Equatable {
-        var showUnreadMarker: Bool
         var firstUnreadMessageID: String?
         var highlightedMessageID: String?
         var showURLPreviews: Bool

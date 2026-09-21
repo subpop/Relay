@@ -12,8 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
+
+/// One aggregated emoji reaction for badge rendering.
+struct ReactionGroup: Identifiable, Hashable {
+    var id: String { key }
+    let key: String
+    let count: Int
+    let senderIDs: [String]
+    let highlightedByCurrentUser: Bool
+}
+
+extension ObservableTimelineEvent {
+    /// Aggregated reactions as sorted badge groups. The local user's own
+    /// reactions read from ``ObservableTimelineEvent/ownReactions``.
+    var reactionGroups: [ReactionGroup] {
+        reactions.map { key, senders in
+            ReactionGroup(
+                key: key,
+                count: senders.count,
+                senderIDs: senders.map(\.value),
+                highlightedByCurrentUser: ownReactions.contains(key)
+            )
+        }
+        .sorted { $0.key < $1.key }
+    }
+}
 
 /// Displays a compact "Emojis" control that overlays a message bubble.
 ///
@@ -25,7 +50,7 @@ import SwiftUI
 /// sits at the leading end for outgoing messages and at the trailing end for
 /// incoming ones.
 struct MessageReactionBadges: View {
-    let reactions: [TimelineMessage.ReactionGroup]
+    let reactions: [ReactionGroup]
 
     /// Whether the message is outgoing (determines expansion direction).
     let isOutgoing: Bool
@@ -150,7 +175,7 @@ struct MessageReactionBadges: View {
 /// first sender of this reaction via ``Color/init(stableColorFor:)``, so each reactor gets
 /// their own color. Otherwise a neutral gray is used.
 private struct ReactionBadge: View {
-    let reaction: TimelineMessage.ReactionGroup
+    let reaction: ReactionGroup
     let coloredBubbles: Bool
     let onToggle: () -> Void
     @State private var isHovering = false
@@ -192,7 +217,7 @@ private struct ReactionBadge: View {
 
 /// Shows the authors of each reaction up to maxShown.
 private struct ReactionAuthors: View {
-    let reaction: TimelineMessage.ReactionGroup
+    let reaction: ReactionGroup
     let maxShown = 5
     var body: some View {
         VStack(spacing: 2) {
@@ -213,7 +238,7 @@ private struct ReactionAuthors: View {
 
 // MARK: - Previews
 
-private let sampleReactions: [TimelineMessage.ReactionGroup] = [
+private let sampleReactions: [ReactionGroup] = [
     .init(key: "\u{1F389}", count: 3,
           senderIDs: ["@alice:matrix.org", "@bob:matrix.org", "@charlie:matrix.org"],
           highlightedByCurrentUser: false),

@@ -51,9 +51,11 @@ Relay is a native macOS app built with SwiftUI and Xcode.
 
 | Directory | Description |
 |---|---|
-| `Relay/` | App target -- SwiftUI views and app entry point |
-| `RelayKit/` | Framework target -- Matrix Rust SDK integration, services, and view models |
-| `Packages/RelayInterface/` | Local Swift package -- shared protocols and model types |
+| `Relay/` | App target -- SwiftUI views, view models, `RelayClient` facade, app-side services |
+| `MatrixKit` | SDK ([MatrixKit](https://github.com/subpop/MatrixKit)) -- products: `MatrixKit`, `MatrixKitCrypto`, `MatrixKitSwiftData`, `MatrixRTC` |
+| `Packages/RelayShared/` | Local Swift package -- app-group bridge (`AppGroup`, `PendingShare`, `ShareableRoom`; zero dependencies) |
+| `RelayShareExtension/` | Share extension target -- room picker + file handoff (`RelayShared` only) |
+| `RelayTests/` | Unit test target |
 
 ## Local Homeserver for Screenshots
 

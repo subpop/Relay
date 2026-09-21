@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A single row in the message search results list.
@@ -28,15 +28,15 @@ struct MessageSearchRow: View {
         Button(action: onSelect) {
             HStack(alignment: .top, spacing: 10) {
                 AvatarView(
-                    name: result.senderDisplayName ?? result.sender,
-                    mxcURL: result.senderAvatarURL,
+                    name: result.senderDisplayName ?? result.sender.value,
+                    mxcURL: result.senderAvatarURL?.value,
                     size: 36,
-                    colorID: result.sender
+                    colorID: result.sender.value
                 )
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(result.senderDisplayName ?? result.sender)
+                        Text(result.senderDisplayName ?? result.sender.value)
                             .font(.headline)
                             .lineLimit(1)
 
@@ -82,9 +82,9 @@ struct MessageSearchRow: View {
     Form {
         MessageSearchRow(
             result: MessageSearchResult(
-                eventId: "$evt1",
-                roomId: "!room:matrix.org",
-                sender: "@alice:matrix.org",
+                eventId: EventId(unchecked: "$evt1"),
+                roomId: RoomId(unchecked: "!room:matrix.org"),
+                sender: UserId(unchecked: "@alice:matrix.org"),
                 senderDisplayName: "Alice",
                 body: "Has anyone tried the new concurrency features in Swift 6? The structured concurrency model is really impressive.",
                 timestamp: Date(timeIntervalSinceNow: -3600),
@@ -101,9 +101,9 @@ struct MessageSearchRow: View {
     Form {
         MessageSearchRow(
             result: MessageSearchResult(
-                eventId: "$evt2",
-                roomId: "!room:matrix.org",
-                sender: "@bob:matrix.org",
+                eventId: EventId(unchecked: "$evt2"),
+                roomId: RoomId(unchecked: "!room:matrix.org"),
+                sender: UserId(unchecked: "@bob:matrix.org"),
                 body: "The borrow checker can be tricky at first, but it prevents so many bugs at compile time.",
                 timestamp: Date(timeIntervalSinceNow: -86400),
                 highlights: ["borrow checker"]
@@ -119,9 +119,9 @@ struct MessageSearchRow: View {
     Form {
         MessageSearchRow(
             result: MessageSearchResult(
-                eventId: "$evt3",
-                roomId: "!room:matrix.org",
-                sender: "@carol:matrix.org",
+                eventId: EventId(unchecked: "$evt3"),
+                roomId: RoomId(unchecked: "!room:matrix.org"),
+                sender: UserId(unchecked: "@carol:matrix.org"),
                 senderDisplayName: "Carol",
                 body: "Just pushed a fix for the memory leak in the timeline view.",
                 timestamp: Date(timeIntervalSinceNow: -172800)

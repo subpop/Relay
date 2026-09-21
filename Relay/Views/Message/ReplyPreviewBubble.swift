@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A clear-background outlined bubble showing a truncated preview of the
@@ -24,10 +24,10 @@ import SwiftUI
 /// scrolls the timeline to the original message.
 struct ReplyPreviewBubble: View {
     /// The reply detail containing the original message's content and sender.
-    let reply: TimelineMessage.ReplyDetail
+    let reply: ResolvedReply
 
     @Environment(\.timelineActions) private var actions
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
 
     @State private var thumbnailImage: NSImage?
 
@@ -36,7 +36,7 @@ struct ReplyPreviewBubble: View {
 
     var body: some View {
         Button {
-            actions.tapReply(reply.eventID)
+            actions.tapReply(reply.eventID.value)
         } label: {
             if reply.imageURL != nil {
                 imagePreview
@@ -48,9 +48,10 @@ struct ReplyPreviewBubble: View {
         .task(id: reply.imageURL) {
             guard let mxcURL = reply.imageURL else { return }
             let size = UInt64(Self.thumbnailSize * 2)
-            if let data = await matrixService.mediaThumbnail(
-                mxcURL: mxcURL, mediaSourceJSON: nil,
-                width: size, height: size
+            let download = MediaFileHelper.Download(
+                mxcURL: mxcURL, filename: reply.body)
+            if let data = await client.mediaThumbnail(
+                download, width: size, height: size
             ) {
                 thumbnailImage = NSImage(data: data)
             }

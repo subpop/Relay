@@ -16,16 +16,37 @@ import SwiftUI
 
 /// The Labs tab of the Settings window, providing opt-in experimental features.
 struct SettingsLabsTab: View {
+    @Environment(RelayClient.self) private var client
+    @AppStorage(RelayClient.slidingSyncLabsKey) private var slidingSync = false
+
     var body: some View {
         Form {
             Section {
-                Text("No experiments available.")
+                Toggle("Sliding sync", isOn: $slidingSync)
+                    .disabled(!client.canUseSlidingSync)
+                Text(footnote)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Timeline Experiments")
+                Text("Sync Experiments")
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var footnote: String {
+        if !client.canUseSlidingSync {
+            "Your homeserver doesn't advertise simplified sliding sync."
+        } else if slidingSync, !isLoggedIn {
+            "Applies the next time you sign in."
+        } else if slidingSync {
+            "Sliding sync is on. It replaces the classic sync loop and applies immediately."
+        } else {
+            "Use the experimental simplified sliding sync transport instead of the classic sync loop."
+        }
+    }
+
+    private var isLoggedIn: Bool {
+        if case .loggedIn = client.authState { true } else { false }
     }
 }
 
@@ -35,4 +56,5 @@ struct SettingsLabsTab: View {
             .tabItem { Label("Labs", systemImage: "flask") }
     }
     .frame(width: 480)
+    .environment(RelayClient())
 }

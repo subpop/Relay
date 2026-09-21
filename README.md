@@ -2,7 +2,7 @@ Relay - All the power of Matrix. None of the complexity.
 
 ![Main app screenshot](./docs/Screenshot.png)
 
-A native macOS chat app built with SwiftUI that wraps the [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) via UniFFI-generated Swift bindings. Relay aims to feel like a first-class Mac app — fast, simple, and user-friendly — while speaking the Matrix protocol under the hood.
+A native macOS chat app built with SwiftUI on top of [MatrixKit](https://github.com/subpop/MatrixKit), a pure-Swift Matrix SDK. Relay aims to feel like a first-class Mac app — fast, simple, and user-friendly — while speaking the Matrix protocol under the hood.
 
 ## Feature Overview
 

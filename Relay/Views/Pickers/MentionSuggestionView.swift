@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A floating suggestion list that displays room members matching the current `@` query.
@@ -101,20 +101,20 @@ private struct MentionRow: View {
         } label: {
             HStack(spacing: 8) {
                 AvatarView(
-                    name: member.displayName ?? member.userId,
-                    mxcURL: member.avatarURL,
+                    name: member.displayName ?? member.userId.value,
+                    mxcURL: member.avatarURL?.value,
                     size: 24,
-                    colorID: member.userId
+                    colorID: member.userId.value
                 )
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(member.displayName ?? member.userId)
+                    Text(member.displayName ?? member.userId.value)
                         .font(.callout)
                         .bold()
                         .lineLimit(1)
 
                     if member.displayName != nil {
-                        Text(member.userId)
+                        Text(member.userId.value)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -177,17 +177,17 @@ private struct MentionRowButtonStyle: ButtonStyle {
                 let vm = ComposeViewModel()
                 vm.members = [
                     RoomMemberDetails(
-                        userId: "@alice:matrix.org", displayName: "Alice Smith",
+                        userId: UserId(unchecked: "@alice:matrix.org"), displayName: "Alice Smith",
                         role: .administrator
                     ),
                     RoomMemberDetails(
-                        userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator
+                        userId: UserId(unchecked: "@bob:matrix.org"), displayName: "Bob Chen", role: .moderator
                     ),
                     RoomMemberDetails(
-                        userId: "@charlie:matrix.org", displayName: "Charlie Davis"
+                        userId: UserId(unchecked: "@charlie:matrix.org"), displayName: "Charlie Davis"
                     ),
                     RoomMemberDetails(
-                        userId: "@diana:matrix.org", displayName: "Diana Evans"
+                        userId: UserId(unchecked: "@diana:matrix.org"), displayName: "Diana Evans"
                     ),
                 ]
                 vm.mentionQuery = ""
@@ -198,7 +198,6 @@ private struct MentionRowButtonStyle: ButtonStyle {
         .padding()
     }
     .frame(width: 400, height: 300)
-    .environment(\.matrixService, PreviewMatrixService())
 }
 
 #Preview("Filtered") {
@@ -209,14 +208,14 @@ private struct MentionRowButtonStyle: ButtonStyle {
                 let vm = ComposeViewModel()
                 vm.members = [
                     RoomMemberDetails(
-                        userId: "@alice:matrix.org", displayName: "Alice Smith",
+                        userId: UserId(unchecked: "@alice:matrix.org"), displayName: "Alice Smith",
                         role: .administrator
                     ),
                     RoomMemberDetails(
-                        userId: "@bob:matrix.org", displayName: "Bob Chen", role: .moderator
+                        userId: UserId(unchecked: "@bob:matrix.org"), displayName: "Bob Chen", role: .moderator
                     ),
                     RoomMemberDetails(
-                        userId: "@charlie:matrix.org", displayName: "Charlie Davis"
+                        userId: UserId(unchecked: "@charlie:matrix.org"), displayName: "Charlie Davis"
                     ),
                 ]
                 vm.mentionQuery = "ali"
@@ -227,5 +226,4 @@ private struct MentionRowButtonStyle: ButtonStyle {
         .padding()
     }
     .frame(width: 400, height: 300)
-    .environment(\.matrixService, PreviewMatrixService())
 }

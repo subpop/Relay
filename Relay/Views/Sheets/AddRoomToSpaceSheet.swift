@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 /// A sheet that presents the user's joined rooms for adding to a space.
@@ -20,7 +20,7 @@ import SwiftUI
 /// The user can search and select a room, then confirm to add it as a child
 /// of the current space via `m.space.child` state events.
 struct AddRoomToSpaceSheet: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
     @Environment(\.dismiss) private var dismiss
 
@@ -34,19 +34,19 @@ struct AddRoomToSpaceSheet: View {
     @State private var isAdding = false
 
     /// The rooms available for adding — joined rooms not already in the space.
-    private var availableRooms: [RoomSummary] {
-        matrixService.rooms.filter { room in
-            room.membership == .joined
+    private var availableRooms: [ObservableRoom] {
+        client.rooms.filter { room in
+            room.membership == .join
                 && !room.isSpace
-                && !existingChildIds.contains(room.id)
+                && !existingChildIds.contains(room.roomId.value)
         }
     }
 
     /// Filtered rooms based on search text.
-    private var filteredRooms: [RoomSummary] {
+    private var filteredRooms: [ObservableRoom] {
         guard !searchText.isEmpty else { return availableRooms }
         return availableRooms.filter { room in
-            room.name.localizedStandardContains(searchText)
+            room.displayName.localizedStandardContains(searchText)
         }
     }
 
@@ -91,7 +91,7 @@ struct AddRoomToSpaceSheet: View {
     }
 
     private var roomList: some View {
-        List(filteredRooms) { room in
+        List(filteredRooms, id: \.roomId) { room in
             RoomPickerRow(
                 room: room,
                 isAdding: isAdding,
@@ -101,12 +101,12 @@ struct AddRoomToSpaceSheet: View {
         .listStyle(.plain)
     }
 
-    private func addRoom(_ room: RoomSummary) {
+    private func addRoom(_ room: ObservableRoom) {
         guard !isAdding else { return }
         isAdding = true
         Task {
             do {
-                try await matrixService.addChildToSpace(childId: room.id, spaceId: spaceId)
+                try await client.addChildToSpace(childId: room.roomId.value, spaceId: spaceId)
                 dismiss()
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
@@ -120,16 +120,19 @@ struct AddRoomToSpaceSheet: View {
 
 /// A single row in the room picker list with an Add button.
 private struct RoomPickerRow: View {
-    let room: RoomSummary
+    let room: ObservableRoom
     let isAdding: Bool
     var onAdd: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            AvatarView(name: room.name, mxcURL: room.avatarURL, size: 32)
+            AvatarView(
+                name: room.displayName,
+                mxcURL: room.avatarURL?.value,
+                size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(room.name)
+                Text(room.displayName)
                     .lineLimit(1)
 
                 if let topic = room.topic, !topic.isEmpty {
@@ -160,5 +163,5 @@ private struct RoomPickerRow: View {
         spaceName: "Work",
         existingChildIds: ["!design:matrix.org"]
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
 }

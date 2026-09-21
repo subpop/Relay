@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import AuthenticationServices
-import RelayInterface
 import SwiftUI
 
 /// The sign-in page for users who already have a Matrix account.
@@ -23,7 +22,7 @@ import SwiftUI
 /// previous login form.
 struct SignInPage: View {
     @Binding var step: LoginStep
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @Environment(\.errorReporter) private var errorReporter
     @State private var matrixID = MatrixID()
@@ -134,12 +133,12 @@ struct SignInPage: View {
     private func signIn() {
         guard matrixID.isValid, !password.isEmpty else { return }
         Task {
-            await matrixService.login(
+            await client.login(
                 username: matrixID.username,
                 password: password,
                 homeserver: effectiveHomeserver
             )
-            if case .error(let msg) = matrixService.authState {
+            if case .error(let msg) = client.authState {
                 errorReporter.report(.loginFailed(msg))
             }
         }
@@ -149,7 +148,7 @@ struct SignInPage: View {
         guard matrixID.isValid else { return }
         Task {
             do {
-                try await matrixService.startOAuthLogin(
+                try await client.startOAuthLogin(
                     homeserver: effectiveHomeserver
                 ) { [webAuthenticationSession] url in
                     try await webAuthenticationSession.authenticate(
@@ -164,7 +163,7 @@ struct SignInPage: View {
             } catch {
                 errorReporter.report(.loginFailed(error.localizedDescription))
             }
-            if case .error(let msg) = matrixService.authState {
+            if case .error(let msg) = client.authState {
                 errorReporter.report(.loginFailed(msg))
             }
         }

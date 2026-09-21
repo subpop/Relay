@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import AppKit
-import RelayInterface
+import MatrixRTC
 import SwiftUI
 
 /// Shared call state accessible from both ``MainView`` (to start calls) and
@@ -28,6 +28,34 @@ final class CallManager {
     /// Whether there is an active or preparing call.
     var hasActiveCall: Bool {
         activeCallViewModel != nil
+    }
+
+    /// Publishes call membership and mints SFU credentials via
+    /// ``RelayClient/prepareCall(roomId:)``, then connects the new
+    /// ``CallViewModel``. `openWindow` comes from
+    /// `@Environment(\.openWindow)` at the call site.
+    func startCall(
+        roomId: String,
+        client: RelayClient,
+        openWindow: OpenWindowAction,
+        errorReporter: ErrorReporter
+    ) async {
+        guard !hasActiveCall, !isPreparingCredentials else { return }
+        isPreparingCredentials = true
+        callRoomId = roomId
+        do {
+            let viewModel = try await client.prepareCall(roomId: roomId)
+            activeCallViewModel = viewModel
+            isPreparingCredentials = false
+            openWindow(id: "call")
+            try await viewModel.connect(
+                url: viewModel.credentials.url.absoluteString,
+                token: viewModel.credentials.token,
+                sfuServiceURL: "")
+        } catch {
+            errorReporter.report(.callFailed(error.localizedDescription))
+            await endCall()
+        }
     }
 
     func endCall() async {

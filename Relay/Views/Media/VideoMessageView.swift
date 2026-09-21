@@ -13,18 +13,18 @@
 // limitations under the License.
 
 import AVFoundation
+import MatrixKit
 import QuickLook
-import RelayInterface
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// Renders a video attachment with a thumbnail preview, play button overlay,
 /// download button, and QuickLook support on double-click.
 struct VideoMessageView: View {
-    @Environment(\.matrixService) private var matrixService
+    @Environment(RelayClient.self) private var client
     @Environment(\.mediaAutoReveal) private var autoReveal
     @Environment(\.errorReporter) private var errorReporter
-    let message: TimelineMessage
+    let message: ObservableTimelineEvent
 
     @State private var thumbnail: NSImage?
     @State private var isLoading = true
@@ -34,12 +34,23 @@ struct VideoMessageView: View {
     @State private var isRevealed = false
     @State private var cachedVideoFileURL: URL?
 
-    private var mediaInfo: TimelineMessage.MediaInfo {
-        message.mediaInfo!
+    private var download: MediaFileHelper.Download? {
+        message.mediaDownload
+    }
+
+    private var mediaInfo: MediaInfo? {
+        if case .video(_, _, let info) = message.kind { return info }
+        return nil
     }
 
     private var displaySize: CGSize {
-        mediaInfo.displaySize(defaultHeight: 180)
+        mediaInfo?.displaySize(defaultHeight: 180) ?? CGSize(width: 280, height: 180)
+    }
+
+    /// Duration in seconds (`MediaInfo` carries milliseconds).
+    private var durationSeconds: TimeInterval? {
+        guard let ms = mediaInfo?.duration, ms > 0 else { return nil }
+        return TimeInterval(ms) / 1000
     }
 
     private var shouldShow: Bool { autoReveal || isRevealed }
@@ -95,8 +106,8 @@ struct VideoMessageView: View {
         .overlay(alignment: .bottomTrailing) {
             if shouldShow {
                 HStack(spacing: 4) {
-                    if let duration = mediaInfo.duration, duration > 0 {
-                        Text(duration.formattedDuration)
+                    if let durationSeconds {
+                        Text(durationSeconds.formattedDuration)
                             .font(.caption2)
                             .fontWeight(.medium)
                             .foregroundStyle(.white)
@@ -113,13 +124,13 @@ struct VideoMessageView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if shouldShow, let caption = mediaInfo.caption, !caption.isEmpty {
+            if shouldShow, let caption = message.caption {
                 Text(caption)
                     .font(.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(.rect(cornerRadius: 8))
                     .padding(8)
             }
         }
@@ -138,14 +149,13 @@ struct VideoMessageView: View {
         .quickLookPreview($quickLookURL)
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
-        .task(id: shouldShow ? mediaInfo.mxcURL : nil) {
-            guard shouldShow else { return }
+        .task(id: shouldShow ? download?.mxcURL : nil) {
+            guard shouldShow, let download else { return }
             isLoading = true
 
             // Try server-side thumbnail first.
-            if let data = await matrixService.mediaThumbnail(
-                mxcURL: mediaInfo.mxcURL,
-                mediaSourceJSON: mediaInfo.mediaSourceJSON,
+            if let data = await client.mediaThumbnail(
+                download,
                 width: UInt64(displaySize.width * 2),
                 height: UInt64(displaySize.height * 2)
             ) {
@@ -153,11 +163,8 @@ struct VideoMessageView: View {
             }
 
             // Fall back to extracting a frame from the video locally.
-            if thumbnail == nil, let data = await matrixService.mediaContent(
-                mxcURL: mediaInfo.mxcURL,
-                mediaSourceJSON: mediaInfo.mediaSourceJSON
-            ) {
-                let tempURL = MediaFileHelper.temporaryFileURL(for: mediaInfo)
+            if thumbnail == nil, let data = await client.mediaBytes(download) {
+                let tempURL = MediaFileHelper.temporaryFileURL(for: download)
                 if (try? data.write(to: tempURL)) != nil {
                     cachedVideoFileURL = tempURL
                     let asset = AVURLAsset(url: tempURL)
@@ -191,7 +198,7 @@ struct VideoMessageView: View {
     }
 
     private func openQuickLook() async {
-        guard !isLoadingMedia else { return }
+        guard !isLoadingMedia, let download else { return }
         isLoadingMedia = true
         defer { isLoadingMedia = false }
 
@@ -206,28 +213,29 @@ struct VideoMessageView: View {
 
         do {
             let url = try await MediaFileHelper.downloadToTemporaryFile(
-                mediaInfo: mediaInfo, matrixService: matrixService
+                download: download, client: client
             )
             cachedVideoFileURL = url
             quickLookURL = url
         } catch {
             errorReporter.report(.mediaPreviewFailed(
-                filename: mediaInfo.filename,
+                filename: download.filename,
                 reason: error.localizedDescription
             ))
         }
     }
 
     private func saveMedia() async {
+        guard let download else { return }
         let cachedData = cachedVideoFileURL.flatMap { try? Data(contentsOf: $0) }
         do {
             try await MediaFileHelper.saveToFile(
-                mediaInfo: mediaInfo, matrixService: matrixService,
+                download: download, client: client,
                 contentTypes: [.movie, .video, .mpeg4Movie, .quickTimeMovie],
                 data: cachedData
             )
         } catch {
-            errorReporter.report(.mediaSaveFailed(filename: mediaInfo.filename, reason: error.localizedDescription))
+            errorReporter.report(.mediaSaveFailed(filename: download.filename, reason: error.localizedDescription))
         }
     }
 }

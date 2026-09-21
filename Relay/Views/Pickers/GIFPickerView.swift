@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
 import SwiftUI
 
 /// A popover view for searching and selecting animated GIFs.
@@ -267,5 +266,4 @@ private struct GIFGridCell: View {
     GIFPickerView { gif in
         print("Selected: \(gif.title)")
     }
-    .environment(\.gifSearchService, PreviewGIFSearchService())
 }

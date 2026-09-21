@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 
 // MARK: - Verification Sheet
@@ -21,14 +21,13 @@ import SwiftUI
 ///
 /// Supports two verification methods:
 /// - **SAS emoji comparison** — compare emoji across two devices.
-/// - **Recovery key** — enter the account's security key to verify directly.
-///
-/// When no other verified devices are available, recovery key entry is shown
-/// as the primary option. Otherwise both methods are offered side-by-side.
+/// - **Recovery key** — unlock 4S secret storage to verify directly,
+///   without a second device, then optionally restore message history
+///   from the account's key backup.
 struct VerificationSheet: View {
-    var viewModel: any SessionVerificationViewModelProtocol
+    var viewModel: SessionVerificationViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var recoveryKeyInput = ""
+    @State private var recoveryInput = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,21 +35,36 @@ struct VerificationSheet: View {
             case .idle:
                 idleView
             case .requesting, .waitingForOtherDevice, .sasStarted:
-                waitingView
+                waitingView()
             case .waitingForApproval:
                 approvingView
+            case .awaitingBackupKey:
+                waitingView(
+                    title: "Checking for Message History",
+                    detail: "Asking your other device for the backup key."
+                )
             case .showingEmojis:
                 emojiView
-            case .enteringRecoveryKey:
-                recoveryKeyView
-            case .recoveringWithKey:
-                recoveringView
+            case .enteringRecovery:
+                recoveryView
+            case .recovering:
+                waitingView(
+                    title: "Recovering Keys",
+                    detail: "Unlocking secret storage and importing keys."
+                )
+            case .awaitingBackupRestore:
+                restorePromptView
+            case .restoringBackup:
+                waitingView(
+                    title: "Restoring History",
+                    detail: "Downloading and importing backed-up message keys."
+                )
             case .verified:
                 resultView(
                     icon: "checkmark.circle.fill",
                     color: .green,
                     title: "Verified!",
-                    detail: "This session has been successfully verified."
+                    detail: verifiedDetail
                 )
             case .cancelled:
                 resultView(
@@ -68,7 +82,10 @@ struct VerificationSheet: View {
                 )
             }
         }
-        .frame(width: 380, height: 340)
+        .frame(width: 380, height: 400)
+        .task {
+            await viewModel.checkForOtherDevices()
+        }
     }
 
     // MARK: - Idle
@@ -90,7 +107,7 @@ struct VerificationSheet: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             } else {
-                Text("Enter your security key to verify this session.")
+                Text("No other devices found. Enter your recovery key to verify this session.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -104,8 +121,8 @@ struct VerificationSheet: View {
                 Spacer()
 
                 if viewModel.hasOtherDevices {
-                    Button("Use Security Key") {
-                        viewModel.startRecoveryKeyEntry()
+                    Button("Recovery Key") {
+                        viewModel.startRecoveryEntry()
                     }
                     Button("Another Device") {
                         Task { await viewModel.requestVerification() }
@@ -115,8 +132,8 @@ struct VerificationSheet: View {
                     Button("Another Device") {
                         Task { await viewModel.requestVerification() }
                     }
-                    Button("Use Security Key") {
-                        viewModel.startRecoveryKeyEntry()
+                    Button("Recovery Key") {
+                        viewModel.startRecoveryEntry()
                     }
                     .keyboardShortcut(.defaultAction)
                 }
@@ -127,15 +144,18 @@ struct VerificationSheet: View {
 
     // MARK: - Waiting
 
-    private var waitingView: some View {
+    private func waitingView(
+        title: String = "Waiting for Other Device",
+        detail: String = "Accept the verification request on your other device."
+    ) -> some View {
         VStack(spacing: 16) {
             Spacer()
             ProgressView()
                 .controlSize(.large)
-            Text("Waiting for Other Device")
+            Text(title)
                 .font(.title3)
                 .fontWeight(.medium)
-            Text("Accept the verification request on your other device.")
+            Text(detail)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -146,6 +166,98 @@ struct VerificationSheet: View {
                 Button("Cancel") {
                     Task { await viewModel.cancelVerification() }
                 }
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Recovery Key Entry
+
+    private var recoveryView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "key.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text("Enter Recovery Key")
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text("Enter the recovery key you received when setting up account recovery.")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 32)
+
+            SecureField("Recovery Key", text: $recoveryInput)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+                .padding(.horizontal, 32)
+                .onSubmit {
+                    guard !recoveryInput.isEmpty else { return }
+                    submitRecoveryKey()
+                }
+
+            Spacer()
+            HStack {
+                Button("Back") {
+                    recoveryInput = ""
+                    viewModel.resetToIdle()
+                }
+                Spacer()
+                Button("Verify") {
+                    submitRecoveryKey()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(recoveryInput.isEmpty)
+            }
+            .padding()
+        }
+    }
+
+    private func submitRecoveryKey() {
+        let input = recoveryInput
+        recoveryInput = ""
+        Task { await viewModel.submitRecoveryKey(input) }
+    }
+
+    // MARK: - Backup Restore Prompt
+
+    /// Success copy for the verified state. Mentions the restore count
+    /// when the restore step imported sessions.
+    private var verifiedDetail: String {
+        let count = viewModel.restoredSessionCount
+        if count > 0 {
+            return "This session has been successfully verified. Restored \(count) backed-up sessions."
+        } else {
+            return "This session has been successfully verified."
+        }
+    }
+
+    private var restorePromptView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text("Restore Message History")
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text("Your account keeps a backup of message keys. Restore it to read earlier messages on this device.")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 32)
+            Spacer()
+            HStack {
+                Button("Skip") {
+                    viewModel.skipBackupRestore()
+                }
+                .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Restore") {
+                    Task { await viewModel.restoreBackup() }
+                }
+                .keyboardShortcut(.defaultAction)
             }
             .padding()
         }
@@ -162,68 +274,6 @@ struct VerificationSheet: View {
                 .font(.title3)
                 .fontWeight(.medium)
             Text("Waiting for the other device to confirm.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
-        }
-    }
-
-    // MARK: - Recovery Key Entry
-
-    private var recoveryKeyView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "key.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.tint)
-            Text("Enter Security Key")
-                .font(.title2)
-                .fontWeight(.semibold)
-            Text("Enter the security key you received when setting up account recovery.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
-            SecureField("Security Key", text: $recoveryKeyInput)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
-                .padding(.horizontal, 32)
-                .onSubmit {
-                    guard !recoveryKeyInput.isEmpty else { return }
-                    Task { await viewModel.submitRecoveryKey(recoveryKeyInput) }
-                }
-
-            Spacer()
-            HStack {
-                Button("Back") {
-                    recoveryKeyInput = ""
-                    viewModel.resetToIdle()
-                }
-                Spacer()
-                Button("Verify") {
-                    Task { await viewModel.submitRecoveryKey(recoveryKeyInput) }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(recoveryKeyInput.isEmpty)
-            }
-            .padding()
-        }
-    }
-
-    // MARK: - Recovering with Key
-
-    private var recoveringView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-                .controlSize(.large)
-            Text("Verifying with Security Key")
-                .font(.title3)
-                .fontWeight(.medium)
-            Text("Recovering encryption keys from the server.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -250,13 +300,13 @@ struct VerificationSheet: View {
                 let topRow = Array(viewModel.emojis.prefix(4))
                 let bottomRow = Array(viewModel.emojis.dropFirst(4))
                 HStack(spacing: 0) {
-                    ForEach(topRow) { emoji in
+                    ForEach(topRow, id: \.self) { emoji in
                         emojiCell(emoji)
                             .frame(maxWidth: .infinity)
                     }
                 }
                 HStack(spacing: 0) {
-                    ForEach(bottomRow) { emoji in
+                    ForEach(bottomRow, id: \.self) { emoji in
                         emojiCell(emoji)
                             .frame(maxWidth: .infinity)
                     }
@@ -267,7 +317,7 @@ struct VerificationSheet: View {
 
             Spacer()
             HStack {
-                Button("They Don\u{2019}t Match", role: .destructive) {
+                Button("They Don’t Match", role: .destructive) {
                     Task { await viewModel.declineVerification() }
                 }
                 Spacer()
@@ -280,11 +330,11 @@ struct VerificationSheet: View {
         }
     }
 
-    private func emojiCell(_ emoji: VerificationEmoji) -> some View {
+    private func emojiCell(_ emoji: SASEmoji) -> some View {
         VStack(spacing: 4) {
-            Text(emoji.symbol)
+            Text(emoji.emoji)
                 .font(.system(size: 32))
-            Text(emoji.label)
+            Text(emoji.description)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -317,5 +367,4 @@ struct VerificationSheet: View {
             .padding()
         }
     }
-
 }

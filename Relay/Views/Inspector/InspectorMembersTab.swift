@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import RelayInterface
+import MatrixKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -36,7 +36,6 @@ extension UTType {
 /// can drag and drop members between role sections to promote or demote them. In space
 /// context, an invite section is shown at the top for inviting users by Matrix ID.
 struct InspectorMembersTab: View {
-    @Environment(\.matrixService) private var matrixService
     @Environment(\.errorReporter) private var errorReporter
 
     let viewModel: TimelineInspectorViewModel
@@ -59,7 +58,7 @@ struct InspectorMembersTab: View {
         return viewModel.allMembers.filter { member in
             let name = member.displayName ?? ""
             return name.localizedStandardContains(searchText)
-                || member.userId.localizedStandardContains(searchText)
+                || member.userId.value.localizedStandardContains(searchText)
         }
     }
 
@@ -92,7 +91,7 @@ struct InspectorMembersTab: View {
     }
 
     private func isSelfMember(_ member: RoomMemberDetails) -> Bool {
-        member.userId == viewModel.currentUserId
+        member.userId.value == viewModel.currentUserId
     }
 
     var body: some View {
@@ -110,7 +109,7 @@ struct InspectorMembersTab: View {
                             powerLevel: powerLevel
                         )
                         // Refresh the displayed profile with the updated role
-                        if let updated = viewModel.allMembers.first(where: { $0.userId == profile.userId }) {
+                        if let updated = viewModel.allMembers.first(where: { $0.userId.value == profile.userId }) {
                             displayedProfile = UserProfile(member: updated)
                         }
                     },
@@ -223,7 +222,7 @@ struct InspectorMembersTab: View {
         icon: String,
         color: Color,
         members: [RoomMemberDetails],
-        targetPowerLevel: Int64
+        targetPowerLevel: Int
     ) -> some View {
         if !members.isEmpty || canEditRoles {
             roleSectionHeader(
@@ -296,7 +295,7 @@ struct InspectorMembersTab: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .draggable(MemberDragItem(userId: member.userId)) {
+            .draggable(MemberDragItem(userId: member.userId.value)) {
                 if canEditRoles, !isSelfMember(member), !member.isCreator {
                     InspectorMemberRow(member: member)
                         .padding(.horizontal)
@@ -312,13 +311,13 @@ struct InspectorMembersTab: View {
 
     // MARK: - Drag & Drop
 
-    private func handleDrop(_ items: [MemberDragItem], powerLevel: Int64) -> Bool {
+    private func handleDrop(_ items: [MemberDragItem], powerLevel: Int) -> Bool {
         guard canEditRoles, let item = items.first else { return false }
         // Don't allow dropping self
         guard item.userId != viewModel.currentUserId else { return false }
         // Don't drop into the same role section
-        if let member = viewModel.allMembers.first(where: { $0.userId == item.userId }) {
-            let currentPowerLevel: Int64 = switch member.role {
+        if let member = viewModel.allMembers.first(where: { $0.userId.value == item.userId }) {
+            let currentPowerLevel: Int = switch member.role {
             case .administrator: 100
             case .moderator: 50
             case .user: 0
@@ -353,14 +352,14 @@ struct InspectorMembersTab: View {
 
 #Preview("Room") {
     InspectorMembersTab(viewModel: .preview(), selectedProfile: .constant(nil))
-        .environment(\.matrixService, PreviewMatrixService())
-        .frame(width: 280, height: 600)
+            .environment(RelayClient())
+            .frame(width: 280, height: 600)
 }
 
 #Preview("Room (Admin)") {
     InspectorMembersTab(viewModel: .preview(asAdmin: true), selectedProfile: .constant(nil))
-        .environment(\.matrixService, PreviewMatrixService())
-        .frame(width: 280, height: 600)
+            .environment(RelayClient())
+            .frame(width: 280, height: 600)
 }
 
 #Preview("Space") {
@@ -369,6 +368,6 @@ struct InspectorMembersTab: View {
         context: .space,
         selectedProfile: .constant(nil)
     )
-    .environment(\.matrixService, PreviewMatrixService())
+    .environment(RelayClient())
     .frame(width: 280, height: 600)
 }
