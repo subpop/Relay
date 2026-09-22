@@ -103,9 +103,7 @@ final class ComposeViewModel {
             return Array(members.prefix(12))
         }
         return members.filter { member in
-            let name = member.displayName ?? member.userId.value
-            return name.localizedStandardContains(query)
-                || member.userId.value.localizedStandardContains(query)
+            member.resolvedName.localizedStandardContains(query)
         }
     }
 
@@ -135,7 +133,7 @@ final class ComposeViewModel {
     /// which bridges into the `ComposeTextView.Coordinator.insertMention()` method.
     /// Also appends a ``Mention`` record for serialization at send time.
     func selectMention(_ member: RoomMemberDetails) {
-        let displayName = member.displayName ?? member.userId.value
+        let displayName = member.resolvedName
         insertMentionHandler?(member.userId.value, displayName)
         mentions.append(Mention(userId: member.userId.value, displayName: displayName))
         mentionQuery = nil

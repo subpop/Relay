@@ -101,14 +101,14 @@ private struct MentionRow: View {
         } label: {
             HStack(spacing: 8) {
                 AvatarView(
-                    name: member.displayName ?? member.userId.value,
+                    name: member.resolvedName,
                     mxcURL: member.avatarURL?.value,
                     size: 24,
                     colorID: member.userId.value
                 )
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(member.displayName ?? member.userId.value)
+                    Text(member.resolvedName)
                         .font(.callout)
                         .bold()
                         .lineLimit(1)

@@ -55,7 +55,7 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
             canonicalAlias: room.canonicalAlias,
             parentSpaceIds: Set(room.parentSpaceIds.map(\.value)),
             lastMessage: latest?.messageContent.map(preview),
-            lastMessageAuthor: sender.flatMap { room.memberDetails[$0]?.displayname },
+            lastMessageAuthor: sender.map { room.memberDetails[$0]?.displayname ?? $0.value },
             lastMessageTimestamp: latest?.timestamp,
             notificationCount: client?.displayUnreadCount(for: room) ?? room.unreadCount,
             highlightCount: client?.displayHighlightCount(for: room) ?? room.highlightCount,

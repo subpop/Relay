@@ -74,3 +74,8 @@ struct UserProfile: Hashable {
         self.isCreator = false
     }
 }
+
+extension RoomMemberDetails {
+    /// Display name, falling back to the mxid.
+    var resolvedName: String { displayName ?? userId.value }
+}

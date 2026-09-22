@@ -1330,7 +1330,7 @@ final class RelayClient {
                     userId: userId,
                     displayName: content.displayname,
                     avatarURL: content.avatarUrl.flatMap { try? MXCURI($0) })
-            }.sorted { $0.displayName ?? $0.userId.value < $1.displayName ?? $1.userId.value },
+            }.sorted { $0.resolvedName < $1.resolvedName },
             pinnedEventIds: room.pinnedEventIds,
             joinRule: nil,
             historyVisibility: nil,

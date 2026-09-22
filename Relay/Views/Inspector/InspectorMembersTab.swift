@@ -56,9 +56,7 @@ struct InspectorMembersTab: View {
     private var filteredMembers: [RoomMemberDetails] {
         guard !searchText.isEmpty else { return viewModel.allMembers }
         return viewModel.allMembers.filter { member in
-            let name = member.displayName ?? ""
-            return name.localizedStandardContains(searchText)
-                || member.userId.value.localizedStandardContains(searchText)
+            member.resolvedName.localizedStandardContains(searchText)
         }
     }
 

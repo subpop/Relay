@@ -24,7 +24,7 @@ struct InspectorMemberRow: View {
     var body: some View {
         HStack(spacing: 8) {
             AvatarView(
-                name: member.displayName ?? member.userId.value,
+                name: member.resolvedName,
                 mxcURL: member.avatarURL?.value,
                 size: 28,
                 colorID: member.userId.value
@@ -32,7 +32,7 @@ struct InspectorMemberRow: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 4) {
-                    Text(member.displayName ?? member.userId.value)
+                    Text(member.resolvedName)
                         .font(.callout)
                         .lineLimit(1)
 
