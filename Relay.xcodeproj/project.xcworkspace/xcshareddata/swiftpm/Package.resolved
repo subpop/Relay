@@ -1,5 +1,5 @@
 {
-  "originHash" : "6425669603780cb0568f7617fce39c68413adf52602e7d22482b825a9e3b4dc9",
+  "originHash" : "79537f330455b8077ac1631277e3a29e07619f102180c4689f31fa7662427cb3",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/livekit/client-sdk-swift",
       "state" : {
-        "revision" : "326eefab4e61ac56e1330edf0ce0a33e8eb7bde7",
-        "version" : "2.14.1"
+        "revision" : "79fb2beee98e45556bffebefa50b5d05c3382af1",
+        "version" : "2.16.0"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/danielsaidi/EmojiKit",
       "state" : {
-        "revision" : "8a7332d1b8c39d5a6ad2e5518431966f540ac8c7",
-        "version" : "3.0.1"
+        "revision" : "fcb0279274ea2de8f54b7647e33e12fa98ec3b84",
+        "version" : "3.1.0"
       }
     },
     {
@@ -43,7 +43,7 @@
       "location" : "https://github.com/subpop/MatrixKit",
       "state" : {
         "branch" : "main",
-        "revision" : "a15cf60d8278cb4dd7b1556a1d70ece5b0968633"
+        "revision" : "fc9e7df0f6691360af9d605e8fe05b7e39733607"
       }
     },
     {
@@ -222,8 +222,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-protobuf.git",
       "state" : {
-        "revision" : "f6506eaa86ed2e01cb0ae14a75035b7fdbf0918f",
-        "version" : "1.38.0"
+        "revision" : "55d7a1cc5666b85c13464aea1c4b4a90feccb4c8",
+        "version" : "1.38.1"
       }
     },
     {
@@ -258,8 +258,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/livekit/webrtc-xcframework.git",
       "state" : {
-        "revision" : "6a5f458cf55a598e4590cb30b739ab545fdbfcb1",
-        "version" : "144.7559.6"
+        "revision" : "46f2af86f06b9a8a9158d37cadda5cb5a214e4c4",
+        "version" : "144.7559.11"
       }
     }
   ],
