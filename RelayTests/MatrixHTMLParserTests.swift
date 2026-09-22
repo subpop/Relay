@@ -783,4 +783,130 @@ struct MatrixHTMLParserTests {
         #expect(style != nil)
         #expect(style!.paragraphSpacingBefore == 6)
     }
+
+    // MARK: - Markdown Fallback
+
+    @Test func markdownPlainTextUnchanged() {
+        let result = NSAttributedString(matrixMarkdown: "hello")
+        #expect(result.string == "hello")
+    }
+
+    @Test func markdownParagraphsJoinWithSingleNewline() {
+        let result = NSAttributedString(matrixMarkdown: "# T\n\npara")
+        #expect(result.string == "T\npara")
+    }
+
+    @Test func markdownSoftBreakPreservesNewline() {
+        let result = NSAttributedString(matrixMarkdown: "line one\nline two")
+        #expect(result.string == "line one\nline two")
+    }
+
+    @Test func markdownHeadingScaleAndSpacing() {
+        let result = NSAttributedString(matrixMarkdown: "# Title")
+        #expect(result.string == "Title")
+        #expect(traits(result, at: 0).contains(.bold))
+        let size = font(result, at: 0)?.pointSize ?? 0
+        #expect(abs(size - MessageTextScale.baseFontSize * 1.5) < 0.5)
+        let style = attrs(result, at: 0)[.paragraphStyle] as? NSParagraphStyle
+        #expect(style?.paragraphSpacingBefore == 6)
+    }
+
+    @Test func markdownH3Scale() {
+        let result = NSAttributedString(matrixMarkdown: "### Sub")
+        #expect(result.string == "Sub")
+        let size = font(result, at: 0)?.pointSize ?? 0
+        #expect(abs(size - MessageTextScale.baseFontSize * 1.2) < 0.5)
+    }
+
+    @Test func markdownUnorderedList() {
+        let result = NSAttributedString(matrixMarkdown: "- a\n- b")
+        #expect(result.string == "• a\n• b")
+        // List lines get an indent past the marker (offset 4 starts "• b";
+        // offset 3 is the separator newline, which belongs to no block).
+        let style = attrs(result, at: 4)[.paragraphStyle] as? NSParagraphStyle
+        #expect((style?.headIndent ?? 0) > 0)
+    }
+
+    @Test func markdownOrderedList() {
+        let result = NSAttributedString(matrixMarkdown: "1. a\n2. b")
+        #expect(result.string == "1. a\n2. b")
+    }
+
+    @Test func markdownOrderedListCustomStart() {
+        let result = NSAttributedString(matrixMarkdown: "3. a\n4. b")
+        #expect(result.string == "3. a\n4. b")
+    }
+
+    @Test func markdownBlockquoteHasMarker() {
+        let result = NSAttributedString(matrixMarkdown: "> quoted")
+        #expect(result.string.contains("quoted"))
+        #expect(attrs(result, at: 0)[.blockquoteMarker] as? Bool == true)
+    }
+
+    @Test func markdownFencedCode() {
+        let result = NSAttributedString(
+            matrixMarkdown: "```swift\nlet x = 1\n```"
+        )
+        #expect(result.string.contains("let x = 1"))
+        let codeIndex = (result.string as NSString).range(of: "let x = 1").location
+        #expect(isMonospaced(result, at: codeIndex))
+        #expect(attrs(result, at: codeIndex)[.backgroundColor] as? NSColor != nil)
+    }
+
+    @Test func markdownHorizontalRule() {
+        let result = NSAttributedString(matrixMarkdown: "---")
+        #expect(result.string == "────────")
+        #expect(
+            (attrs(result, at: 0)[.foregroundColor] as? NSColor)?.isEqual(
+                NSColor.separatorColor
+            ) == true
+        )
+    }
+
+    @Test func markdownInlineFormatting() {
+        let result = NSAttributedString(
+            matrixMarkdown: "**bold** and *italic* and `code` and ~~strike~~"
+        )
+        #expect(result.string == "bold and italic and code and strike")
+        #expect(traits(result, at: 0).contains(.bold))
+        let italicIndex = (result.string as NSString).range(of: "italic").location
+        #expect(traits(result, at: italicIndex).contains(.italic))
+        let codeIndex = (result.string as NSString).range(of: "code").location
+        #expect(isMonospaced(result, at: codeIndex))
+        let strikeIndex = (result.string as NSString).range(of: "strike").location
+        let strike = attrs(result, at: strikeIndex)[.strikethroughStyle] as? Int
+        #expect(strike == NSUnderlineStyle.single.rawValue)
+    }
+
+    @Test func markdownLink() {
+        let result = NSAttributedString(matrixMarkdown: "[Woo](https://kagi.com)")
+        #expect(result.string == "Woo")
+        #expect(
+            attrs(result, at: 0)[.link] as? URL == URL(string: "https://kagi.com")
+        )
+    }
+
+    @Test func markdownBareURLLinked() {
+        let result = NSAttributedString(
+            matrixMarkdown: "see https://kagi.com ok"
+        )
+        let urlIndex = (result.string as NSString)
+            .range(of: "https://kagi.com").location
+        #expect(
+            attrs(result, at: urlIndex)[.link] as? URL
+                == URL(string: "https://kagi.com")
+        )
+    }
+
+    @Test func markdownInlineHTMLStaysLiteral() {
+        // Spec-strict: without a formatted_body, inline HTML in the body is
+        // literal text, while Markdown links still resolve.
+        let result = NSAttributedString(
+            matrixMarkdown: "<del>Yeah it looks like not</del> [Woo](https://kagi.com)"
+        )
+        #expect(result.string.contains("<del>"))
+        let wooIndex = (result.string as NSString).range(of: "Woo").location
+        #expect(wooIndex != NSNotFound)
+        #expect(attrs(result, at: wooIndex)[.link] != nil)
+    }
 }

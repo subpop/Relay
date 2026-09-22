@@ -55,9 +55,9 @@ extension NSAttributedString {
     }
 
     /// Creates an attributed string by parsing a Matrix message plain-text
-    /// `body` field as inline Markdown, resolving `InlinePresentationIntent`
-    /// attributes into concrete AppKit fonts/decorations, and linking bare
-    /// URLs and Matrix identifiers.
+    /// `body` field as Markdown (inline and block level), resolving
+    /// `InlinePresentationIntent` attributes into concrete AppKit
+    /// fonts/decorations, and linking bare URLs and Matrix identifiers.
     ///
     /// - Parameter matrixMarkdown: The raw body string (not HTML).
     convenience init(matrixMarkdown body: String) {
@@ -65,23 +65,64 @@ extension NSAttributedString {
         self.init(attributedString: resolved)
     }
 
-    /// Parses inline Markdown, detects bare URLs and Matrix identifiers,
-    /// and resolves all `InlinePresentationIntent` attributes into AppKit
-    /// font traits and decorations, producing an `NSAttributedString` ready
-    /// for rendering.
+    /// Parses Markdown (inline and block level), detects bare URLs and Matrix
+    /// identifiers, and resolves all `InlinePresentationIntent` attributes
+    /// into AppKit font traits and decorations, producing an
+    /// `NSAttributedString` ready for rendering.
+    ///
+    /// Block structure (headings, lists, blockquotes, code blocks) is rebuilt
+    /// explicitly because `.full` parsing drops the source newlines between
+    /// blocks. Inline HTML in the body stays literal: without a
+    /// `formatted_body`, bodies render as Markdown only.
     private static func resolveMarkdown(_ raw: String) -> NSAttributedString {
-        // 1. Parse inline Markdown into an AttributedString.
-        var source: AttributedString
+        // 1. Parse full Markdown into an AttributedString.
+        let parsed: AttributedString
         if let md = try? AttributedString(
             markdown: raw,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            options: .init(interpretedSyntax: .full)
         ) {
-            source = md
+            parsed = md
         } else {
-            source = AttributedString(raw)
+            parsed = AttributedString(raw)
         }
 
-        // 2. Detect bare URLs with NSDataDetector.
+        // 2. Split runs into blocks (runs in one block share the same
+        //    presentation-intent identities) and rebuild with explicit
+        //    newline separators plus list markers.
+        var source = AttributedString()
+        var styledBlocks: [MarkdownBlock] = []
+        var lastIdentities: [Int]?
+        for run in parsed.runs.map({ MarkdownRun($0) }) {
+            let identities = run.components.map(\.identity)
+            if identities != lastIdentities {
+                styledBlocks.append(MarkdownBlock(
+                    kind: markdownBlockKind(for: run.components), start: 0, end: 0
+                ))
+                lastIdentities = identities
+            }
+            styledBlocks[styledBlocks.count - 1].runs.append(run)
+        }
+        for (index, block) in styledBlocks.enumerated() {
+            if index > 0 {
+                source.append(AttributedString("\n"))
+            }
+            styledBlocks[index].start = source.characters.count
+            switch block.kind {
+            case .thematicBreak:
+                // Mirror the HTML `<hr>` rendering (see `case "hr"` below).
+                source.append(AttributedString("────────"))
+            case .listItem(let ordered, let ordinal, let depth):
+                let marker = ordered
+                    ? "\(ordinal). " : "\(listBullet(depth: depth)) "
+                source.append(AttributedString(marker))
+                appendMarkdownRuns(block.runs, from: parsed, to: &source)
+            default:
+                appendMarkdownRuns(block.runs, from: parsed, to: &source)
+            }
+            styledBlocks[index].end = source.characters.count
+        }
+
+        // 3. Detect bare URLs with NSDataDetector.
         let plainString = String(source.characters)
         if let detector = try? NSDataDetector(
             types: NSTextCheckingResult.CheckingType.link.rawValue
@@ -100,10 +141,10 @@ extension NSAttributedString {
             }
         }
 
-        // 3. Link bare Matrix identifiers (@user:server, #room:server, etc.).
+        // 4. Link bare Matrix identifiers (@user:server, #room:server, etc.).
         MatrixIdentifierLinker.linkify(&source)
 
-        // 4. Bridge to NSAttributedString and resolve InlinePresentationIntent
+        // 5. Bridge to NSAttributedString and resolve InlinePresentationIntent
         //    into concrete AppKit fonts and decorations.
         let baseFont = MessageTextScale.baseFont
         let result = NSMutableAttributedString(attributedString: NSAttributedString(source))
@@ -153,7 +194,205 @@ extension NSAttributedString {
             }
         }
 
+        // 6. Apply block-level styling tracked during the rebuild. Consecutive
+        //    blockquote blocks from one source quote share one marker.
+        let headingScales: [CGFloat] = [1.5, 1.35, 1.2, 1.1, 1.05, 1.0]
+        var mergedBlocks: [MarkdownBlock] = []
+        for block in styledBlocks {
+            if case .blockQuote(let identity) = block.kind,
+               let lastIndex = mergedBlocks.indices.last,
+               case .blockQuote(let lastIdentity) = mergedBlocks[lastIndex].kind,
+               lastIdentity == identity {
+                mergedBlocks[lastIndex].end = block.end
+            } else {
+                mergedBlocks.append(block)
+            }
+        }
+        var quoteInsertions: [(location: Int, range: NSRange)] = []
+        for block in mergedBlocks {
+            let blockRange = NSRange(
+                location: block.start, length: block.end - block.start
+            )
+            guard blockRange.length > 0 else { continue }
+            switch block.kind {
+            case .heading(let level):
+                let scale = headingScales[min(level - 1, headingScales.count - 1)]
+                let headingFont = NSFont.boldSystemFont(
+                    ofSize: MessageTextScale.baseFontSize * scale
+                )
+                result.addAttribute(.font, value: headingFont, range: blockRange)
+                let style = NSMutableParagraphStyle()
+                style.paragraphSpacingBefore = 6
+                style.paragraphSpacing = 2
+                result.addAttribute(.paragraphStyle, value: style, range: blockRange)
+            case .listItem(let ordered, _, let depth):
+                // Re-derive the indent past the marker, mirroring `case "li"`.
+                let sampleMarker = ordered ? "0. " : "\u{2022} "
+                let markerWidth = (sampleMarker as NSString)
+                    .size(withAttributes: [.font: baseFont]).width
+                let basePad: CGFloat = 6.0
+                let leadingPad = basePad + CGFloat(depth - 1) * 12.0
+                let style = NSMutableParagraphStyle()
+                style.firstLineHeadIndent = leadingPad
+                style.headIndent = leadingPad + markerWidth
+                result.addAttribute(.paragraphStyle, value: style, range: blockRange)
+            case .blockQuote:
+                quoteInsertions.append((block.start, blockRange))
+            case .codeBlock:
+                // Fenced code runs carry no inline `.code` intent, so the
+                // pass above leaves them plain; style the whole block here.
+                let mono = NSFont.monospacedSystemFont(
+                    ofSize: baseFont.pointSize, weight: .regular
+                )
+                result.addAttribute(.font, value: mono, range: blockRange)
+                result.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.gray.withAlphaComponent(0.12),
+                    range: blockRange
+                )
+            case .thematicBreak:
+                result.addAttribute(.font, value: baseFont, range: blockRange)
+                result.addAttribute(
+                    .foregroundColor,
+                    value: NSColor.separatorColor,
+                    range: blockRange
+                )
+            case .paragraph:
+                break
+            }
+        }
+        // Insert quote markers last, latest first, so earlier ranges stay
+        // valid. Mirrors `case "blockquote"` including the trailing space.
+        for insertion in quoteInsertions.sorted(by: { $0.location > $1.location }) {
+            let indent = QuoteTextAttachment.indentWidth(for: baseFont)
+            let paraStyle = NSMutableParagraphStyle()
+            paraStyle.firstLineHeadIndent = 0
+            paraStyle.headIndent = indent
+            paraStyle.tailIndent = -indent
+            result.addAttribute(
+                .paragraphStyle, value: paraStyle, range: insertion.range
+            )
+            result.insert(NSAttributedString(
+                string: "\u{FFFC}",
+                attributes: [
+                    .font: baseFont,
+                    .blockquoteMarker: true,
+                    .paragraphStyle: paraStyle
+                ]
+            ), at: insertion.location)
+            result.insert(NSAttributedString(
+                string: " ",
+                attributes: [.font: baseFont, .paragraphStyle: paraStyle]
+            ), at: insertion.location + 1)
+        }
+
         return result
+    }
+
+    // MARK: - Markdown Block Model
+
+    /// One `.full`-parsed Markdown run with the attributes the fallback
+    /// renderer needs. Captured up front because `AttributedString.Runs.Run`
+    /// slices borrow the parsed string.
+    private struct MarkdownRun {
+        var range: Range<AttributedString.Index>
+        var components: [Foundation.PresentationIntent.IntentType]
+        var inline: InlinePresentationIntent?
+        var link: URL?
+
+        init(_ run: AttributedString.Runs.Run) {
+            range = run.range
+            components = run.presentationIntent?.components ?? []
+            inline = run.inlinePresentationIntent
+            link = run.link
+        }
+    }
+
+    /// One Markdown block plus its character range in the rebuilt string and
+    /// the runs to render into it.
+    private struct MarkdownBlock {
+        enum Kind {
+            case paragraph
+            case heading(level: Int)
+            case listItem(ordered: Bool, ordinal: Int, depth: Int)
+            case blockQuote(identity: Int)
+            case codeBlock
+            case thematicBreak
+        }
+        var kind: Kind
+        var start: Int
+        var end: Int
+        var runs: [MarkdownRun] = []
+    }
+
+    /// Classifies a block from its presentation-intent components
+    /// (ordered innermost to outermost).
+    private static func markdownBlockKind(
+        for components: [Foundation.PresentationIntent.IntentType]
+    ) -> MarkdownBlock.Kind {
+        for component in components {
+            switch component.kind {
+            case .codeBlock:
+                return .codeBlock
+            case .thematicBreak:
+                return .thematicBreak
+            default:
+                break
+            }
+        }
+        var ordinal: Int?
+        var isOrdered = false
+        var listDepth = 0
+        for component in components {
+            switch component.kind {
+            case .listItem(let itemOrdinal):
+                ordinal = itemOrdinal
+            case .orderedList:
+                isOrdered = true
+                listDepth += 1
+            case .unorderedList:
+                listDepth += 1
+            default:
+                break
+            }
+        }
+        if let ordinal {
+            return .listItem(
+                ordered: isOrdered, ordinal: ordinal, depth: max(listDepth, 1)
+            )
+        }
+        for component in components {
+            if case .header(let level) = component.kind {
+                return .heading(level: min(max(level, 1), 6))
+            }
+        }
+        for component in components {
+            if case .blockQuote = component.kind {
+                return .blockQuote(identity: component.identity)
+            }
+        }
+        return .paragraph
+    }
+
+    /// Depth-cycled bullet matching the HTML `<li>` markers.
+    private static func listBullet(depth: Int) -> String {
+        let bullets = ["\u{2022}", "\u{25E6}", "\u{2023}"]
+        return bullets[min(max(depth, 1) - 1, bullets.count - 1)]
+    }
+
+    /// Appends block runs, turning soft breaks into real newlines.
+    private static func appendMarkdownRuns(
+        _ runs: [MarkdownRun],
+        from parsed: AttributedString,
+        to combined: inout AttributedString
+    ) {
+        for run in runs {
+            if run.inline?.contains(.softBreak) == true, run.link == nil {
+                combined.append(AttributedString("\n"))
+            } else {
+                combined.append(AttributedString(parsed[run.range]))
+            }
+        }
     }
 }
 
