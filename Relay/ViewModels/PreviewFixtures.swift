@@ -130,6 +130,33 @@ enum PreviewFixtures {
         return client
     }()
 
+    /// A client with a background key-backup restore reporting
+    /// determinate progress.
+    static let restoringClient: RelayClient = {
+        let client = RelayClient()
+        client.authState = .loggedIn(userId: "@preview:example.com")
+        client.keyFetch.tasks = [
+            KeyFetchTask(
+                title: "Restoring message history",
+                completed: 120,
+                total: 480,
+                fraction: 0.25,
+                task: Task {}),
+        ]
+        return client
+    }()
+
+    /// A client with a background key-backup restore whose total is
+    /// still unknown (indeterminate progress).
+    static let restoringIndeterminateClient: RelayClient = {
+        let client = RelayClient()
+        client.authState = .loggedIn(userId: "@preview:example.com")
+        client.keyFetch.tasks = [
+            KeyFetchTask(title: "Restoring message history", task: Task {}),
+        ]
+        return client
+    }()
+
     // MARK: - Timeline events
 
     /// Builds an `ObservableTimelineEvent` for SwiftUI previews.

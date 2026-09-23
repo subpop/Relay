@@ -50,6 +50,11 @@ struct SettingsEncryptionTab: View {
                         ? "Message keys are being backed up to the server."
                         : "Message keys are not being backed up. You may lose access to encrypted history."
                 )
+                if isBackupEnabled, !client.keyFetch.isRestoring {
+                    Button("Restore Key Backup") {
+                        client.startBackupRestoreFromPeers()
+                    }
+                }
             } header: {
                 Text("Key Backup")
             }

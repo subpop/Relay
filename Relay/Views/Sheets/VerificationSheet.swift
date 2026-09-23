@@ -48,17 +48,9 @@ struct VerificationSheet: View {
             case .enteringRecovery:
                 recoveryView
             case .recovering:
-                waitingView(
-                    title: "Recovering Keys",
-                    detail: "Unlocking secret storage and importing keys."
-                )
+                recoveryProgressView
             case .awaitingBackupRestore:
                 restorePromptView
-            case .restoringBackup:
-                waitingView(
-                    title: "Restoring History",
-                    detail: "Downloading and importing backed-up message keys."
-                )
             case .verified:
                 resultView(
                     icon: "checkmark.circle.fill",
@@ -171,8 +163,40 @@ struct VerificationSheet: View {
         }
     }
 
-    // MARK: - Recovery Key Entry
+    // MARK: - Recovery Progress
 
+    /// 4S unlock with a determinate bar once the total is known,
+    /// otherwise a spinner. Cancel stops the unlock.
+    private var recoveryProgressView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            if let fraction = viewModel.recoveryProgress?.fraction {
+                ProgressView(value: fraction)
+                    .padding(.horizontal, 48)
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
+            Text("Recovering Keys")
+                .font(.title3)
+                .fontWeight(.medium)
+            Text("Unlocking secret storage and importing keys.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    Task { await viewModel.cancelVerification() }
+                }
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Recovery Key Entry
     private var recoveryView: some View {
         VStack(spacing: 16) {
             Spacer()
@@ -222,12 +246,11 @@ struct VerificationSheet: View {
 
     // MARK: - Backup Restore Prompt
 
-    /// Success copy for the verified state. Mentions the restore count
-    /// when the restore step imported sessions.
+    /// Success copy for the verified state. Notes when the restore
+    /// continues in the background.
     private var verifiedDetail: String {
-        let count = viewModel.restoredSessionCount
-        if count > 0 {
-            return "This session has been successfully verified. Restored \(count) backed-up sessions."
+        if viewModel.restoreRunningInBackground {
+            return "This session has been successfully verified. Message history is restoring in the background."
         } else {
             return "This session has been successfully verified."
         }

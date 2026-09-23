@@ -140,6 +140,7 @@ struct RoomListView: View {
             VStack(spacing: 0) {
                 OfflineBanner()
                 SessionVerificationBanner()
+                KeyRestoreBanner()
             }
         }
         .alert("Leave Room", isPresented: $showLeaveConfirmation, presenting: roomToLeave) { room in

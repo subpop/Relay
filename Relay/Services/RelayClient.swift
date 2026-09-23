@@ -132,6 +132,9 @@ final class RelayClient {
     var shouldPresentVerificationSheet = false
     var pendingDeepLink: MatrixURI?
     let errorReporter = ErrorReporter()
+    /// Background key-backup restores with progress + cancellation.
+    /// Set in `init`, after the observers that capture `self`.
+    var keyFetch: KeyFetchCoordinator!
 
     /// Cached effective notification modes by room ID, refreshed after
     /// sync. Drives mute badges, row sorting, and the dock badge without
@@ -229,6 +232,17 @@ final class RelayClient {
                 queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated { self?.applySyncModePreference() } },
         ]
+        // Assigned last: the closures capture `self`, which requires
+        // every other stored property to be initialized first.
+        keyFetch = KeyFetchCoordinator(
+            restore: { [weak self] key, progress in
+                guard let self else { throw RelayError.notLoggedIn }
+                return try await self.restoreKeyBackup(
+                    privateKey: key, progress: progress)
+            },
+            report: { [weak self] error in
+                self?.errorReporter.report(error)
+            })
     }
 
     // MARK: - Session
@@ -1006,24 +1020,33 @@ final class RelayClient {
     /// storage and imports the cross-signing private keys. Returns the
     /// outcome, whose backup key feeds the separate `restoreKeyBackup`
     /// step.
-    func recover(withRecoveryKey key: String) async throws -> RecoveryOutcome {
+    func recover(
+        withRecoveryKey key: String,
+        progress: (@Sendable (KeyFetchProgress) async -> Void)? = nil
+    ) async throws -> RecoveryOutcome {
         guard let client else { throw RelayError.notLoggedIn }
-        return try await client.recover(withRecoveryKey: key)
+        return try await client.recover(withRecoveryKey: key, progress: progress)
     }
 
     /// Recover 4S secrets with the account passphrase. CPU-heavy by
     /// design (PBKDF2 key derivation); prefer a detached task.
-    func recover(withPassphrase passphrase: String) async throws -> RecoveryOutcome {
+    func recover(
+        withPassphrase passphrase: String,
+        progress: (@Sendable (KeyFetchProgress) async -> Void)? = nil
+    ) async throws -> RecoveryOutcome {
         guard let client else { throw RelayError.notLoggedIn }
-        return try await client.recover(withPassphrase: passphrase)
+        return try await client.recover(withPassphrase: passphrase, progress: progress)
     }
 
     /// Download and import every backed-up megolm session. Separate
     /// from recovery — restores are large and belong behind their own
     /// progress UI. Returns the number of sessions imported.
-    func restoreKeyBackup(privateKey: Data) async throws -> Int {
+    func restoreKeyBackup(
+        privateKey: Data,
+        progress: (@Sendable (KeyFetchProgress) async -> Void)? = nil
+    ) async throws -> Int {
         guard let client else { throw RelayError.notLoggedIn }
-        return try await client.restoreKeyBackup(privateKey: privateKey)
+        return try await client.restoreKeyBackup(privateKey: privateKey, progress: progress)
     }
 
     /// Fires when incoming secret halves finish the set.
@@ -1043,6 +1066,51 @@ final class RelayClient {
         }
         return try await client.requestBackupKey(
             from: userId, deviceId: deviceId)
+    }
+
+    /// Ask every peer device for the key-backup key and restore it in
+    /// the background via ``keyFetch``. Used by Settings; the
+    /// verification sheet hands keys it already holds to the
+    /// coordinator directly.
+    func startBackupRestoreFromPeers() {
+        guard !keyFetch.isRestoring else { return }
+        Task {
+            guard await encryptionStatus().backupEnabled else {
+                errorReporter.report(.keyBackupRestoreFailed(
+                    "Key backup is not enabled for this account."))
+                return
+            }
+            guard (try? await requestBackupKey(from: nil)) != nil else {
+                errorReporter.report(.keyBackupRestoreFailed(
+                    "No device answered the backup key request."))
+                return
+            }
+            guard let stream = await secretShareEvents() else { return }
+            let key = await withTaskGroup(of: Data?.self) { group in
+                group.addTask {
+                    for await event in stream {
+                        if case .backupKeyReceived(let key) = event {
+                            return key
+                        }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(15))
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+            guard let key else {
+                errorReporter.report(.keyBackupRestoreFailed(
+                    "No device answered the backup key request."))
+                return
+            }
+            keyFetch.startBackupRestore(
+                title: "Restoring message history", backupKey: key)
+        }
     }
 
     /// Build a verification sheet model for an outgoing flow.
@@ -2150,6 +2218,7 @@ final class RelayClient {
         shareCacheWatchTask = nil
         shareCacheDebounceTask?.cancel()
         shareCacheDebounceTask = nil
+        keyFetch.stopAll()
         monitor?.cancel()
         monitor = nil
     }

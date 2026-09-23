@@ -109,6 +109,9 @@ enum RelayError: LocalizedError, Sendable {
     /// Session verification failed.
     case verificationFailed(String)
 
+    /// A background key-backup restore failed.
+    case keyBackupRestoreFailed(String)
+
     // MARK: Settings & Profile
 
     /// Notification settings could not be loaded or updated.
@@ -186,6 +189,8 @@ enum RelayError: LocalizedError, Sendable {
             "Could Not Read File"
         case .verificationFailed:
             "Verification Failed"
+        case .keyBackupRestoreFailed:
+            "Could Not Restore Backup"
         case .notificationSettingsFailed:
             "Notification Settings Error"
         case .sessionsFailed:
@@ -252,6 +257,8 @@ enum RelayError: LocalizedError, Sendable {
         case .fileCopyFailed(let filename, let reason):
             "Could not read \(filename): \(reason)"
         case .verificationFailed(let reason):
+            reason
+        case .keyBackupRestoreFailed(let reason):
             reason
         case .notificationSettingsFailed(let reason):
             reason

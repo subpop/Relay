@@ -24,8 +24,8 @@ import Observation
 ///
 /// When the account has a key backup, a verified SAS flow additionally
 /// offers the restore step before finishing: `waitingForApproval` ->
-/// `awaitingBackupKey` -> `awaitingBackupRestore`/`restoringBackup` ->
-/// `verified`.
+/// `awaitingBackupKey` -> `awaitingBackupRestore` -> `verified`, with
+/// the restore itself running in the background.
 ///
 /// A fresh device holds no cross-signing keys, so after the handshake
 /// approval may extend through key sharing until the peer approves and
@@ -38,8 +38,8 @@ import Observation
 /// Recovery-key verification unlocks 4S secret storage and imports
 /// the cross-signing keys, verifying the session without a second
 /// device: `idle` -> `enteringRecovery` -> `recovering` ->
-/// `awaitingBackupRestore`/`restoringBackup` -> `verified`. The restore
-/// step appears only when 4S holds a backup key.
+/// `awaitingBackupRestore` -> `verified`. The restore step appears
+/// only when 4S holds a backup key, and runs in the background.
 enum SessionVerificationState: Sendable {
     /// No verification in progress.
     case idle
@@ -65,8 +65,6 @@ enum SessionVerificationState: Sendable {
     /// 4S recovery produced a backup key; waiting on the user's choice
     /// to restore message history or skip.
     case awaitingBackupRestore
-    /// Backed-up megolm sessions are being downloaded and imported.
-    case restoringBackup
     /// Verification succeeded.
     case verified
     /// Either side cancelled the verification.
@@ -97,8 +95,11 @@ final class SessionVerificationViewModel: Identifiable {
     /// The backup key recovered from 4S, if any — feeds the restore step.
     private var backupPrivateKey: Data?
 
-    /// Sessions imported by the restore step, for the success message.
-    var restoredSessionCount = 0
+    /// The restore step was handed to the background coordinator.
+    var restoreRunningInBackground = false
+
+    /// Latest recovery progress snapshot, for the in-sheet progress bar.
+    var recoveryProgress: KeyFetchProgress?
 
     /// Whether another device exists to verify against.
     var hasOtherDevices = false
@@ -107,6 +108,7 @@ final class SessionVerificationViewModel: Identifiable {
     private var session: VerificationSession?
     private var eventsTask: Task<Void, Never>?
     private var keyShareTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
 
     /// Creates a model for an outgoing verification flow.
     init(client: RelayClient) {
@@ -191,37 +193,63 @@ final class SessionVerificationViewModel: Identifiable {
     }
 
     /// Unlock 4S secret storage with an `Es...` recovery key and import
-    /// the cross-signing keys.
+    /// the cross-signing keys. Progress feeds the in-sheet progress
+    /// bar; cancelling the flow cancels the unlock.
     func submitRecoveryKey(_ key: String) async {
         state = .recovering
+        recoveryProgress = nil
         guard let client else {
             state = .failed("Not signed in.")
             return
         }
-        do {
-            let outcome = try await client.recover(withRecoveryKey: key)
-            await finishRecovery(client: client, outcome: outcome)
-        } catch {
-            state = .failed(error.localizedDescription)
+        recoveryTask?.cancel()
+        recoveryTask = Task {
+            // The `@Sendable` progress closure only captures the
+            // stream's `Sendable` continuation; a MainActor-bound
+            // forwarder applies snapshots to the model.
+            let (progresses, continuation) = AsyncStream<KeyFetchProgress>.makeStream()
+            let forwarder = Task {
+                for await progress in progresses {
+                    self.recoveryProgress = progress
+                }
+            }
+            do {
+                let outcome = try await client.recover(withRecoveryKey: key) { progress in
+                    continuation.yield(progress)
+                }
+                continuation.finish()
+                await forwarder.value
+                await self.finishRecovery(client: client, outcome: outcome)
+            } catch {
+                continuation.finish()
+                await forwarder.value
+                // Cancellation races `cancelFlow`, which already
+                // recorded the terminal state — never overwrite it.
+                if let matrixError = error as? MatrixError, matrixError.isCancellation {
+                    return
+                }
+                if error is CancellationError {
+                    return
+                }
+                self.state = .failed(error.localizedDescription)
+            }
         }
+        await recoveryTask?.value
     }
 
-    /// Download and import backed-up megolm sessions with the key
-    /// recovered from 4S, then report the session verified. Large
-    /// restores run as a single task behind a progress view.
+    /// Hand the backed-up megolm restore to the background coordinator
+    /// and report the session verified. The sheet's Done button
+    /// dismisses from there; progress lives in the sidebar indicator.
     func restoreBackup() async {
-        state = .restoringBackup
         guard let client, let backupKey = backupPrivateKey else {
             state = .failed("Not signed in.")
             return
         }
-        do {
-            restoredSessionCount = try await client.restoreKeyBackup(privateKey: backupKey)
-            backupPrivateKey = nil
-            state = .verified
-        } catch {
-            state = .failed(error.localizedDescription)
-        }
+        backupPrivateKey = nil
+        client.keyFetch.startBackupRestore(
+            title: "Restoring message history", backupKey: backupKey)
+        restoreRunningInBackground = true
+        state = .verified
     }
 
     /// Skip the restore step and report the session verified.
@@ -404,6 +432,9 @@ final class SessionVerificationViewModel: Identifiable {
         if let session {
             try? await session.cancel()
         }
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        recoveryProgress = nil
         state = .cancelled
         stopListening()
         stopKeyShare()
