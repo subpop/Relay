@@ -68,7 +68,6 @@ struct RelayApp: App {
 
     @Environment(\.openWindow) private var openWindow
 
-    @AppStorage("selectedRoomId") private var selectedRoomId: String?
     @AppStorage("appearance.mode") private var appearanceMode: AppAppearance = .system
 
     var body: some Scene {
@@ -146,9 +145,6 @@ struct RelayApp: App {
                 .environment(\.composeDraftStore, composeDraftStore)
                 .environment(\.gifSearchService, gifSearchService)
                 .environment(appActions)
-                .onChange(of: dockBadgeCount) { _, newCount in
-                    NSApp.dockTile.badgeLabel = newCount > 0 ? "\(newCount)" : nil
-                }
                 .onChange(of: client.pendingVerificationRequest?.id) { _, newValue in
                     if newValue != nil, let request = client.pendingVerificationRequest {
                         postVerificationNotification(request: request)
@@ -167,11 +163,14 @@ struct RelayApp: App {
                     if let intent = activity.interaction?.intent as? INSendMessageIntent,
                        let roomId = intent.conversationIdentifier {
                         logger.info("Received share suggestion for room: \(roomId)")
-                        selectedRoomId = roomId
+                        UserDefaults.standard.set(roomId, forKey: "selectedRoomId")
                     }
                 }
                 .task {
                     await setupNotifications()
+                }
+                .task {
+                    await DockBadgeController(client: client).run()
                 }
                 .task {
                     for await event in client.notificationEvents() {
@@ -217,28 +216,6 @@ struct RelayApp: App {
         center.setNotificationCategories([verificationCategory, roomMessageCategory])
     }
 
-    /// The total dock badge count, computed from every room's notification-worthy unread state.
-    ///
-    /// The count respects each room's cached notification mode:
-    /// - All Messages: counts all unread messages
-    /// - Mentions & Keywords Only: counts only unread mentions
-    /// - Mute: counts nothing
-    /// - Default (uncached): DMs count all notifications, groups count highlights only
-    private var dockBadgeCount: Int {
-        client.rooms.reduce(0) { total, room in
-            switch client.notificationModeCache[room.roomId.value] {
-            case .mute:
-                return total
-            case .mentionsAndKeywordsOnly:
-                return total + client.displayHighlightCount(for: room)
-            case .allMessages:
-                return total + client.displayUnreadCount(for: room)
-            case nil:
-                return room.isDirect ? total + client.displayUnreadCount(for: room) : total + client.displayHighlightCount(for: room)
-            }
-        }
-    }
-
     /// Checks the app group container for a pending share from the share extension.
     ///
     /// The extension writes the share ID to the ``PendingShareStore`` signal
@@ -266,7 +243,7 @@ struct RelayApp: App {
         logger.info("Share handoff: \(share.filenames.count) file(s) for room \(share.roomId)")
 
         // Navigate to the target room.
-        selectedRoomId = share.roomId
+        UserDefaults.standard.set(share.roomId, forKey: "selectedRoomId")
 
         // Resolve file URLs from the app group container and stage them.
         let fileURLs = share.filenames.compactMap { PendingShareStore.fileURL(for: $0) }
@@ -316,7 +293,7 @@ struct RelayApp: App {
         content.threadIdentifier = event.roomId
         content.userInfo = ["roomId": event.roomId]
         content.categoryIdentifier = NotificationDelegate.roomMessageCategoryIdentifier
-        if NSApp.isActive && selectedRoomId == event.roomId {
+        if NSApp.isActive && UserDefaults.standard.string(forKey: "selectedRoomId") == event.roomId {
             content.interruptionLevel = .passive
         }
 
