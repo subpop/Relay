@@ -54,6 +54,16 @@ public enum PendingShareStore: Sendable {
         #endif
     }()
 
+    /// The name of the signal file the share extension writes (and the main
+    /// app reads, then deletes) to hand off the latest pending share ID.
+    public static let signalFilename = {
+        #if DEBUG
+        "latest-share-id-debug.txt"
+        #else
+        "latest-share-id.txt"
+        #endif
+    }()
+
     // MARK: - Container URLs
 
     /// Returns the directory URL for pending share files, creating it if needed.

@@ -175,7 +175,7 @@ class ShareViewController: NSViewController {
     /// knows which pending share to pick up on activation.
     private func writeLatestShareId(_ id: UUID) {
         guard let container = AppGroup.containerURL else { return }
-        let url = container.appending(path: "latest-share-id.txt")
+        let url = container.appending(path: PendingShareStore.signalFilename)
         try? id.uuidString.write(to: url, atomically: true, encoding: .utf8)
     }
 

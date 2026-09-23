@@ -236,14 +236,14 @@ struct RelayApp: App {
 
     /// Checks the app group container for a pending share from the share extension.
     ///
-    /// The extension writes the share ID to `latest-share-id.txt` and activates
-    /// the app. This method reads that file, loads the corresponding pending share
+    /// The extension writes the share ID to the ``PendingShareStore`` signal
+    /// file and activates the app. This method reads that file, loads the corresponding pending share
     /// record, navigates to the target room, and stages the attachments in the
     /// compose bar for user review.
     private func checkForPendingShare() {
         guard let container = AppGroup.containerURL else { return }
 
-        let signalURL = container.appending(path: "latest-share-id.txt")
+        let signalURL = container.appending(path: PendingShareStore.signalFilename)
         guard let idString = try? String(contentsOf: signalURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
               let shareId = UUID(uuidString: idString) else {
             return
