@@ -1563,6 +1563,53 @@ final class RelayClient {
         return room.roomId.value
     }
 
+    /// Open or create a direct-message room with a user.
+    ///
+    /// Returns the ID of an existing joined DM whose members are exactly
+    /// this user and the local user. Otherwise creates a new private,
+    /// encrypted DM room, invites the user, and records the room in our
+    /// own `m.direct` (best effort, like ``createRoom(isDirect:)``).
+    func createDirectMessage(userId: String) async throws -> String {
+        guard let client else { throw RelayError.notLoggedIn }
+        let peerId = UserId(unchecked: userId)
+        if let selfId = client.userId {
+            let expected: Set<UserId> = [selfId, peerId]
+            if let existing = rooms.first(where: { room in
+                guard room.membership == .join, room.presentsAsDirect else { return false }
+                let joined = Set(room.memberDetails.filter { $0.value.membership == .join }.keys)
+                return joined == expected
+            }) {
+                return existing.roomId.value
+            }
+        }
+        var request = CreateRoomRequest(
+            visibility: .private,
+            invite: [peerId],
+            preset: .trustedPrivateChat,
+            isDirect: true)
+        request.initialState = [
+            InitialStateEvent(
+                type: "m.room.encryption",
+                content: ["algorithm": .string("m.megolm.v1.aes-sha2")])
+        ]
+        // Let ordinary members publish `m.call.member` state so anyone
+        // can join a call (mirrors ``createRoom``).
+        request.powerLevelContentOverride = [
+            "events": .object(["org.matrix.msc3401.call.member": .int(0)])
+        ]
+        let room = try await client.createRoom(request)
+        if let selfId = client.userId {
+            do {
+                try await client.accountData.setDirectRoom(
+                    room.roomId, for: selfId, isDirect: true)
+            } catch {
+                relayClientLogger.warning(
+                    "m.direct record failed for \(room.roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return room.roomId.value
+    }
+
     /// Add a room to a space.
     ///
     /// The child edge carries the local server as `via` so other users can

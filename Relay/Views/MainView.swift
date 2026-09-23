@@ -318,6 +318,7 @@ struct MainView: View {
             roomId: roomId,
             selectedProfile: $inspectorProfile,
             initialTab: $inspectorTab,
+            onMessageUser: messageUser,
             onScrollToMessage: { [self] eventId in
                 focusedMessageId = eventId
             }
@@ -331,8 +332,22 @@ struct MainView: View {
             roomId: spaceId,
             context: .space,
             selectedProfile: $inspectorProfile,
-            initialTab: $inspectorTab
+            initialTab: $inspectorTab,
+            onMessageUser: messageUser
         )
+    }
+
+    /// Opens (or creates) a DM with the given user, selects it, and
+    /// closes the inspector.
+    private func messageUser(_ userId: String) {
+        Task {
+            do {
+                selectedRoomId = try await client.createDirectMessage(userId: userId)
+                showInspector = false
+            } catch {
+                errorReporter.report(.dmCreationFailed(error.localizedDescription))
+            }
+        }
     }
 
     /// Inline invite card. The full room preview returns with the
