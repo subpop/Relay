@@ -123,8 +123,13 @@ struct RelayApp: App {
         Window("Call", id: "call") {
             CallWindowView()
                 .environment(\.callManager, callManager)
+                .preferredColorScheme(appearanceMode.colorScheme)
         }
-        .defaultSize(width: 720, height: 480)
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 360, height: 540)
+        .defaultPosition(.topTrailing)
+        .defaultLaunchBehavior(.suppressed)
     }
 
     /// The root content view, configured with real services at runtime or
