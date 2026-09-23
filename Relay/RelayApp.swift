@@ -335,6 +335,7 @@ struct RelayApp: App {
 final class AppActions {
     var showCreateRoom = false
     var showCreateSpace = false
+    var showCreateDirectMessage = false
     var showJoinRoom = false
     var showRoomDirectory = false
     var focusSearch = false
@@ -360,6 +361,11 @@ struct FileMenuCommands: Commands {
                 appActions.showCreateSpace = true
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
+
+            Button("Create Direct Message…") {
+                appActions.showCreateDirectMessage = true
+            }
+            .keyboardShortcut("n", modifiers: [.command, .control])
 
             Divider()
 

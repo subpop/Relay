@@ -163,6 +163,9 @@ struct RoomListView: View {
             Button("Create Room\u{2026}") {
                 appActions.showCreateRoom = true
             }
+            Button("Create Direct Message\u{2026}") {
+                appActions.showCreateDirectMessage = true
+            }
             Button("Join Room\u{2026}") {
                 appActions.showJoinRoom = true
             }

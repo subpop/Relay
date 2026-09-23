@@ -161,6 +161,12 @@ struct MainView: View {
         )) {
             RoomDirectoryView(selectedRoomId: $selectedRoomId)
         }
+        .sheet(isPresented: Binding(
+            get: { appActions.showCreateDirectMessage },
+            set: { appActions.showCreateDirectMessage = $0 }
+        )) {
+            NewDirectMessageSheet(selectedRoomId: $selectedRoomId)
+        }
         .onChange(of: selectedSpaceId) {
             if selectedSpaceId != nil {
                 selectedRoomId = nil
