@@ -19,6 +19,16 @@ import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "Relay", category: "Timeline")
 
+/// A stable indirection point for the timeline's edit-last-message action.
+///
+/// The registry closure handed to ``AppActions`` captures this box (whose
+/// identity never changes) rather than the view itself, so per-render
+/// ``TimelineView`` values are never frozen into a long-lived closure.
+/// ``TimelineView`` refreshes `perform` whenever the edit target changes.
+final class EditLastMessageBox {
+    var perform: (() -> Void)?
+}
+
 /// The main chat view for a selected room, displaying the message timeline and compose bar.
 ///
 /// ``TimelineView`` is a composition root that assembles the scroll view, overlays,
@@ -29,6 +39,7 @@ struct TimelineView: View {
     @Environment(\.gifSearchService) private var gifSearchService
     @Environment(\.composeDraftStore) private var composeDraftStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(AppActions.self) private var appActions
 
     let roomId: String
     let roomName: String
@@ -55,6 +66,7 @@ struct TimelineView: View {
     @State private var timelineActionsRef = TimelineActions()
     @State private var successorRoomId: String?
     @State private var reactionPickerState = ReactionPickerState()
+    @State private var editLastMessageBox = EditLastMessageBox()
     /// Owns the timeline's scroll position and commands.
     @State private var scroller = TimelineScroller()
     /// Tracks read progress and issues read receipts.
@@ -216,6 +228,7 @@ struct TimelineView: View {
 
                 guard !readOnly else { return }
                 markAsReadIfNeeded()
+                refreshEditLastMessageTarget()
                 compose.members = await viewModel.roomMembers()
             }
             .onDisappear {
@@ -223,6 +236,7 @@ struct TimelineView: View {
                     Task { await viewModel.setTyping(false) }
                 }
                 memberRefreshTask?.cancel()
+                clearEditLastMessageTarget()
             }
             .onChange(of: viewModel.successorRoomId) { _, newValue in
                 successorRoomId = newValue
@@ -282,7 +296,6 @@ struct TimelineView: View {
             } message: {
                 Text("Are you sure you want to delete this message? This cannot be undone.")
             }
-            .focusedValue(\.editLastMessage, editLastMessageAction)
     }
 
     // MARK: - Message List
@@ -356,6 +369,7 @@ struct TimelineView: View {
             }
 
             markAsReadIfNeeded()
+            refreshEditLastMessageTarget()
         }
         .onChange(of: scroller.isScrollable) { _, isScrollable in
             guard isScrollable else { return }
@@ -447,8 +461,14 @@ struct TimelineView: View {
 
     // MARK: - Edit Last Message
 
-    private var editLastMessageAction: (() -> Void)? {
-        guard !readOnly else { return nil }
+    /// Publishes this timeline's edit-last-message target to ``AppActions``
+    /// (consumed by the ⌘E menu command) whenever the target changes. The
+    /// registered closure is stable across renders: it funnels through
+    /// ``EditLastMessageBox``, whose `perform` is refreshed here, and the
+    /// fire-time closure looks the message up by id so it always acts on
+    /// the current timeline — never on a stale render's value.
+    private func refreshEditLastMessageTarget() {
+        guard !readOnly else { return }
         guard let message = viewModel.events.last(where: {
             guard $0.sender.value == viewModel.currentUserId, $0.isEditable else {
                 return false
@@ -456,10 +476,31 @@ struct TimelineView: View {
             if case .text = $0.kind { return true }
             return false
         }) else {
-            return nil
+            clearEditLastMessageTarget()
+            return
         }
-        return {
-            handleContextAction(.edit(message))
+        let eventId = message.eventId.value
+        editLastMessageBox.perform = { [weak viewModel, compose] in
+            guard let message = viewModel?.events.first(where: { $0.eventId.value == eventId }) else { return }
+            // Mirrors handleContextAction(.edit(message)); kept inline so the
+            // fire-time closure only captures the compose object and the
+            // view model instead of the whole view value.
+            compose.replyingTo = nil
+            compose.editingMessage = message
+            compose.text = message.body
+        }
+        if appActions.editLastMessageTarget?.owner !== editLastMessageBox {
+            appActions.editLastMessageTarget = .init(owner: editLastMessageBox) { [editLastMessageBox] in
+                editLastMessageBox.perform?()
+            }
+        }
+    }
+
+    /// Withdraws this timeline's registration, but only if it still owns
+    /// the slot — a newly focused timeline must not be clobbered.
+    private func clearEditLastMessageTarget() {
+        if appActions.editLastMessageTarget?.owner === editLastMessageBox {
+            appActions.editLastMessageTarget = nil
         }
     }
 

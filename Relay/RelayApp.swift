@@ -78,7 +78,7 @@ struct RelayApp: App {
         .defaultSize(width: 880, height: 560)
         .commands {
             FileMenuCommands(appActions: appActions)
-            EditLastMessageCommand()
+            EditLastMessageCommand(appActions: appActions)
             SearchCommand(appActions: appActions)
             QuickSwitchCommand(appActions: appActions)
             SidebarCommands()
@@ -345,6 +345,22 @@ final class AppActions {
     var showRoomDirectory = false
     var focusSearch = false
     var showQuickSwitch = false
+    /// The currently focused timeline's edit-last-message action, if any.
+    ///
+    /// Plain registry slot replacing the old focused-value publishing: the
+    /// focused ``TimelineView`` installs a stable closure here and withdraws
+    /// it on disappear, so the command graph never republishes per render
+    /// (which tore down the open Window menu on Tahoe).
+    var editLastMessageTarget: EditLastMessageTarget?
+}
+
+/// The focused timeline's edit-last-message action, published through
+/// ``AppActions`` instead of the focus system.
+struct EditLastMessageTarget {
+    /// Identifies the registering timeline; used so a disappearing timeline
+    /// only withdraws its own registration.
+    let owner: AnyObject
+    let perform: () -> Void
 }
 
 // MARK: - File Menu Commands
@@ -391,19 +407,22 @@ struct FileMenuCommands: Commands {
 
 /// Adds an "Edit Last Message" item (⌘E) to the Edit menu.
 ///
-/// The command reads the ``EditLastMessageKey`` focused value published by
-/// ``TimelineView``.  When a timeline is focused and contains at least one
-/// outgoing text message, pressing ⌘E starts editing that message.
+/// The command resolves its target through ``AppActions/editLastMessageTarget``,
+/// published by the focused ``TimelineView``. When a timeline is focused and
+/// contains at least one outgoing text message, pressing ⌘E starts editing
+/// that message. Deliberately focus-free: publishing through the focus system
+/// re-resolved the command graph on every render, which tore down the open
+/// Window menu on Tahoe.
 struct EditLastMessageCommand: Commands {
-    @FocusedValue(\.editLastMessage) private var editLastMessage
+    let appActions: AppActions
 
     var body: some Commands {
         CommandGroup(after: .pasteboard) {
             Button("Edit Last Message") {
-                editLastMessage?()
+                appActions.editLastMessageTarget?.perform()
             }
             .keyboardShortcut("e", modifiers: .command)
-            .disabled(editLastMessage == nil)
+            .disabled(appActions.editLastMessageTarget == nil)
         }
     }
 }
