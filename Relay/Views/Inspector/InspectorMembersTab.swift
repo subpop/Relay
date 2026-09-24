@@ -136,6 +136,17 @@ struct InspectorMembersTab: View {
         .onChange(of: selectedProfile) {
             consumeExternalProfile()
         }
+        .task(id: displayedProfile) {
+            // Re-resolve externally-selected profiles (e.g. a timeline
+            // tap captured before the member's details arrived) against
+            // the freshest member data, so the detail panel heals stale
+            // snapshots instead of rendering them forever.
+            guard let profile = displayedProfile else { return }
+            let resolved = await viewModel.resolveProfile(profile)
+            if resolved != profile, displayedProfile?.userId == profile.userId {
+                displayedProfile = resolved
+            }
+        }
     }
 
     // MARK: - Member List

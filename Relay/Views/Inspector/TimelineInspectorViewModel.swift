@@ -82,6 +82,22 @@ final class TimelineInspectorViewModel {
         isLoadingMembers = false
     }
 
+    /// Resolve a possibly-stale ``UserProfile`` (e.g. captured when a
+    /// timeline member was tapped) against the freshest known member
+    /// data. Falls back to a network member fetch when the user isn't
+    /// in the cached list yet (e.g. a brand-new joiner), and to the
+    /// passed profile when the user can't be found at all.
+    func resolveProfile(_ profile: UserProfile) async -> UserProfile {
+        if let member = allMembers.first(where: { $0.userId.value == profile.userId }) {
+            return UserProfile(member: member)
+        }
+        await loadAllMembers()
+        if let member = allMembers.first(where: { $0.userId.value == profile.userId }) {
+            return UserProfile(member: member)
+        }
+        return profile
+    }
+
     func loadNotificationSettings() async {
         guard let client, isLoadingNotifications else { return }
         roomNotificationMode = try? await client.roomNotificationMode(roomId: roomId)
