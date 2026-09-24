@@ -14,8 +14,15 @@
 
 import Foundation
 
+private final class BundleAnchor {}
+
 public enum AppGroup: Sendable {
-    nonisolated public static let identifier = "group.46UKXDYHHC.app.subpop.Relay"
+    nonisolated public static let identifier: String = {
+        guard let identifier = Bundle(for: BundleAnchor.self).object(forInfoDictionaryKey: "RelayAppGroupIdentifier") as? String else {
+            fatalError("RelayAppGroupIdentifier missing from RelayKit's Info.plist")
+        }
+        return identifier
+    }()
 
     nonisolated public static var containerURL: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
