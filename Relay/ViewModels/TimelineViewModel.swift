@@ -273,9 +273,13 @@ final class TimelineViewModel {
 
     /// Edit own message text.
     func edit(messageId: String, newText: String, mentionedUserIds: [String]) async {
-        try? await room.edit(
-            EventId(unchecked: messageId), newText: newText,
-            mentions: mentionsParam(mentionedUserIds))
+        do {
+            try await room.edit(
+                EventId(unchecked: messageId), newText: newText,
+                mentions: mentionsParam(mentionedUserIds))
+        } catch {
+            errorReporter.report(.editFailed(error.localizedDescription))
+        }
     }
 
     /// Redact a message (cancels unsent echoes).
