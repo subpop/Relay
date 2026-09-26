@@ -40,8 +40,9 @@ struct RoomListView: View {
         // access to pinnedRooms / unpinnedRooms recomputed filteredRooms.
         let invites = pendingInvites
         let filtered = filteredRooms
-        let pinned = filtered.filter(\.isFavourite)
-        let unpinned = filtered.filter { !$0.isFavourite }
+        let favorites = filtered.filter(\.isFavourite)
+        let muted = filtered.filter { !$0.isFavourite && $0.isMuted }
+        let roomsAndDMs = filtered.filter { !$0.isFavourite && !$0.isMuted }
 
         List(selection: $selectedRoomId) {
             if !invites.isEmpty {
@@ -67,54 +68,60 @@ struct RoomListView: View {
                 }
             }
 
-            if !pinned.isEmpty {
+            if !favorites.isEmpty {
                 Section {
-                    ForEach(pinned) { room in
+                    ForEach(favorites) { room in
                         RoomListRow(room: room)
                             .tag(room.id)
                             .swipeActions(edge: .trailing) {
                                 Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
                             }
                             .contextMenu {
-                                Button(
-                                    room.isFavourite ? "Unpin" : "Pin",
-                                    systemImage: room.isFavourite ? "pin.slash" : "pin",
-                                    action: { toggleFavourite(room) }
-                                )
-                                Divider()
-                                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+                                roomContextMenu(for: room)
                             }
                     }
                 } header: {
-                    Text("Pinned")
+                    Text("Favorites")
                 }
             }
 
             Section {
-                ForEach(unpinned) { room in
+                ForEach(roomsAndDMs) { room in
                     RoomListRow(room: room)
                         .tag(room.id)
                         .swipeActions(edge: .trailing) {
                             Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
                         }
                         .contextMenu {
-                            Button(
-                                room.isFavourite ? "Unpin" : "Pin",
-                                systemImage: room.isFavourite ? "pin.slash" : "pin",
-                                action: { toggleFavourite(room) }
-                            )
-                            Divider()
-                            Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+                            roomContextMenu(for: room)
                         }
                 }
             } header: {
-                if !invites.isEmpty || !pinned.isEmpty {
-                    Text("Rooms")
+                if !invites.isEmpty || !favorites.isEmpty || !muted.isEmpty {
+                    Text("Rooms & DMs")
+                }
+            }
+
+            if !muted.isEmpty {
+                Section {
+                    ForEach(muted) { room in
+                        RoomListRow(room: room)
+                            .tag(room.id)
+                            .swipeActions(edge: .trailing) {
+                                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
+                            }
+                            .contextMenu {
+                                roomContextMenu(for: room)
+                            }
+                    }
+                } header: {
+                    Text("Muted Rooms")
                 }
             }
         }
-        .animation(.default, value: pinned.map(\.id))
-        .animation(.default, value: unpinned.map(\.id))
+        .animation(.default, value: favorites.map(\.id))
+        .animation(.default, value: roomsAndDMs.map(\.id))
+        .animation(.default, value: muted.map(\.id))
         .animation(.default, value: invites.map(\.id))
         .focusSection()
         .toolbar {
@@ -155,6 +162,19 @@ struct RoomListView: View {
         } message: { invite in
             Text("Decline the invitation to \"\(invite.name)\"? You'll need to be re-invited to join later.")
         }
+    }
+
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private func roomContextMenu(for room: RoomRowData) -> some View {
+        Button(
+            room.isFavourite ? "Unfavorite" : "Favorite",
+            systemImage: room.isFavourite ? "star.slash" : "star",
+            action: { toggleFavourite(room) }
+        )
+        Divider()
+        Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
     }
 
     // MARK: - Room Directory
@@ -283,7 +303,7 @@ extension RoomListView {
             do {
                 try await client.setFavourite(roomId: room.id, isFavourite: !room.isFavourite)
             } catch {
-                errorReporter.report(.pinFailed(error.localizedDescription))
+                errorReporter.report(.favouriteFailed(error.localizedDescription))
             }
         }
     }
@@ -373,20 +393,8 @@ extension RoomListView {
     /// whenever timestamped and untimestamped rooms mix.
     private var roomComparator: (RoomRowData, RoomRowData) -> Bool {
         { lhs, rhs in
-            // Muted rooms always sort to the bottom, regardless of direction.
-            if lhs.isMuted != rhs.isMuted {
-                return rhs.isMuted
-            }
-
             switch sortOrder {
             case .lastMessage:
-                // Muted rooms don't participate in recency sort; order alphabetically.
-                if lhs.isMuted {
-                    let result = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-                    return sortDirection == .ascending
-                        ? result == .orderedAscending
-                        : result == .orderedDescending
-                }
                 switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
                 // swiftlint:disable:next identifier_name
                 case (.some(let l), .some(let r)):
