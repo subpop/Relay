@@ -909,4 +909,104 @@ struct MatrixHTMLParserTests {
         #expect(wooIndex != NSNotFound)
         #expect(attrs(result, at: wooIndex)[.link] != nil)
     }
+
+    // MARK: - Bare Matrix Identifiers
+
+    /// Every character of a typed-out user ID must carry the full
+    /// `matrix.to` link (later rendered as a mention pill). Previously
+    /// `NSDataDetector` claimed just `matrix.org` as a URL first,
+    /// fragmenting the identifier.
+    private func expectFullIdentifierLink(
+        _ str: NSAttributedString, identifier: String, url: String,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        let nsString = str.string as NSString
+        let idRange = nsString.range(of: identifier)
+        #expect(idRange.location != NSNotFound, sourceLocation: sourceLocation)
+        guard idRange.location != NSNotFound else { return }
+        let expected = URL(string: url)
+        for offset in idRange.location..<(idRange.location + idRange.length) {
+            #expect(
+                attrs(str, at: offset)[.link] as? URL == expected,
+                "offset \(offset) should carry the full identifier link",
+                sourceLocation: sourceLocation
+            )
+        }
+    }
+
+    @Test func markdownBareUserIdLinksFully() {
+        let result = NSAttributedString(
+            matrixMarkdown: "hi @exampleaccount:matrix.org"
+        )
+        expectFullIdentifierLink(
+            result,
+            identifier: "@exampleaccount:matrix.org",
+            url: "https://matrix.to/#/@exampleaccount:matrix.org"
+        )
+    }
+
+    @Test func markdownBareUserIdTrimsTrailingPeriod() {
+        // Sentence-final punctuation is not part of the server name.
+        let result = NSAttributedString(
+            matrixMarkdown: "ping @bob:example.com."
+        )
+        expectFullIdentifierLink(
+            result,
+            identifier: "@bob:example.com",
+            url: "https://matrix.to/#/@bob:example.com"
+        )
+        let dotIndex = (result.string as NSString).range(of: "@bob:example.com").location
+            + "@bob:example.com".count
+        #expect(attrs(result, at: dotIndex)[.link] == nil)
+    }
+
+    @Test func markdownBareUserIdWithPortLinksFully() {
+        let result = NSAttributedString(
+            matrixMarkdown: "ping @user:example.com:8448 ok"
+        )
+        expectFullIdentifierLink(
+            result,
+            identifier: "@user:example.com:8448",
+            url: "https://matrix.to/#/@user:example.com:8448"
+        )
+    }
+
+    @Test func markdownBareUserIdAlongsideBareURL() {
+        // Both directions must coexist: the URL links as a URL, the full
+        // user ID as a matrix.to link.
+        let result = NSAttributedString(
+            matrixMarkdown: "see https://kagi.com and @bob:example.com ok"
+        )
+        let urlIndex = (result.string as NSString)
+            .range(of: "https://kagi.com").location
+        #expect(
+            attrs(result, at: urlIndex)[.link] as? URL
+                == URL(string: "https://kagi.com")
+        )
+        expectFullIdentifierLink(
+            result,
+            identifier: "@bob:example.com",
+            url: "https://matrix.to/#/@bob:example.com"
+        )
+    }
+
+    @Test func markdownLinkTextNotRewrittenAsIdentifier() {
+        // An explicit Markdown link keeps its own target.
+        let result = NSAttributedString(
+            matrixMarkdown: "[docs](https://example.com)"
+        )
+        #expect(
+            attrs(result, at: 0)[.link] as? URL == URL(string: "https://example.com")
+        )
+    }
+
+    @Test func htmlBareUserIdLinksFully() {
+        // Plain-text user IDs in formatted_body HTML get the same treatment.
+        let result = NSAttributedString(matrixHTML: "hi @exampleaccount:matrix.org")!
+        expectFullIdentifierLink(
+            result,
+            identifier: "@exampleaccount:matrix.org",
+            url: "https://matrix.to/#/@exampleaccount:matrix.org"
+        )
+    }
 }

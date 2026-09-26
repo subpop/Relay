@@ -163,6 +163,78 @@ struct TimelineHeightMeasurementTests {
         )
     }
 
+    // MARK: - Pasted URLs are not pills
+
+    /// Whether the resolved string contains a mention pill attachment.
+    private func hasPill(_ resolved: NSAttributedString) -> Bool {
+        var found = false
+        resolved.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: resolved.length)
+        ) { value, _, _ in
+            if value is PillTextAttachment { found = true }
+        }
+        return found
+    }
+
+    /// A pasted `matrix.to` room link whose visible text is the URL itself
+    /// must stay a plain tappable link, not become a pill reading
+    /// `@https://...`.
+    @Test func pastedMatrixToRoomURLStaysALink() {
+        let text = "get in https://matrix.to/#/%23appletalk:matrix.org"
+        let src = NSAttributedString(matrixMarkdown: text)
+        let resolved = resolvedIncoming(src)
+
+        #expect(!hasPill(resolved))
+        let urlRange = (resolved.string as NSString)
+            .range(of: "https://matrix.to/#/%23appletalk:matrix.org")
+        #expect(urlRange.location != NSNotFound)
+        #expect(
+            resolved.attribute(.link, at: urlRange.location, effectiveRange: nil)
+                as? URL
+                == URL(string: "https://matrix.to/#/%23appletalk:matrix.org")
+        )
+    }
+
+    /// Same guarantee for the HTML path: plain-text URLs in
+    /// `formatted_body` stay links.
+    @Test func pastedMatrixToRoomURLInHTMLStaysALink() {
+        let src = NSAttributedString(matrixHTML:
+            "get in https://matrix.to/#/%23appletalk:matrix.org"
+        )!
+        let resolved = resolvedIncoming(src)
+
+        #expect(!hasPill(resolved))
+        let urlRange = (resolved.string as NSString)
+            .range(of: "https://matrix.to/#/%23appletalk:matrix.org")
+        #expect(urlRange.location != NSNotFound)
+        #expect(
+            resolved.attribute(.link, at: urlRange.location, effectiveRange: nil)
+                as? URL
+                == URL(string: "https://matrix.to/#/%23appletalk:matrix.org")
+        )
+    }
+
+    /// A typed-out user ID (link text is the ID, not a URL) still pills,
+    /// carrying the user ID for profile taps.
+    @Test func bareUserIdLinkTextStillPills() {
+        let text = "@bob:example.com"
+        let src = NSMutableAttributedString(
+            string: "hi \(text)", attributes: [.font: baseFont]
+        )
+        src.addAttribute(
+            .link,
+            value: URL(string: "https://matrix.to/#/@bob:example.com")!,
+            range: (src.string as NSString).range(of: text)
+        )
+        let resolved = resolvedIncoming(src)
+
+        #expect(hasPill(resolved))
+        #expect(
+            resolved.attribute(.mentionUserID, at: 3, effectiveRange: nil)
+                as? String == "@bob:example.com"
+        )
+    }
+
     // MARK: - Blockquote icon attachment
 
     /// Resolving a message with a blockquote must substitute the `\u{FFFC}`

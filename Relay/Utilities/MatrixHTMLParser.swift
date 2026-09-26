@@ -122,7 +122,14 @@ extension NSAttributedString {
             styledBlocks[index].end = source.characters.count
         }
 
-        // 3. Detect bare URLs with NSDataDetector.
+        // 3. Link bare Matrix identifiers (@user:server, #room:server, etc.)
+        //    before URL detection: NSDataDetector mistakes the server
+        //    portion (e.g. `matrix.org`) for a bare URL and would fragment
+        //    the identifier.
+        MatrixIdentifierLinker.linkify(&source)
+
+        // 4. Detect bare URLs with NSDataDetector, skipping ranges the
+        //    linker already claimed.
         let plainString = String(source.characters)
         if let detector = try? NSDataDetector(
             types: NSTextCheckingResult.CheckingType.link.rawValue
@@ -135,14 +142,11 @@ extension NSAttributedString {
                 guard let urlRange = Range(match.range, in: plainString),
                       let attrRange = Range(urlRange, in: source)
                 else { continue }
-                if source[attrRange].link == nil {
+                if !MatrixIdentifierLinker.hasLink(in: source, range: attrRange) {
                     source[attrRange].link = match.url
                 }
             }
         }
-
-        // 4. Link bare Matrix identifiers (@user:server, #room:server, etc.).
-        MatrixIdentifierLinker.linkify(&source)
 
         // 5. Bridge to NSAttributedString and resolve InlinePresentationIntent
         //    into concrete AppKit fonts and decorations.
@@ -871,12 +875,11 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
 
         if result.length == 0 { return nil }
 
-        // Detect bare URLs that are not wrapped in <a> tags.
-        // This covers cases where the sending client includes a URL as plain
-        // text in the `formatted_body` HTML (e.g. alongside mention links).
-        // Since the text view disables automatic link detection, we must
-        // handle this ourselves, mirroring the NSDataDetector pass in
-        // resolveMarkdown().
+        // Detect bare Matrix identifiers that are not wrapped in <a> tags,
+        // before URL detection (see resolveMarkdown step 3): NSDataDetector
+        // mistakes the server portion for a bare URL and would fragment the
+        // identifier. linkBareURLs skips ranges claimed here.
+        MatrixIdentifierLinker.linkify(result)
         linkBareURLs(in: result)
 
         return result
@@ -1261,7 +1264,8 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
     }
 
     /// Detects bare URLs in the attributed string that are not already
-    /// covered by an `<a>` tag and adds a `.link` attribute for them.
+    /// covered by an `<a>` tag or a Matrix identifier link and adds a
+    /// `.link` attribute for them.
     ///
     /// This is needed because `isAutomaticLinkDetectionEnabled` is disabled
     /// on the text view, so any URL not wrapped in an `<a>` tag would be
@@ -1278,9 +1282,9 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
         )
 
         for match in matches {
-            // Skip ranges that already have a .link attribute (from <a> tags).
-            let existingLink = result.attribute(.link, at: match.range.location, effectiveRange: nil)
-            if existingLink != nil { continue }
+            // Skip ranges that already have a .link attribute (from <a> tags
+            // or MatrixIdentifierLinker).
+            if MatrixIdentifierLinker.hasLink(in: result, range: match.range) { continue }
 
             if let url = match.url {
                 result.addAttribute(.link, value: url, range: match.range)

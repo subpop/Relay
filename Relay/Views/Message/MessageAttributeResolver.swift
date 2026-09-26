@@ -66,11 +66,15 @@ extension MessageTextView {
                 )
 
                 // Record matrix.to user and room links for pill replacement.
+                // A pasted link whose visible text is itself a URL stays a
+                // plain link; only mention-styled text becomes a pill.
                 if let url = attrs[keys.link] as? URL,
                    let uri = MatrixURI(url: url),
                    uri.isUser || uri.isRoom {
                     let displayName = result.attributedSubstring(from: range).string
-                    mentionRanges.append((range, url, uri, displayName))
+                    if URL(string: displayName)?.scheme == nil {
+                        mentionRanges.append((range, url, uri, displayName))
+                    }
                 }
             } else if isSpoiler {
                 // Keep spoiler coloring as-is.
