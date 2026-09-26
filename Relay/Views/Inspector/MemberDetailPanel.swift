@@ -145,7 +145,7 @@ struct MemberDetailPanel: View {
         VStack(spacing: 6) {
             AvatarView(name: name, mxcURL: profile.avatarURL, size: 80, colorID: profile.userId)
                 .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                .overlay(alignment: .bottomTrailing) {
+                .badge(at: .bottomTrailing) {
                     if profile.avatarURL != nil {
                         Button("View Avatar", systemImage: "magnifyingglass") {
                             Task { await openAvatarQuickLook() }
@@ -154,8 +154,7 @@ struct MemberDetailPanel: View {
                         .buttonStyle(.plain)
                         .font(.caption2)
                         .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(.gray, in: .circle)
+                        .badgeIcon(fill: .gray, diameter: 24)
                     }
                 }
 

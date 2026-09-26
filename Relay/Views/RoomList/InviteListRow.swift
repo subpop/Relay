@@ -53,12 +53,11 @@ struct InviteListRow: View {
 
     private var compactBody: some View {
         AvatarView(name: room.name, mxcURL: room.avatarURL, size: 60)
-            .overlay(alignment: .bottomTrailing) {
+            .badge(at: .bottomTrailing) {
                 Image(systemName: "envelope.fill")
                     .font(.system(size: 7))
                     .foregroundStyle(.white)
-                    .frame(width: 14, height: 14)
-                    .background(.accent, in: .circle)
+                    .badgeIcon(fill: .accent, diameter: 14)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)

@@ -48,18 +48,17 @@ struct SettingsAccountTab: View {
                         size: 80,
                         colorID: userId
                     )
-                    .overlay(alignment: .bottomTrailing) {
+                    .badge(at: .bottomTrailing) {
                         Button { showImagePicker = true } label: {
                             Image(systemName: "camera.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.white)
-                                .frame(width: 22, height: 22)
-                                .background(.tint, in: .circle)
+                                .badgeIcon(fill: .tint, diameter: 22)
                         }
                         .buttonStyle(.plain)
                         .help("Change photo")
                     }
-                    .overlay(alignment: .bottomLeading) {
+                    .badge(at: .bottomLeading) {
                         if avatarURL != nil {
                             Button {
                                 Task { await removeAvatar() }
@@ -68,8 +67,7 @@ struct SettingsAccountTab: View {
                                     .font(.caption2)
                                     .fontWeight(.semibold)
                                     .foregroundStyle(.white)
-                                    .frame(width: 22, height: 22)
-                                    .background(.red, in: .circle)
+                                    .badgeIcon(fill: .red, diameter: 22)
                             }
                             .buttonStyle(.plain)
                             .help("Remove photo")

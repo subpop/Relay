@@ -20,6 +20,7 @@ struct RoomListRow: View {
     let room: RoomRowData
 
     @Environment(\.hasSpaceRail) private var hasSpaceRail
+    @AppStorage("appearance.showUnreadCounts") private var showUnreadCounts = true
     @State private var rowWidth: CGFloat = 0
 
     private static let compactThreshold: CGFloat = 100
@@ -33,23 +34,6 @@ struct RoomListRow: View {
     private var hasVisibleUnread: Bool {
         guard !room.isMuted else { return false }
         return room.notificationCount > 0
-    }
-
-    /// Whether the trailing unread badge should be visible.
-    private var showBadge: Bool {
-        guard !room.isMuted else { return false }
-        return room.notificationCount > 0
-    }
-
-    /// The color of the unread notification badge.
-    ///
-    /// - Red: highlights (mentions/keywords) or any notifications in a DM
-    /// - Accent (blue): plain notifications in group rooms
-    private var badgeColor: Color {
-        if room.highlightCount > 0 || room.isDirect {
-            return .red
-        }
-        return .accentColor
     }
 
     var body: some View {
@@ -70,15 +54,8 @@ struct RoomListRow: View {
 
     private var compactBody: some View {
         AvatarView(name: room.name, mxcURL: room.avatarURL, size: 60)
-            .overlay(alignment: .topTrailing) {
-                if showBadge {
-                    Circle()
-                        .fill(badgeColor)
-                        .frame(width: 12, height: 12)
-                        .padding(1)
-                        .background(.background, in: .circle)
-                }
-                muteIndicator
+            .badge(at: .topTrailing) {
+                avatarStatusBadge
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
@@ -89,8 +66,8 @@ struct RoomListRow: View {
     private var fullBody: some View {
         HStack(spacing: 10) {
             AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
-                .overlay(alignment: .topTrailing) {
-                    muteIndicator
+                .badge(at: .topTrailing) {
+                    avatarStatusBadge
                 }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -122,7 +99,7 @@ struct RoomListRow: View {
 
                     Spacer()
 
-                    notificationBadge
+                    unreadIndicator
                 }
             }
             .padding(4)
@@ -132,29 +109,53 @@ struct RoomListRow: View {
         .opacity(room.isArchived ? 0.5 : 1)
     }
 
-    /// A mute icon overlay on the avatar for muted rooms.
+    /// The avatar's top-trailing badge: a mute icon when the room is
+    /// muted, plus the compact row's unread dot, since a narrow row has
+    /// no trailing edge to carry the indicator.
     @ViewBuilder
-    private var muteIndicator: some View {
+    private var avatarStatusBadge: some View {
         if room.isMuted {
-            Image(systemName: "bell.slash.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(.white)
-                .frame(width: 14, height: 14)
-                .background(.gray, in: .circle)
+            muteIndicator
+        } else if isCompact, hasVisibleUnread {
+            unreadDot
         }
     }
 
-    /// A numeric badge at the trailing edge of the row showing the notification count.
+    /// A mute icon on the avatar for muted rooms.
+    private var muteIndicator: some View {
+        Image(systemName: "bell.slash.fill")
+            .font(.system(size: 8))
+            .foregroundStyle(.white)
+            .badgeIcon(fill: Color(.systemGray), diameter: 14)
+    }
+
+    /// The compact row's unread dot, in both styles: too narrow for a
+    /// count, so it is a large ringed circle — red for attention, blue for
+    /// plain unreads.
+    private var unreadDot: some View {
+        AvatarBadge.dot(color: unreadColor, diameter: 12)
+            .padding(1)
+            .background(.background, in: .circle)
+    }
+
+    /// The full row's trailing unread indicator: the total count when
+    /// counts are shown, a bare dot otherwise. Both take their color from
+    /// the unread tier.
     @ViewBuilder
-    private var notificationBadge: some View {
-        if showBadge {
-            Text(room.notificationCount, format: .number)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 5)
-                .frame(minWidth: 18, minHeight: 18)
-                .background(badgeColor, in: .capsule)
+    private var unreadIndicator: some View {
+        if hasVisibleUnread {
+            if showUnreadCounts {
+                AvatarBadge.count(room.notificationCount, color: unreadColor)
+            } else {
+                AvatarBadge.dot(color: unreadColor)
+            }
         }
+    }
+
+    /// Red for mentions, keyword highlights, or any unread in a DM;
+    /// blue for plain unreads in group rooms.
+    private var unreadColor: Color {
+        room.needsAttention ? Color(.systemRed) : Color(.systemBlue)
     }
 }
 
@@ -215,7 +216,7 @@ extension AttributedString {
 
 // MARK: - Previews
 
-#Preview("Highlights") {
+#Preview("Plain Unread") {
     RoomListRow(room: PreviewFixtures.rooms[0])
         .frame(width: 300)
 }
@@ -225,14 +226,20 @@ extension AttributedString {
         .frame(width: 300)
 }
 
-#Preview("Mentions Only — No Highlights") {
+#Preview("Unread and Mentions") {
+    RoomListRow(room: PreviewFixtures.rooms[4])
+        .frame(width: 300)
+}
+
+#Preview("Mention Only") {
     RoomListRow(room: RoomRowData(
-        roomId: "!dev:example.com",
-        name: "Development",
-        lastMessage: "Merged the refactor PR",
-        lastMessageAuthor: "Alice",
-        lastMessageTimestamp: .now.addingTimeInterval(-600),
-        notificationCount: 5
+        roomId: "!ops:example.com",
+        name: "Operations",
+        lastMessage: "@relay the deploy is blocked",
+        lastMessageAuthor: "Bob",
+        lastMessageTimestamp: .now.addingTimeInterval(-900),
+        notificationCount: 2,
+        highlightCount: 2
     ))
     .frame(width: 300)
 }

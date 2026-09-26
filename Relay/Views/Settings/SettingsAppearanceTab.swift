@@ -20,6 +20,7 @@ import SwiftUI
 struct SettingsAppearanceTab: View {
     @AppStorage("appearance.mode") private var appearanceMode: AppAppearance = .system
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+    @AppStorage("appearance.showUnreadCounts") private var showUnreadCounts = true
 
     var body: some View {
         Form {
@@ -39,6 +40,15 @@ struct SettingsAppearanceTab: View {
                 .padding(.vertical, 4)
             } header: {
                 Text("Appearance")
+            }
+
+            Section {
+                Toggle(isOn: $showUnreadCounts) {
+                    Text("Show Unread Notification Counts")
+                    Text("Rows end with the total unread count instead of a plain dot. Narrow rows always show a dot, and both turn red for mentions and direct messages.")
+                }
+            } header: {
+                Text("Room List")
             }
 
             Section {

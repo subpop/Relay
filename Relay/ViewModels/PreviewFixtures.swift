@@ -73,6 +73,19 @@ enum PreviewFixtures {
             isFavourite: false,
             isSpace: true,
             isArchived: false),
+        RoomRowData(
+            roomId: "!dev:example.com",
+            name: "Development",
+            lastMessage: "Merged the refactor PR",
+            lastMessageAuthor: "Alice",
+            lastMessageTimestamp: Date.now.addingTimeInterval(-600),
+            notificationCount: 5,
+            highlightCount: 2,
+            isDirect: false,
+            isMuted: false,
+            isFavourite: false,
+            isSpace: false,
+            isArchived: false),
     ]
 
     /// A sample invite row.

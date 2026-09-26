@@ -137,10 +137,9 @@ struct SpaceRail: View {
             selectedSpaceId = space.id
         } label: {
             AvatarView(name: space.name, mxcURL: space.avatarURL, size: 36, shape: AnyShape(.rect(cornerRadius: 36 * 0.22)))
-        }
-        .overlay(alignment: .topTrailing) {
-            spaceUnreadBadge(for: space)
-                .offset(x: -2, y: 2)
+                .badge(at: .topTrailing) {
+                    spaceUnreadBadge(for: space)
+                }
         }
         .contextMenu {
             Button("Leave Space", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
@@ -158,10 +157,9 @@ struct SpaceRail: View {
             selectedSpaceId = space.id
         } label: {
             AvatarView(name: space.name, mxcURL: space.avatarURL, size: 26, shape: AnyShape(.rect(cornerRadius: 26 * 0.22)))
-        }
-        .overlay(alignment: .topTrailing) {
-            spaceUnreadBadge(for: space)
-                .offset(x: -2, y: 2)
+                .badge(at: .topTrailing) {
+                    spaceUnreadBadge(for: space)
+                }
         }
         .contextMenu {
             Button("Leave Space", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
@@ -181,25 +179,29 @@ struct SpaceRail: View {
     }
 
     /// A colored dot badge for the space icon, or nothing when there are no unreads.
+    ///
+    /// The 1pt border keeps the small dot legible against the icon behind it.
     @ViewBuilder
     private func spaceUnreadBadge(for space: RoomRowData) -> some View {
         if let color = spaceUnreadColor(space) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
+            AvatarBadge.dot(color: color)
+                .overlay {
+                    Circle().strokeBorder(.background, lineWidth: 1)
+                }
         }
     }
 
     /// The badge color for unread activity in a space, or `nil` when there are no unreads.
     ///
-    /// Returns red when any child room has unread mentions, keyword highlights, or is a
-    /// DM with unread messages. Returns accent color for plain unread messages in group rooms.
+    /// Returns red when any child room has unread mentions, keyword
+    /// highlights, or is a DM with unread messages. Returns blue for plain
+    /// unread messages in group rooms.
     private func spaceUnreadColor(_ space: RoomRowData) -> Color? {
         var hasUnread = false
         var hasHighPriority = false
 
         for room in rooms where room.parentSpaceIds.contains(space.id) && !room.isMuted {
-            if room.highlightCount > 0 || (room.isDirect && room.notificationCount > 0) {
+            if room.needsAttention {
                 hasHighPriority = true
                 break
             }
@@ -208,8 +210,8 @@ struct SpaceRail: View {
             }
         }
 
-        if hasHighPriority { return .red }
-        if hasUnread { return .accentColor }
+        if hasHighPriority { return Color(.systemRed) }
+        if hasUnread { return Color(.systemBlue) }
         return nil
     }
 }

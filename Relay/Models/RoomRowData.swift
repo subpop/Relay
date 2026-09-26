@@ -38,6 +38,12 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
     var isSpace: Bool = false
     var isArchived: Bool = false
 
+    /// Unread activity that specifically needs attention: a mention, `@room`
+    /// ping, or keyword highlight, or any notification in a DM.
+    var needsAttention: Bool {
+        highlightCount > 0 || (isDirect && notificationCount > 0)
+    }
+
     /// Map a live room, resolving the mention preview and mute state.
     /// Callers pass the effective notification mode (defaults are cheap
     /// to compute once per refresh, not per row render). Passing `client`

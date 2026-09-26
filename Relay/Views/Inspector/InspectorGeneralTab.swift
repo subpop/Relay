@@ -159,15 +159,14 @@ struct InspectorGeneralTab: View {
             // Avatar with overlay controls
             AvatarView(name: details.name ?? details.id.value, mxcURL: details.avatarURL?.value, size: 80)
                 .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                .overlay(alignment: .bottomTrailing) {
+                .badge(at: .bottomTrailing) {
                     if isEditing, canEditAvatar {
                         // Camera overlay to change avatar
                         Button { showImagePicker = true } label: {
                             Image(systemName: "camera.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.white)
-                                .frame(width: 22, height: 22)
-                                .background(.tint, in: .circle)
+                                .badgeIcon(fill: .tint, diameter: 22)
                         }
                         .buttonStyle(.plain)
                         .help("Change avatar")
@@ -178,14 +177,13 @@ struct InspectorGeneralTab: View {
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .foregroundStyle(.white)
-                                .frame(width: 22, height: 22)
-                                .background(.tint, in: .circle)
+                                .badgeIcon(fill: .tint, diameter: 22)
                         }
                         .buttonStyle(.plain)
                         .help("Edit room details")
                     }
                 }
-                .overlay(alignment: .bottomLeading) {
+                .badge(at: .bottomLeading) {
                     if isEditing, canEditAvatar, details.avatarURL != nil {
                         // Trash overlay to remove avatar
                         Button {
@@ -194,8 +192,7 @@ struct InspectorGeneralTab: View {
                             Image(systemName: "trash.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.white)
-                                .frame(width: 22, height: 22)
-                                .background(.red, in: .circle)
+                                .badgeIcon(fill: .red, diameter: 22)
                         }
                         .buttonStyle(.plain)
                         .help("Remove avatar")
