@@ -303,6 +303,13 @@ struct MessageView: View {
             ),
             isOutgoing: true
         )
+        MessageView(
+            message: PreviewFixtures.event(
+                "e3", sender: "@alice:matrix.org", displayName: "Alice",
+                body: "🎉", minutesAgo: 0.25, formattedBody: "<p>🎉</p>"
+            ),
+            isOutgoing: false
+        )
     }
     .padding()
     .frame(width: 500)

@@ -60,3 +60,17 @@ extension String {
         filter { !$0.isWhitespace }.filter(\.isEmoji).count
     }
 }
+
+/// Whether a text message qualifies for large emoji rendering: the
+/// plain-text body is emoji-only (up to 8) and any Matrix HTML formatted
+/// body renders to emoji-only visible text.
+///
+/// The formatted-body check matters because markdown sends always carry
+/// `formatted_body` (e.g. `👋` arrives as `<p>👋</p>`), so requiring its
+/// absence would disable big emoji for nearly every real message.
+func isBigEmojiMessage(body: String, formattedBody: String?) -> Bool {
+    guard body.isEmojiOnly, body.emojiCount <= 8 else { return false }
+    guard let formattedBody else { return true }
+    guard let visible = NSAttributedString(matrixHTML: formattedBody)?.string else { return false }
+    return visible.isEmojiOnly && visible.emojiCount <= 8
+}

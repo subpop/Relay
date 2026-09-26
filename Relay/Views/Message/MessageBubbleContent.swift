@@ -186,13 +186,12 @@ struct MessageBubbleContent: View {
     // MARK: - Emoji-Only Content
 
     /// Whether this text message contains only emoji (up to a reasonable count
-    /// for large display).
+    /// for large display). A present `formattedBody` still qualifies when its
+    /// visible text is emoji-only (markdown sends always carry one, e.g.
+    /// `<p>👋</p>`).
     private var isEmojiOnly: Bool {
-        if case .text = message.kind,
-           message.formattedBody == nil,
-           message.body.isEmojiOnly,
-           message.body.emojiCount <= 8 {
-            return true
+        if case .text = message.kind {
+            return isBigEmojiMessage(body: message.body, formattedBody: message.formattedBody)
         }
         return false
     }
