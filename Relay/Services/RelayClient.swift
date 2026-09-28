@@ -129,6 +129,9 @@ final class RelayClient {
     var isSessionVerified = false
     var hasCheckedVerificationState = false
     var pendingVerificationRequest: IncomingVerification?
+    /// An accepted incoming verification session awaiting its sheet.
+    /// Consumed by the sheet presentation; the handshake continues there.
+    var activeVerificationSession: VerificationSession?
     var shouldPresentVerificationSheet = false
     var pendingDeepLink: MatrixURI?
     let errorReporter = ErrorReporter()
@@ -951,6 +954,20 @@ final class RelayClient {
         guard let client else { throw RelayError.notLoggedIn }
         return try await client.verifications.requestVerification(
             userId: UserId(unchecked: userId), deviceId: deviceId)
+    }
+
+    /// Accept the pending incoming verification request (responder role).
+    /// Stores the live session for the sheet and presents it. On failure
+    /// the request stays pending so the user can retry or decline.
+    func acceptPendingVerificationRequest() async {
+        guard let request = pendingVerificationRequest else { return }
+        do {
+            activeVerificationSession = try await acceptVerificationRequest(request)
+            shouldPresentVerificationSheet = true
+        } catch {
+            relayClientLogger.error(
+                "Verification accept failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Accept an incoming verification request (responder role).

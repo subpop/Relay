@@ -449,8 +449,8 @@ struct TextSizeCommands: Commands {
 /// Handles notification presentation and user interactions for local notifications.
 ///
 /// When the user taps the verification notification or its "Accept" action,
-/// the delegate flips `shouldPresentVerificationSheet` for the verification
-/// sheet (arriving with session verification UI).
+/// the delegate accepts the pending request (Accept) or opens the
+/// verification sheet with the Accept/Decline prompt (tap).
 /// When the user taps a room message notification, the delegate navigates to
 /// that room by setting the `selectedRoomId` in `UserDefaults`.
 @Observable
@@ -483,8 +483,12 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         let content = response.notification.request.content
 
         if content.categoryIdentifier == Self.verificationCategoryIdentifier {
-            await MainActor.run {
-                client?.shouldPresentVerificationSheet = true
+            if response.actionIdentifier == Self.acceptActionIdentifier {
+                await client?.acceptPendingVerificationRequest()
+            } else {
+                await MainActor.run {
+                    client?.shouldPresentVerificationSheet = true
+                }
             }
             return
         }

@@ -34,6 +34,8 @@ struct VerificationSheet: View {
             switch viewModel.state {
             case .idle:
                 idleView
+            case .incomingRequest:
+                incomingRequestView
             case .requesting, .waitingForOtherDevice, .sasStarted:
                 waitingView()
             case .waitingForApproval:
@@ -135,6 +137,38 @@ struct VerificationSheet: View {
     }
 
     // MARK: - Waiting
+
+    /// An unacknowledged incoming request. Nothing has been sent yet;
+    /// Accept starts the handshake, Decline ends it.
+    private var incomingRequestView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "checkmark.shield")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text("Verification Request")
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text("Another device wants to verify this session. Accept to start the handshake.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Spacer()
+            HStack {
+                Button("Decline", role: .destructive) {
+                    Task { await viewModel.declineIncomingRequest() }
+                }
+                .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Accept") {
+                    Task { await viewModel.acceptIncomingRequest() }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+    }
 
     private func waitingView(
         title: String = "Waiting for Other Device",

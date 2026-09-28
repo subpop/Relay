@@ -32,8 +32,8 @@ import Observation
 /// the secrets arrive.
 ///
 /// When Relay approves (another device initiated), the flow moves from
-/// `idle` to `waitingForOtherDevice` once the incoming request is
-/// acknowledged.
+/// `incomingRequest` to `waitingForOtherDevice` once the user accepts
+/// the incoming request.
 ///
 /// Recovery-key verification unlocks 4S secret storage and imports
 /// the cross-signing keys, verifying the session without a second
@@ -43,6 +43,10 @@ import Observation
 enum SessionVerificationState: Sendable {
     /// No verification in progress.
     case idle
+    /// An incoming request awaits the user's Accept or Decline. Nothing
+    /// has been sent yet; the peer only sees a response once the user
+    /// decides.
+    case incomingRequest
     /// An outgoing verification request is being sent.
     case requesting
     /// Waiting for the other device to accept the request or start SAS.
@@ -106,6 +110,7 @@ final class SessionVerificationViewModel: Identifiable {
 
     private var client: RelayClient?
     private var session: VerificationSession?
+    private var incomingRequest: RelayClient.IncomingVerification?
     private var eventsTask: Task<Void, Never>?
     private var keyShareTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
@@ -115,10 +120,21 @@ final class SessionVerificationViewModel: Identifiable {
         self.client = client
     }
 
-    /// Creates a model that immediately acknowledges an incoming request.
+    /// Creates a model holding an unacknowledged incoming request. The
+    /// request is only accepted once the user taps Accept — nothing is
+    /// sent on creation.
     init(client: RelayClient, incoming request: RelayClient.IncomingVerification) {
         self.client = client
-        Task { await acceptIncoming(request) }
+        self.incomingRequest = request
+        self.state = .incomingRequest
+    }
+
+    /// Creates a model continuing an already-accepted incoming request.
+    init(client: RelayClient, session: VerificationSession) {
+        self.client = client
+        self.session = session
+        self.state = .waitingForOtherDevice
+        startListening(session: session)
     }
 
     // MARK: - Flow Entry Points
@@ -149,6 +165,7 @@ final class SessionVerificationViewModel: Identifiable {
     /// Acknowledge an incoming request and start the handshake as responder.
     func acceptIncoming(_ request: RelayClient.IncomingVerification) async {
         guard let client else { return }
+        incomingRequest = nil
         state = .waitingForOtherDevice
         do {
             let session = try await client.acceptVerificationRequest(request)
@@ -157,6 +174,20 @@ final class SessionVerificationViewModel: Identifiable {
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    /// Accept the held incoming request, if any.
+    func acceptIncomingRequest() async {
+        guard let incomingRequest else { return }
+        await acceptIncoming(incomingRequest)
+    }
+
+    /// Decline the held incoming request, if any.
+    func declineIncomingRequest() async {
+        guard let incomingRequest else { return }
+        self.incomingRequest = nil
+        await client?.declineVerificationRequest(incomingRequest)
+        state = .cancelled
     }
 
     // MARK: - User Actions

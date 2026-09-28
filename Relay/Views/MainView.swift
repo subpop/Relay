@@ -54,19 +54,21 @@ struct MainView: View {
             client.shouldPresentVerificationSheet = false
             presentVerificationSheet()
         }
-        .onChange(of: client.pendingVerificationRequest) { _, request in
-            guard request != nil, verificationModel == nil else { return }
-            presentVerificationSheet()
-        }
         .sheet(item: $verificationModel) { model in
             VerificationSheet(viewModel: model)
         }
     }
 
-    /// Presents the session verification sheet, acknowledging a pending
-    /// incoming request when one exists.
+    /// Presents the session verification sheet. An accepted incoming
+    /// session continues its handshake; a pending request opens the
+    /// Accept/Decline prompt without sending anything. The sheet never
+    /// opens on its own — entry is always an explicit user action
+    /// (banner, notification, or Verify button).
     private func presentVerificationSheet() {
-        if let request = client.pendingVerificationRequest {
+        if let session = client.activeVerificationSession {
+            client.activeVerificationSession = nil
+            verificationModel = SessionVerificationViewModel(client: client, session: session)
+        } else if let request = client.pendingVerificationRequest {
             verificationModel = SessionVerificationViewModel(client: client, incoming: request)
         } else {
             verificationModel = client.makeSessionVerificationViewModel()

@@ -24,9 +24,9 @@ import SwiftUI
 /// - **Unverified**: When no request is pending but the session is unverified,
 ///   shows a "Verify" button to initiate verification and a dismiss button.
 ///
-/// Accepting or starting verification flips
-/// `shouldPresentVerificationSheet`; the verification sheet itself
-/// arrives with session verification UI.
+/// Accepting sends `ready` and opens the sheet on the live session;
+/// declining ends the request. The sheet itself arrives with session
+/// verification UI.
 struct SessionVerificationBanner: View {
     @Environment(RelayClient.self) private var client
     @State private var isDismissed = false
@@ -121,7 +121,7 @@ struct SessionVerificationBanner: View {
             .controlSize(.small)
 
             Button {
-                client.shouldPresentVerificationSheet = true
+                Task { await client.acceptPendingVerificationRequest() }
             } label: {
                 Image(systemName: "checkmark")
             }
@@ -141,7 +141,7 @@ struct SessionVerificationBanner: View {
             .controlSize(.small)
 
             Button("Approve", systemImage: "checkmark") {
-                client.shouldPresentVerificationSheet = true
+                Task { await client.acceptPendingVerificationRequest() }
             }
             .controlSize(.small)
         }
