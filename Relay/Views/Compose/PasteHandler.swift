@@ -15,7 +15,7 @@
 import AppKit
 import OSLog
 
-private let logger = Logger(subsystem: "Relay", category: "PasteHandler")
+private let logger = Logger(subsystem: "app.subpop.Relay", category: "PasteHandler")
 
 /// Monitors Cmd+V key events and intercepts paste when the system pasteboard
 /// contains file URLs (Finder copy), raw image data, or raw video data — but

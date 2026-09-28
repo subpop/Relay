@@ -22,7 +22,7 @@ import os
 ///
 /// Install once, as early as possible (before any `LiveKit.Room` is created).
 struct LiveKitLogBridge: LiveKit.Logger {
-    private static let osLogger = os.Logger(subsystem: "Relay", category: "LiveKitSDK")
+    private static let osLogger = os.Logger(subsystem: "app.subpop.Relay", category: "LiveKitSDK")
 
     // swiftlint:disable:next function_parameter_count
     func log(

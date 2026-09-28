@@ -55,13 +55,11 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
     /// or final); `isFinal == true` means the analyzer has committed it.
     private let onUpdate: @Sendable (_ text: String, _ isFinal: Bool) -> Void
 
-    /// Emits a diagnostic event to the call's activity log. Injected by the
-    /// owner (`CallViewModel`) so this background/render-thread component never
-    /// has to touch the `@MainActor`-isolated `ActivityLog` directly — the
-    /// closure does the actor hop. No speech content is ever passed, only
-    /// metadata.
-    typealias LogEmit = @Sendable (_ severity: ActivityEvent.Severity, _ summary: String, _ detail: String?) -> Void
-    private let onLog: LogEmit
+    /// Diagnostics for the transcription pipeline. A static logger (rather
+    /// than an injected closure) is safe to touch from the audio render
+    /// thread and background tasks alike. No speech content is ever
+    /// passed, only metadata.
+    private static let logger = Logger(subsystem: "app.subpop.Relay", category: "Captions")
 
     /// The locale used to pick a transcriber. Defaults to `Locale.current` —
     /// captions are *for* the local user, so their preferred locale wins.
@@ -94,13 +92,11 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
     init(
         participantId: String,
         locale: Locale = .current,
-        onUpdate: @escaping @Sendable (String, Bool) -> Void,
-        onLog: @escaping LogEmit
+        onUpdate: @escaping @Sendable (String, Bool) -> Void
     ) {
         self.participantId = participantId
         self.locale = locale
         self.onUpdate = onUpdate
-        self.onLog = onLog
         super.init()
     }
 
@@ -120,7 +116,7 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
         preset.reportingOptions.insert(.fastResults)
         let transcriber = SpeechTranscriber(locale: locale, preset: preset)
 
-        try await Self.ensureModelInstalled(for: transcriber, onLog: onLog)
+        try await Self.ensureModelInstalled(for: transcriber)
 
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let target = await SpeechAnalyzer.bestAvailableAudioFormat(
@@ -149,20 +145,26 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
                     let text = String(result.text.characters)
                     if !loggedFirst {
                         loggedFirst = true
-                        onLog(.debug, "Caption first result", "Identity: \(pid), chars: \(text.count), isFinal: \(result.isFinal)")
+                        Self.logger.debug(
+                            "Caption first result identity=\(pid, privacy: .public) chars=\(text.count, privacy: .public) isFinal=\(result.isFinal, privacy: .public)"
+                        )
                     }
                     cb(text, result.isFinal)
                 }
-                onLog(.debug, "Caption results stream ended", "Identity: \(pid)")
+                Self.logger.debug("Caption results stream ended identity=\(pid, privacy: .public)")
             } catch is CancellationError {
                 // Expected on stop(); silent.
             } catch {
-                onLog(.warning, "Caption results stream failed", "Identity: \(pid). Error: \(error.localizedDescription)")
+                Self.logger.warning(
+                    "Caption results stream failed identity=\(pid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
             }
         }
 
         let formatDesc = target.map { "\($0.sampleRate)Hz \($0.channelCount)ch" } ?? "nil"
-        onLog(.info, "Caption transcriber started", "Identity: \(pid), locale: \(self.locale.identifier), target: \(formatDesc)")
+        Self.logger.info(
+            "Caption transcriber started identity=\(pid, privacy: .public) locale=\(self.locale.identifier, privacy: .public) target=\(formatDesc, privacy: .public)"
+        )
     }
 
     /// Tears the analyzer down. Safe to call multiple times.
@@ -183,7 +185,9 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
         resultsTask = nil
         analyzer = nil
         transcriber = nil
-        onLog(.info, "Caption transcriber stopped", "Identity: \(self.participantId)")
+        Self.logger.info(
+            "Caption transcriber stopped identity=\(self.participantId, privacy: .public)"
+        )
     }
 
     // MARK: - AudioRenderer
@@ -271,10 +275,14 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
             // start() finishes setting `inputBuilder`.
             break
         case .conversionFailed(let reason):
-            onLog(.warning, "Caption conversion failed", "Identity: \(pid). Reason: \(reason ?? "?")")
+            Self.logger.warning(
+                "Caption conversion failed identity=\(pid, privacy: .public): \(reason ?? "?", privacy: .public)"
+            )
         case .yielded(let firstTime, let frames):
             if firstTime {
-                onLog(.debug, "Caption first audio frame yielded", "Identity: \(pid), frames: \(frames)")
+                Self.logger.debug(
+                    "Caption first audio frame yielded identity=\(pid, privacy: .public) frames=\(frames, privacy: .public)"
+                )
             }
         }
     }
@@ -284,9 +292,9 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
     /// Installs the locale model for the given transcriber if it isn't already
     /// available. First-time install can take several seconds; subsequent
     /// calls are immediate.
-    private static func ensureModelInstalled(for transcriber: SpeechTranscriber, onLog: LogEmit) async throws {
+    private static func ensureModelInstalled(for transcriber: SpeechTranscriber) async throws {
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            onLog(.info, "Downloading captions model", nil)
+            Self.logger.info("Downloading captions model")
             try await request.downloadAndInstall()
         }
     }

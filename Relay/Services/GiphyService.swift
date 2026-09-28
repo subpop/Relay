@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import OSLog
 
 
 /// A concrete ``GIFSearchServiceProtocol`` implementation backed by the GIPHY API.
@@ -21,6 +22,9 @@ import Foundation
 /// All GIPHY-specific types are kept private; only ``GIFSearchResult`` crosses the
 /// boundary, keeping the rest of the app provider-agnostic.
 final class GiphyService: GIFSearchServiceProtocol {
+    private nonisolated let giphyLogger = Logger(
+        subsystem: "app.subpop.Relay", category: "Giphy")
+
     // MARK: - Configuration
 
     /// The GIPHY API key, provided at init time.
@@ -69,12 +73,8 @@ final class GiphyService: GIFSearchServiceProtocol {
             throw GiphyError.invalidURL
         }
 
-        ActivityLog.shared.log(
-            category: .media,
-            severity: .info,
-            source: "GiphyService",
-            summary: "Searched GIFs: \(query)",
-            metadata: ["offset": String(offset), "limit": String(limit)]
+        giphyLogger.info(
+            "Searched GIFs query=\(query, privacy: .public) offset=\(offset, privacy: .public) limit=\(limit, privacy: .public)"
         )
 
         return try await fetchGIFs(from: url)
@@ -96,12 +96,8 @@ final class GiphyService: GIFSearchServiceProtocol {
             throw GiphyError.invalidURL
         }
 
-        ActivityLog.shared.log(
-            category: .media,
-            severity: .info,
-            source: "GiphyService",
-            summary: "Fetched trending GIFs",
-            metadata: ["offset": String(offset), "limit": String(limit)]
+        giphyLogger.info(
+            "Fetched trending GIFs offset=\(offset, privacy: .public) limit=\(limit, privacy: .public)"
         )
 
         return try await fetchGIFs(from: url)
@@ -122,19 +118,10 @@ final class GiphyService: GIFSearchServiceProtocol {
 
         do {
             let (_, _) = try await session.data(from: pingbackURL)
-            ActivityLog.shared.log(
-                category: .media,
-                severity: .debug,
-                source: "GiphyService",
-                summary: "Registered GIF action"
-            )
+            giphyLogger.debug("Registered GIF action")
         } catch {
-            ActivityLog.shared.log(
-                category: .media,
-                severity: .debug,
-                source: "GiphyService",
-                summary: "GIF action pingback failed",
-                detail: error.localizedDescription
+            giphyLogger.debug(
+                "GIF action pingback failed: \(error.localizedDescription, privacy: .public)"
             )
         }
     }
@@ -144,22 +131,11 @@ final class GiphyService: GIFSearchServiceProtocol {
 
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
-            ActivityLog.shared.log(
-                category: .media,
-                severity: .error,
-                source: "GiphyService",
-                summary: "GIF download failed"
-            )
+            giphyLogger.error("GIF download failed")
             throw GiphyError.downloadFailed
         }
 
-        ActivityLog.shared.log(
-            category: .media,
-            severity: .info,
-            source: "GiphyService",
-            summary: "Downloaded GIF",
-            detail: "\(data.count) bytes"
-        )
+        giphyLogger.info("Downloaded GIF bytes=\(data.count, privacy: .public)")
 
         return data
     }
@@ -174,11 +150,8 @@ final class GiphyService: GIFSearchServiceProtocol {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            ActivityLog.shared.log(
-                category: .media,
-                severity: .warning,
-                source: "GiphyService",
-                summary: "GIPHY API error: HTTP \(httpResponse.statusCode)"
+            giphyLogger.warning(
+                "GIPHY API error status=\(httpResponse.statusCode, privacy: .public)"
             )
             throw GiphyError.httpError(statusCode: httpResponse.statusCode)
         }

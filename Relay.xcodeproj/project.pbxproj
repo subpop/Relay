@@ -15,7 +15,6 @@
 		3BMK00042FE10004001F0EA1 /* MatrixKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00022FE10002001F0EA1 /* MatrixKit */; };
 		3BMK00052FE10005001F0EA1 /* MatrixKitSwiftData in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00032FE10003001F0EA1 /* MatrixKitSwiftData */; };
 		3BMK00062FE10006001F0EA1 /* MatrixRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3BMK00072FE10007001F0EA1 /* MatrixRTC */; };
-		3BSL00012FE10001001F0EA1 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 3BSL00022FE10002001F0EA1 /* Logging */; };
 		DFDAFCB22FA2C56400A27353 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = DFDAFCB12FA2C56400A27353 /* LiveKit */; };
 /* End PBXBuildFile section */
 
@@ -145,7 +144,6 @@
 				3BMK00042FE10004001F0EA1 /* MatrixKit in Frameworks */,
 				3BMK00052FE10005001F0EA1 /* MatrixKitSwiftData in Frameworks */,
 				3BMK00062FE10006001F0EA1 /* MatrixRTC in Frameworks */,
-				3BSL00012FE10001001F0EA1 /* Logging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -260,7 +258,6 @@
 				3BMK00032FE10003001F0EA1 /* MatrixKitSwiftData */,
 				3BMK00072FE10007001F0EA1 /* MatrixRTC */,
 				3BRS00042FE10004001F0EA1 /* RelayShared */,
-				3BSL00022FE10002001F0EA1 /* Logging */,
 			);
 			productName = Relay;
 			productReference = 3B4AFD892F638A35001F0EA1 /* Relay.app */;
@@ -302,7 +299,6 @@
 				3BMK00012FE10001001F0EA1 /* XCRemoteSwiftPackageReference "MatrixKit" */,
 				3BLK00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 				3BEM00072FD10007001F0EA1 /* XCRemoteSwiftPackageReference "EmojiKit" */,
-				3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3B4AFD8A2F638A35001F0EA1 /* Products */;
@@ -810,14 +806,6 @@
 				kind = branch;
 			};
 		};
-		3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-log";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.6.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -850,11 +838,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3BRS00012FE10001001F0EA1 /* XCLocalSwiftPackageReference "Packages/RelayShared" */;
 			productName = RelayShared;
-		};
-		3BSL00022FE10002001F0EA1 /* Logging */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3BSL00032FD10003001F0EA1 /* XCRemoteSwiftPackageReference "swift-log" */;
-			productName = Logging;
 		};
 		DFDAFCB12FA2C56400A27353 /* LiveKit */ = {
 			isa = XCSwiftPackageProductDependency;

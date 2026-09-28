@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark">
     <meta name="description" content="How to report bugs and issues in Relay, including what information to include and privacy considerations.">
-    <meta name="keywords" content="report, bug, issue, feedback, GitHub, Matrix, activity log, privacy">
+    <meta name="keywords" content="report, bug, issue, feedback, GitHub, Matrix, Console, unified logging, privacy">
     <meta name="robots" content="anchors">
     <title>Report an issue</title>
     <link rel="stylesheet" href="../../Shared/relay-help.css">
@@ -30,14 +30,16 @@
         <li>Steps to reproduce the issue</li>
         <li>Your homeserver hostname (e.g., matrix.example.org)</li>
         <li>Whether other Matrix clients (Element X, Element Web) show the same behavior</li>
-        <li>An Activity Log export filtered to the relevant category (see <a href="activity-log.html">Use the Activity Log</a>)</li>
+        <li>A unified-log capture of the relevant subsystem while reproducing the issue (see below)</li>
     </ul>
 
-    <h2>Export the Activity Log</h2>
-    <p>Open <strong>Window</strong> &gt; <strong>Activity Log</strong> (<kbd>&#x2325;&#x2318;A</kbd>), filter to the relevant category, and press <kbd>&#x2318;S</kbd> to save.</p>
+    <h2>Capture logs</h2>
+    <p>Relay logs to unified logging: subsystem <code>app.subpop.Relay</code> for the app, subsystem <code>app.subpop.MatrixKit</code> for sync, crypto, and protocol traffic. While reproducing the issue, run in Terminal:</p>
+    <pre><code>log stream --predicate 'subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit"' --level debug &gt; relay-trace.log</code></pre>
+    <p>Stop with <kbd>&#x2303;C</kbd> once you've reproduced it, then attach <code>relay-trace.log</code>. Narrow to one subsystem (or add <code>AND category == "Call"</code>, for example) when the file gets large. Console.app shows the same logs with search and level filters.</p>
 
     <h2>Privacy considerations</h2>
-    <p>The Activity Log export contains room IDs, device IDs, and your homeserver hostname. It does not contain message content, encryption keys, or authentication tokens. If you prefer not to share this information publicly, contact the maintainers privately in the Matrix room.</p>
+    <p>The log capture contains room IDs, device IDs, and your homeserver hostname. It does not contain message content, encryption keys, or authentication tokens. If you prefer not to share this information publicly, contact the maintainers privately in the Matrix room.</p>
 
     <div class="callout tip">
         <p><strong class="callout-label">Tip: </strong>The more specific your bug report, the faster it can be diagnosed. "Calls don't work" is harder to investigate than "Audio calls connect but no sound is heard when calling from @user:example.org to @other:matrix.org."</p>
@@ -46,7 +48,6 @@
     <div class="see-also">
         <h2>See also</h2>
         <ul>
-            <li><a href="activity-log.html">Use the Activity Log</a></li>
             <li><a href="troubleshooting-calls.html">Troubleshoot call issues</a></li>
             <li><a href="troubleshooting-login.html">Troubleshoot sign-in issues</a></li>
             <li><a href="troubleshooting-sync.html">Troubleshoot sync issues</a></li>

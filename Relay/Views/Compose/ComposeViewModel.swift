@@ -17,7 +17,7 @@ import MatrixKit
 import OSLog
 import UniformTypeIdentifiers
 
-private nonisolated let logger = Logger(subsystem: "Relay", category: "ComposeViewModel")
+private nonisolated let logger = Logger(subsystem: "app.subpop.Relay", category: "ComposeViewModel")
 
 /// Owns all state and logic for the message compose bar.
 ///

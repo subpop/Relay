@@ -13,14 +13,13 @@
 // limitations under the License.
 
 import Intents
-import Logging
 import MatrixKit
 import os
 import RelayShared
 import SwiftUI
 import UserNotifications
 
-private let logger = Logger(subsystem: "Relay", category: "DeepLink")
+private let logger = Logger(subsystem: "app.subpop.Relay", category: "DeepLink")
 
 /// The main entry point for the Relay macOS application.
 ///
@@ -40,26 +39,6 @@ struct RelayApp: App {
     @State private var appActions = AppActions()
     @State private var composeDraftStore = ComposeDraftStore()
     @State private var showClearCacheConfirmation = false
-
-    /// Installs the swift-log → Activity Log bridge exactly once per
-    /// process (previews may construct the app repeatedly, and a second
-    /// bootstrap would trap). MatrixKit records flow into the Activity
-    /// Log window, trace included; the console prints error-and-above
-    /// only. Installed in `init`, before any MatrixKit logger exists.
-    private static let installLoggingBridge: Void = {
-        LoggingSystem.bootstrap { label in
-            var console = StreamLogHandler.standardError(label: label)
-            console.logLevel = .error
-            return MultiplexLogHandler([
-                MatrixKitLogBridge(label: label),
-                console,
-            ])
-        }
-    }()
-
-    init() {
-        _ = Self.installLoggingBridge
-    }
 
     /// GIF search backend (GIPHY). Empty API keys fail gracefully in the picker.
     private var gifSearchService: any GIFSearchServiceProtocol {
@@ -109,15 +88,6 @@ struct RelayApp: App {
                 .environment(\.gifSearchService, gifSearchService)
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
-
-        Window("Activity Log", id: "activity-log") {
-            ActivityLogView()
-                .environment(client)
-                .environment(\.activityLog, ActivityLog.shared)
-                .preferredColorScheme(appearanceMode.colorScheme)
-        }
-        .defaultSize(width: 900, height: 600)
-        .keyboardShortcut("a", modifiers: [.option, .command])
 
         Window("Call", id: "call") {
             CallWindowView()

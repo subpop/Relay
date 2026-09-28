@@ -17,7 +17,7 @@ import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let logger = Logger(subsystem: "Relay", category: "Timeline")
+private let logger = Logger(subsystem: "app.subpop.Relay", category: "Timeline")
 
 /// A stable indirection point for the timeline's edit-last-message action.
 ///

@@ -17,6 +17,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import MatrixKit
+import OSLog
 import UniformTypeIdentifiers
 
 /// View model driving `TimelineView` from an `ObservableRoom`.
@@ -27,6 +28,8 @@ import UniformTypeIdentifiers
 /// view-model protocol to keep view churn minimal.
 @Observable
 final class TimelineViewModel {
+    private nonisolated let timelineLogger = Logger(
+        subsystem: "app.subpop.Relay", category: "Timeline")
     private let room: ObservableRoom
     private let errorReporter: ErrorReporter
 
@@ -140,9 +143,7 @@ final class TimelineViewModel {
         if room.localUserId == nil {
             // Without a local user ID every message renders as incoming;
             // log it so the failure is observable instead of silent.
-            ActivityLog.shared.log(
-                category: .sync, severity: .warning, source: "TimelineViewModel",
-                summary: "Local user ID unavailable; own messages render as incoming")
+            timelineLogger.warning("Local user ID unavailable; own messages render as incoming")
         }
         if room.timeline == nil {
             // ObservableRoom builds its timeline in init; this only
@@ -194,11 +195,8 @@ final class TimelineViewModel {
         do {
             try await room.sendFullyRead(EventId(unchecked: eventId))
         } catch {
-            ActivityLog.shared.log(
-                category: .timeline, severity: .debug, source: "TimelineViewModel",
-                summary: "Fully-read marker send failed",
-                detail: error.localizedDescription,
-                roomId: roomId)
+            timelineLogger.debug(
+                "Fully-read marker send failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 

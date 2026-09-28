@@ -6,7 +6,7 @@
     <meta name="AppleTitle" content="Troubleshooting MatrixRTC calls">
     <meta name="robots" content="anchors">
     <meta name="description" content="What to capture and share when an audio or video call in Relay fails to connect or shows no media.">
-    <meta name="keywords" content="calls, MatrixRTC, audio, video, no media, troubleshooting, Activity Log">
+    <meta name="keywords" content="calls, MatrixRTC, audio, video, no media, troubleshooting, Console, unified logging">
     <link rel="stylesheet" href="../../Shared/relay-help.css">
     <script defer src="../../Shared/toc.js"></script>
     <title>Troubleshoot call issues</title>
@@ -21,35 +21,30 @@
 
     <h2>Quick capture (3 minutes)</h2>
 
+    <p>Relay logs call diagnostics to unified logging (subsystem <code>app.subpop.Relay</code>, category <code>Call</code>). Capture them while you reproduce the issue:</p>
+
     <ol>
-        <li>Open <strong>Window &rsaquo; Activity Log</strong> (or press <kbd>&#x2325;&#x2318;A</kbd>).</li>
-        <li>In the search bar, click the <strong>filter chip</strong> and limit to the <strong>Call</strong> category.</li>
-        <li>Leave the Activity Log window open and reproduce the failing call.</li>
-        <li>Once the call has failed (or you have media issues), press <kbd>&#x2318;S</kbd> in the Activity Log window to export the filtered events.</li>
-        <li>Save the file (default name <code>relay-activity-log.json</code>) and attach it to your bug report.</li>
+        <li>Open Terminal and start streaming Relay's call logs to a file:
+            <pre><code>log stream --predicate 'subsystem == "app.subpop.Relay" AND category == "Call"' --level debug &gt; relay-call-trace.log</code></pre>
+        </li>
+        <li>Leave Terminal running and reproduce the failing call in Relay.</li>
+        <li>Once the call has failed (or you have media issues), stop the stream with <kbd>&#x2303;C</kbd>.</li>
+        <li>Attach <code>relay-call-trace.log</code> to your bug report.</li>
     </ol>
 
-    <p>That export is everything the developers need to triage a calling problem.</p>
+    <p>That capture is everything the developers need to triage a calling problem. (You can also browse the same logs in Console.app: search for subsystem <code>app.subpop.Relay</code>, category <code>Call</code>.)</p>
 
-    <h2>What's in the export</h2>
+    <h2>What's in the capture</h2>
 
-    <p>The file is pretty-printed JSON: an array of events, each with <code>timestamp</code> (ISO 8601), <code>category</code> (will be <code>"call"</code> after filtering), <code>severity</code> (<code>debug</code> / <code>info</code> / <code>warning</code> / <code>error</code>), <code>source</code> (which subsystem logged it), <code>summary</code>, optional <code>detail</code>, optional <code>roomId</code>, and a <code>metadata</code> key-value map.</p>
+    <p>The file holds one line per event: timestamp, level (<code>debug</code> / <code>info</code> / <code>warning</code> / <code>error</code>), and a message with <code>key=value</code> context (room, participant identity, key index, …).</p>
 
-    <p>Sample event:</p>
+    <p>Sample line:</p>
 
-    <pre><code>{
-  "timestamp": "2026-06-12T14:30:05.123Z",
-  "category": "call",
-  "severity": "info",
-  "source": "LiveKitCredentialService",
-  "summary": "SFU URL discovered",
-  "roomId": "!abc:example.org",
-  "metadata": {}
-}</code></pre>
+    <pre><code>2026-09-28 09:12:44.101 Df relay[1234:abcd] [app.subpop.Relay:Call] Connected to call existingRemoteParticipants=1 room=!abc:example.org</code></pre>
 
     <h2>What's safe to share</h2>
 
-    <p>The export contains:</p>
+    <p>The capture contains:</p>
     <ul>
         <li>Your Matrix room ID (<code>!&hellip;:server</code>) and device IDs</li>
         <li>Per-call membership UUIDs and key indices</li>
@@ -69,7 +64,7 @@
         <p><strong class="callout-label">Tip: </strong>If you don't want your room IDs or device IDs in a public bug report, ask the maintainers for a DM in <a href="https://matrix.to/#/#relayapp:matrix.org">#relayapp:matrix.org</a> and share the file there.</p>
     </div>
 
-    <h2>Reading the export yourself</h2>
+    <h2>Reading the capture yourself</h2>
 
     <p>A few specific log lines act as signposts. If your file contains any of these, you can pre-diagnose your own issue.</p>
 
@@ -110,7 +105,7 @@
         <tbody>
             <tr>
                 <td><code>Distributed E2EE key to N user(s)</code> followed by <code>Received E2EE key from &hellip;</code> for each peer</td>
-                <td>Key exchange is happening. If you still have no media, the problem is in the frame-decoder routing &mdash; note the participant identity in the event's <code>detail</code>, this is the identity LiveKit assigned to the peer.</td>
+                <td>Key exchange is happening. If you still have no media, the problem is in the frame-decoder routing &mdash; note the participant identity in the message, this is the identity LiveKit assigned to the peer.</td>
             </tr>
             <tr>
                 <td>No <code>Received E2EE key from &hellip;</code> events at all</td>
@@ -130,28 +125,26 @@
     <ol>
         <li><strong>No <code>Call credentials obtained</code> event after <code>Fetching call credentials</code>.</strong> Credential exchange is failing. Almost always a homeserver-side or SFU-side configuration problem; the maintainers will need to know which homeserver you're on.</li>
         <li><strong><code>Connected to call</code> but no <code>Distributed E2EE key</code> event.</strong> The Matrix call-member state event went out, but no peers existed at the time you connected, or the local cache of call members is stale. If others were already in the call, this is a Relay bug worth reporting.</li>
-        <li><strong><code>Received E2EE key from &hellip;</code> events present, but you still see no media from those peers.</strong> Frame-cryptor routing is misaligned with the LiveKit participant identity. Please attach the export and note the LiveKit participant identity you see in those events' <code>detail</code> field.</li>
+        <li><strong><code>Received E2EE key from &hellip;</code> events present, but you still see no media from those peers.</strong> Frame-cryptor routing is misaligned with the LiveKit participant identity. Please attach the capture and note the LiveKit participant identity you see in those messages.</li>
     </ol>
 
-    <h2>When the Activity Log isn't enough</h2>
+    <h2>Deeper captures</h2>
 
-    <p>For really hard cases (the SFU is rejecting our JWT with no useful error, or the LiveKit room itself never finishes initialising) the maintainers sometimes need a unified-log capture, which records the low-level RTC trace from inside the LiveKit SDK.</p>
+    <p>For really hard cases (the SFU is rejecting our JWT with no useful error, or the LiveKit room itself never finishes initialising) the maintainers sometimes need the low-level RTC trace from inside the LiveKit SDK on top of the call capture above. Widen the predicate to the whole app subsystem:</p>
 
-    <p>While the call is reproducing the issue, run in a terminal:</p>
+    <pre><code>log stream --predicate 'subsystem == "app.subpop.Relay"' \
+           --level debug &gt; relay-call-trace.log</code></pre>
 
-    <pre><code>log stream --predicate 'subsystem == "Relay" AND category BEGINSWITH "Call"' \
-           --level info &gt; relay-call-trace.log</code></pre>
+    <p>Stop with <kbd>&#x2303;C</kbd> once the call has failed, then share <code>relay-call-trace.log</code>.</p>
 
-    <p>Stop with <kbd>&#x2303;C</kbd> once the call has failed, then share <code>relay-call-trace.log</code> alongside the Activity Log JSON.</p>
-
-    <p>The unified-log capture contains more verbose internal trace including LiveKit SDK output. It's safe in the same way the Activity Log is (no key material, no tokens), but it does contain more verbose timing and routing data. Share it through the same channel you'd share the JSON.</p>
+    <p>The wider capture contains more verbose internal trace including LiveKit SDK output. It's safe in the same way the call capture is (no key material, no tokens), but it does contain more verbose timing and routing data. Share it through the same channel you'd share the call-only file.</p>
 
     <h2>Reporting</h2>
 
     <p>File an issue at <a href="https://github.com/subpop/Relay/issues">github.com/subpop/Relay/issues</a> or message <a href="https://matrix.to/#/#relayapp:matrix.org">#relayapp:matrix.org</a>. Please include:</p>
 
     <ul>
-        <li>The <code>relay-activity-log.json</code> export (filtered to the Call category)</li>
+        <li>The <code>relay-call-trace.log</code> capture (Call category; wider app-subsystem capture for hard cases)</li>
         <li>Your homeserver hostname (e.g. <code>matrix.example.org</code>)</li>
         <li>Whether other clients (Element X, Element Web) succeed at calling on the same account</li>
         <li>A one-line description of what you saw: "fails to connect", "connects but no audio", "connects but no video", etc.</li>
@@ -163,7 +156,6 @@
         <h2>See also</h2>
         <ul>
             <li><a href="making-calls.html">Make and join calls</a></li>
-            <li><a href="activity-log.html">Use the Activity Log</a></li>
             <li><a href="reporting-issues.html">Report an issue</a></li>
         </ul>
     </div>

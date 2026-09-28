@@ -25,7 +25,7 @@ import RelayShared
 import UserNotifications
 
 private nonisolated let relayClientLogger = Logger(
-    subsystem: "Relay", category: "RelayClient")
+    subsystem: "app.subpop.Relay", category: "RelayClient")
 
 /// The central client coordinator, replacing `MatrixService`.
 ///
@@ -277,10 +277,8 @@ final class RelayClient {
             try await client.reconcileIdentity()
             try await persistSession(for: client)
         } catch {
-            ActivityLog.shared.log(
-                category: .auth, severity: .warning, source: "RelayClient",
-                summary: "Identity reconciliation failed, using stored user ID",
-                detail: error.localizedDescription)
+            relayClientLogger.warning(
+                "Identity reconciliation failed, using stored user ID: \(error.localizedDescription, privacy: .public)")
         }
         await adopt(client: client, userId: client.userId?.value ?? stored.userId)
     }
@@ -301,14 +299,11 @@ final class RelayClient {
                 return
             }
             try await persistSession(for: client)
-            ActivityLog.shared.log(
-                category: .auth, severity: .info, source: "RelayClient",
-                summary: "Signed in as \(userId)")
+            relayClientLogger.info("Signed in as \(userId, privacy: .public)")
             await adopt(client: client, userId: userId)
         } catch {
-            ActivityLog.shared.log(
-                category: .auth, severity: .error, source: "RelayClient",
-                summary: "Sign-in failed", detail: error.localizedDescription)
+            relayClientLogger.error(
+                "Sign-in failed: \(error.localizedDescription, privacy: .public)")
             authState = .error(error.localizedDescription)
         }
     }
@@ -360,11 +355,10 @@ final class RelayClient {
         isSessionVerified = false
         hasCheckedVerificationState = false
         pendingVerificationRequest = nil
+        activeVerificationSession = nil
         shouldPresentVerificationSheet = false
         lastNotifiedEventTimestamp = [:]
-        ActivityLog.shared.log(
-            category: .auth, severity: .info, source: "RelayClient",
-            summary: "Signed out")
+        relayClientLogger.info("Signed out")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
             await client.deleteLocalCryptoMaterial()
@@ -389,10 +383,8 @@ final class RelayClient {
             didFinishStartupSync = true
             startSyncLoop()
         } catch {
-            ActivityLog.shared.log(
-                category: .sync, severity: .error, source: "RelayClient",
-                summary: "Resync after cache clear failed",
-                detail: error.localizedDescription)
+            relayClientLogger.error(
+                "Resync after cache clear failed: \(error.localizedDescription, privacy: .public)")
             syncState = .error(error.localizedDescription)
         }
     }
@@ -508,22 +500,16 @@ final class RelayClient {
             try await room.markRead(latest.eventId, receiptType: Self.receiptType(sendReceipt: sendReceipt))
             receiptSent = true
         } catch {
-            ActivityLog.shared.log(
-                category: .timeline, severity: .warning, source: "RelayClient",
-                summary: "Read receipt send failed",
-                detail: error.localizedDescription,
-                roomId: roomId)
+            relayClientLogger.warning(
+                "Read receipt send failed room=\(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         var fullyReadSent = false
         do {
             try await room.sendFullyRead(latest.eventId)
             fullyReadSent = true
         } catch {
-            ActivityLog.shared.log(
-                category: .timeline, severity: .warning, source: "RelayClient",
-                summary: "Fully-read marker send failed",
-                detail: error.localizedDescription,
-                roomId: roomId)
+            relayClientLogger.warning(
+                "Fully-read marker send failed room=\(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Record only on success: a failed mark must stay retryable, or the
         // dedupe above suppresses it until a new message arrives and the
@@ -668,10 +654,8 @@ final class RelayClient {
         guard !loggedMediaFailures.contains(key) else { return }
         loggedMediaFailures.insert(key)
         Task {
-            ActivityLog.shared.log(
-                category: .media, severity: .debug, source: "RelayClient",
-                summary: "Media \(operation) failed for \(mxcURL)",
-                detail: error.localizedDescription)
+            relayClientLogger.debug(
+                "Media \(operation, privacy: .public) failed for \(mxcURL, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -940,13 +924,21 @@ final class RelayClient {
 
     /// Decline the pending incoming verification request.
     func declinePendingVerificationRequest() async {
-        guard let client, let request = pendingVerificationRequest else { return }
+        guard let request = pendingVerificationRequest else { return }
+        await declineVerificationRequest(request)
+    }
+
+    /// Decline an incoming verification request.
+    func declineVerificationRequest(_ request: IncomingVerification) async {
+        if pendingVerificationRequest == request {
+            pendingVerificationRequest = nil
+        }
+        guard let client else { return }
         try? await client.verifications.declineRequest(
             MatrixKit.IncomingVerificationRequest(
                 transactionId: request.flowId,
                 sender: UserId(unchecked: request.senderId),
                 deviceId: request.deviceId))
-        pendingVerificationRequest = nil
     }
 
     /// The shared verification monitor, for driving SAS flows.
@@ -1000,19 +992,15 @@ final class RelayClient {
             guard let peerDevice = await session.peerDeviceId else { return .verified }
             try await client.crossSigning.signDevice(
                 userId: userId, deviceId: DeviceId(peerDevice))
-            ActivityLog.shared.log(
-                category: .auth, severity: .info, source: "RelayClient",
-                summary: "Signed peer device",
-                detail: "\(userId):\(peerDevice)")
+            relayClientLogger.info(
+                "Signed peer device \(userId, privacy: .public):\(peerDevice ?? "?", privacy: .public)")
             return .verified
         }
         let peerDevice = await session.peerDeviceId
         _ = try await client.secrets.requestSecrets(
             from: userId, deviceId: peerDevice)
-        ActivityLog.shared.log(
-            category: .auth, severity: .info, source: "RelayClient",
-            summary: "Requested cross-signing secrets",
-            detail: "Approve key sharing on \(peerDevice ?? "your other device")")
+        relayClientLogger.info(
+            "Requested cross-signing secrets: approve key sharing on \(peerDevice ?? "your other device", privacy: .public)")
         return .waitingForKeyShare
     }
 
@@ -1336,11 +1324,8 @@ final class RelayClient {
         do {
             joined = try await session.join(roomId: matrixRoomId)
         } catch {
-            ActivityLog.shared.log(
-                category: .call, severity: .error, source: "RelayClient",
-                summary: "Call join failed",
-                detail: error.localizedDescription,
-                roomId: roomId)
+            relayClientLogger.error(
+                "Call join failed room=\(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             throw error
         }
         guard let userId = client.userId else { throw RelayError.notLoggedIn }
@@ -1871,13 +1856,10 @@ final class RelayClient {
     private func adopt(client: MatrixClient, userId: String) async {
         self.client = client
         authState = .loggedIn(userId: userId)
-        ActivityLog.shared.log(
-            category: .auth, severity: .debug, source: "RelayClient",
-            summary: "Session adopted",
-            metadata: [
-                "oidc": String(await client.session.isOIDC),
-                "hasRefreshToken": String(await client.session.refreshToken != nil),
-            ])
+        let isOIDC = await client.session.isOIDC
+        let hasRefreshToken = await client.session.refreshToken != nil
+        relayClientLogger.debug(
+            "Session adopted oidc=\(isOIDC, privacy: .public) hasRefreshToken=\(hasRefreshToken, privacy: .public)")
         startNetworkMonitor()
         // Publish device keys + one-time keys so peers can resolve this
         // device (verification requests otherwise go unanswered), then
@@ -1887,32 +1869,20 @@ final class RelayClient {
             try await RelayClient.bootstrapEncryption(
                 on: client, keystore: keychain)
             await client.secrets.autoload()
-            ActivityLog.shared.log(
-                category: .auth, severity: .debug, source: "RelayClient",
-                summary: "Device keys published")
+            relayClientLogger.debug("Device keys published")
         } catch {
-            ActivityLog.shared.log(
-                category: .auth, severity: .warning, source: "RelayClient",
-                summary: "Encryption bootstrap failed",
-                detail: error.localizedDescription)
+            relayClientLogger.warning(
+                "Encryption bootstrap failed: \(error.localizedDescription, privacy: .public)")
         }
         await client.configureEncryption()
-        ActivityLog.shared.log(
-            category: .sync, severity: .debug, source: "RelayClient",
-            summary: "Restoring cached snapshot")
+        relayClientLogger.debug("Restoring cached snapshot")
         await restoreCache(into: client)
-        ActivityLog.shared.log(
-            category: .sync, severity: .debug, source: "RelayClient",
-            summary: "Cache restore done")
+        relayClientLogger.debug("Cache restore done")
         syncState = .syncing
         do {
-            ActivityLog.shared.log(
-                category: .sync, severity: .debug, source: "RelayClient",
-                summary: "Starting initial sync")
+            relayClientLogger.debug("Starting initial sync")
             try await initialSyncRoundTrip()
-            ActivityLog.shared.log(
-                category: .sync, severity: .debug, source: "RelayClient",
-                summary: "Initial sync request done")
+            relayClientLogger.debug("Initial sync request done")
             // Heal rooms whose avatar update sync missed (e.g. delivered
             // only inside a timeline window): one cheap state-event fetch
             // each. DMs are skipped since they present a member avatar.
@@ -1921,19 +1891,15 @@ final class RelayClient {
                 where room.avatarURL == nil && !room.presentsAsDirect
             {
                 if await room.hydrateMissingAvatar() {
-                    ActivityLog.shared.log(
-                        category: .sync, severity: .info, source: "RelayClient",
-                        summary: "Healed missing room avatar",
-                        detail: room.roomId.value)
+                    relayClientLogger.info(
+                        "Healed missing room avatar room=\(room.roomId.value, privacy: .public)")
                 }
             }
             saveCache()
             try? await persistSession(for: client)
             hasLoadedRooms = true
             syncState = .running
-            ActivityLog.shared.log(
-                category: .sync, severity: .info, source: "RelayClient",
-                summary: "Initial sync completed")
+            relayClientLogger.info("Initial sync completed")
             startVerificationMonitor()
             startSecretsMonitor()
             startNotificationMonitor()
@@ -1942,13 +1908,10 @@ final class RelayClient {
             // The caller went away mid-sync (e.g. a torn-down view task),
             // not a sync failure: leave state alone, the live loop starting
             // below takes over.
-            ActivityLog.shared.log(
-                category: .sync, severity: .debug, source: "RelayClient",
-                summary: "Initial sync cancelled by caller")
+            relayClientLogger.debug("Initial sync cancelled by caller")
         } catch {
-            ActivityLog.shared.log(
-                category: .sync, severity: .error, source: "RelayClient",
-                summary: "Initial sync failed", detail: error.localizedDescription)
+            relayClientLogger.error(
+                "Initial sync failed: \(error.localizedDescription, privacy: .public)")
             syncState = .error(error.localizedDescription)
         }
         // The live loop starts regardless: a failed initial sync (e.g. a
@@ -1982,9 +1945,8 @@ final class RelayClient {
                     try await client.startSync()
                 }
             } catch {
-                ActivityLog.shared.log(
-                    category: .sync, severity: .error, source: "RelayClient",
-                    summary: "Sync loop stopped", detail: error.localizedDescription)
+                relayClientLogger.error(
+                    "Sync loop stopped: \(error.localizedDescription, privacy: .public)")
                 if syncState == .running {
                     syncState = .error(error.localizedDescription)
                 }
@@ -2004,9 +1966,8 @@ final class RelayClient {
         guard wantSliding != usingSlidingSync else { return }
         syncTask?.cancel()
         syncTask = nil
-        ActivityLog.shared.log(
-            category: .sync, severity: .info, source: "RelayClient",
-            summary: wantSliding ? "Switching to sliding sync" : "Switching to classic sync")
+        relayClientLogger.info(
+            "\(wantSliding ? "Switching to sliding sync" : "Switching to classic sync", privacy: .public)")
         Task {
             await client.stopSync()
             await client.stopSlidingSync()
@@ -2044,14 +2005,10 @@ final class RelayClient {
         do {
             try await client.auth.refresh()
             try? await persistSession(for: client)
-            ActivityLog.shared.log(
-                category: .auth, severity: .debug, source: "RelayClient",
-                summary: "Session tokens refreshed")
+            relayClientLogger.debug("Session tokens refreshed")
         } catch {
-            ActivityLog.shared.log(
-                category: .auth, severity: .warning, source: "RelayClient",
-                summary: "Session token refresh failed",
-                detail: error.localizedDescription)
+            relayClientLogger.warning(
+                "Session token refresh failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -2062,10 +2019,8 @@ final class RelayClient {
             for await event in stream {
                 switch event {
                 case .requestReceived(let request):
-                    ActivityLog.shared.log(
-                        category: .auth, severity: .info, source: "RelayClient",
-                        summary: "Verification request received",
-                        detail: "From \(request.sender.value) device \(request.deviceId)")
+                    relayClientLogger.info(
+                        "Verification request received from \(request.sender.value, privacy: .public) device \(request.deviceId, privacy: .public)")
                     pendingVerificationRequest = IncomingVerification(
                         flowId: request.transactionId,
                         deviceId: request.deviceId,
@@ -2075,10 +2030,8 @@ final class RelayClient {
                 case .sasReady:
                     break
                 case .failed(let transactionId, let message):
-                    ActivityLog.shared.log(
-                        category: .auth, severity: .error, source: "RelayClient",
-                        summary: "Verification failed",
-                        detail: "\(transactionId): \(message)")
+                    relayClientLogger.error(
+                        "Verification failed \(transactionId, privacy: .public): \(message, privacy: .public)")
                 }
             }
         }
@@ -2092,10 +2045,8 @@ final class RelayClient {
         secretsTask = Task {
             let stream = await client.secrets.events()
             for await _ in stream {
-                ActivityLog.shared.log(
-                    category: .auth, severity: .info, source: "RelayClient",
-                    summary: "Cross-signing secrets received",
-                    detail: "Refreshing verification state")
+                relayClientLogger.info(
+                    "Cross-signing secrets received: refreshing verification state")
                 await refreshVerificationState()
             }
         }
@@ -2170,17 +2121,14 @@ final class RelayClient {
         for roomId in delta.joined.keys { loggedInviteRoomIds.remove(roomId.value) }
         for (roomId, invite) in delta.invited {
             guard loggedInviteRoomIds.insert(roomId.value).inserted else { continue }
-            ActivityLog.shared.log(
-                category: .roomList, severity: .info, source: "RelayClient",
-                summary: "Invited to \(roomDisplayName(for: roomId))",
-                detail: invite.inviter.map { "From \($0.value)" },
-                roomId: roomId.value)
+            let invitedName = roomDisplayName(for: roomId)
+            relayClientLogger.info(
+                "Invited to \(invitedName, privacy: .public) from \(invite.inviter?.value ?? "?", privacy: .public) room=\(roomId.value, privacy: .public)")
         }
         for roomId in delta.left.keys {
-            ActivityLog.shared.log(
-                category: .roomList, severity: .info, source: "RelayClient",
-                summary: "Left \(roomDisplayName(for: roomId))",
-                roomId: roomId.value)
+            let leftName = roomDisplayName(for: roomId)
+            relayClientLogger.info(
+                "Left \(leftName, privacy: .public) room=\(roomId.value, privacy: .public)")
         }
     }
 
@@ -2233,9 +2181,7 @@ final class RelayClient {
                 let connected = path.status == .satisfied
                 self.isNetworkConnected = connected
                 if !connected {
-                    ActivityLog.shared.log(
-                        category: .network, severity: .warning, source: "RelayClient",
-                        summary: "Connectivity lost")
+                    relayClientLogger.warning("Connectivity lost")
                     if self.syncState == .running || self.syncState == .syncing {
                         self.syncState = .offline
                     }
@@ -2243,9 +2189,7 @@ final class RelayClient {
                     self.syncTask = nil
                 } else {
                     if self.syncState == .offline {
-                        ActivityLog.shared.log(
-                            category: .network, severity: .info, source: "RelayClient",
-                            summary: "Connectivity restored")
+                        relayClientLogger.info("Connectivity restored")
                         self.syncState = .running
                     }
                     self.startSyncIfNeeded()

@@ -16,7 +16,7 @@ import Foundation
 import Intents
 import os
 
-private let logger = Logger(subsystem: "Relay", category: "IntentDonation")
+private let logger = Logger(subsystem: "app.subpop.Relay", category: "IntentDonation")
 
 /// Donates `INSendMessageIntent` interactions so macOS can suggest Relay
 /// conversations in the system share sheet.
