@@ -37,7 +37,7 @@ struct SettingsBehaviorTab: View {
                 Toggle("Send Typing Notifications", isOn: $sendTypingNotifications)
                 Toggle(isOn: $giphyAnalyticsOptIn) {
                     Text("Personalize GIF Search Results")
-                    Text("When enabled, Relay uses an anonymouse identifier to improve search results sent to GIPHY. When disabled, no identifier is sent at all.")
+                    Text("When enabled, Relay uses an anonymous identifier to improve search results sent to GIPHY. When disabled, no identifier is sent at all.")
                     Link("GIPHY Privacy Policy", destination: URL(string: "https://support.giphy.com/hc/en-us/articles/360032872931-GIPHY-Privacy-Policy")!).font(.caption)
                 }
             } header: {
