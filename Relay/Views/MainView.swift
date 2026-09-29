@@ -369,7 +369,9 @@ struct MainView: View {
                 Text(invite.name)
                     .font(.title)
                     .bold()
-                if let inviterName = invite.inviterName {
+                // Skip the inviter line when it repeats the title (DM invites,
+                // where the peer is the inviter).
+                if let inviterName = invite.inviterName, inviterName != invite.name {
                     Text("Invited by \(inviterName)")
                         .font(.subheadline)
                         .foregroundStyle(.tertiary)

@@ -102,7 +102,7 @@ struct InviteRowData: Identifiable, Hashable, Sendable {
             roomId: room.roomId.value,
             name: room.displayName,
             topic: room.topic,
-            avatarURL: room.avatarURL?.value,
+            avatarURL: room.presentingAvatarURL?.value,
             inviterName: room.inviterName,
             inviterAvatarURL: room.inviterAvatarURL?.value,
             isSpace: room.isSpace)
