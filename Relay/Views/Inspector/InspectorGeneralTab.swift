@@ -243,6 +243,7 @@ struct InspectorGeneralTab: View {
                 Text(topic)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
             }
