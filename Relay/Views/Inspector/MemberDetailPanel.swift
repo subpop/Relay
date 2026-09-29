@@ -430,7 +430,7 @@ private struct ModerationButton: View {
         onMessageTap: { print("Message tapped") },
         onBack: { print("Back tapped") }
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 260, height: 600)
 }
 
@@ -449,6 +449,6 @@ private struct ModerationButton: View {
         onMessageTap: { print("Message tapped") },
         onBack: { print("Back tapped") }
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 260, height: 600)
 }

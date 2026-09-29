@@ -114,6 +114,7 @@ struct InviteListRow: View {
         onAccept: {},
         onDecline: {}
     )
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300)
 }
 
@@ -126,6 +127,7 @@ struct InviteListRow: View {
         onAccept: {},
         onDecline: {}
     )
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300)
 }
 
@@ -139,6 +141,7 @@ struct InviteListRow: View {
         onAccept: {},
         onDecline: {}
     )
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300)
 }
 #Preview("Compact") {
@@ -159,6 +162,7 @@ struct InviteListRow: View {
             onDecline: {}
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 200)
 }
 

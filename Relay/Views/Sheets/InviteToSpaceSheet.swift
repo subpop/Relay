@@ -65,5 +65,5 @@ struct InviteToSpaceSheet: View {
         spaceId: "!space-work:matrix.org",
         spaceName: "Work"
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
 }

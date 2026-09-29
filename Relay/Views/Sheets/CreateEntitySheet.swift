@@ -266,17 +266,17 @@ struct CreateEntitySheet: View {
 
 #Preview("Create Room") {
     CreateEntitySheet(kind: .room, selectedRoomId: .constant(nil))
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }
 
 #Preview("Create Space") {
     CreateEntitySheet(kind: .space)
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }
 
 #Preview("Create Sub-Space") {
     CreateEntitySheet(
         kind: .subSpace(parentId: "!space-work:matrix.org", parentName: "Work")
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
 }

@@ -93,6 +93,7 @@ struct MessageSearchRow: View {
             onSelect: {}
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .formStyle(.grouped)
     .frame(width: 500, height: 120)
 }
@@ -111,6 +112,7 @@ struct MessageSearchRow: View {
             onSelect: {}
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .formStyle(.grouped)
     .frame(width: 500, height: 120)
 }
@@ -129,6 +131,7 @@ struct MessageSearchRow: View {
             onSelect: {}
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .formStyle(.grouped)
     .frame(width: 500, height: 120)
 }

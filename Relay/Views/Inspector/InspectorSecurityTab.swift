@@ -258,10 +258,12 @@ struct SecurityStatusRow: View {
 
 #Preview("Read Only") {
     InspectorSecurityTab(viewModel: .preview())
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 #Preview("Admin") {
     InspectorSecurityTab(viewModel: .preview(asAdmin: true))
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 

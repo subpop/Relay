@@ -237,6 +237,7 @@ private nonisolated enum CornerArc {
         AvatarView(name: "Bob", mxcURL: nil, size: 36)
         AvatarView(name: "Charlie Davis", mxcURL: nil, size: 28)
     }
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }
 
@@ -246,5 +247,6 @@ private nonisolated enum CornerArc {
         AvatarView(name: "Relay User", mxcURL: nil, size: 36)
         AvatarView(name: "Relay User", mxcURL: nil, size: 24)
     }
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }

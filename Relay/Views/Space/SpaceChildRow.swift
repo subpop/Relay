@@ -125,7 +125,7 @@ struct SpaceChildRow: View {
         ),
         onTap: {}
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }
 
@@ -140,7 +140,7 @@ struct SpaceChildRow: View {
         ),
         onJoin: {}
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }
 
@@ -155,6 +155,6 @@ struct SpaceChildRow: View {
         ),
         onTap: {}
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }

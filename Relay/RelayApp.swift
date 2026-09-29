@@ -110,10 +110,12 @@ struct RelayApp: App {
     }
 
     /// The root content view, configured with real services at runtime or
-    /// bare (using environment-key defaults) during Xcode previews.
+    /// a bare client during Xcode previews.
     @ViewBuilder private var contentView: some View {
         if Self.isPreview {
             ContentView()
+                .environment(client)
+                .environment(appActions)
                 .preferredColorScheme(appearanceMode.colorScheme)
         } else {
             ContentView()

@@ -124,5 +124,5 @@ struct NewDirectMessageSheet: View {
 
 #Preview("New Direct Message") {
     NewDirectMessageSheet(selectedRoomId: .constant(nil))
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }

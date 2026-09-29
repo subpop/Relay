@@ -330,6 +330,7 @@ private let previewMembers: [RoomMemberDetails] = [
             onAttach: { _ in },
             onGIFSelected: { _ in }
         )
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 400)
     }
     .frame(height: 350)

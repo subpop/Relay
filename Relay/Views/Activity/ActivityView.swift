@@ -369,7 +369,7 @@ private enum ActivityDiagnostics {
 
 #Preview("Signed Out") {
     ActivityView()
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 480, height: 600)
 }
 

@@ -589,7 +589,7 @@ private struct ToolbarRoomLabel: View {
 
 #Preview {
     MainView()
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
         .environment(AppActions())
         .frame(width: 900, height: 600)
 }

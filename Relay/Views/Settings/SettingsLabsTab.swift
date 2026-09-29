@@ -56,5 +56,5 @@ struct SettingsLabsTab: View {
             .tabItem { Label("Labs", systemImage: "flask") }
     }
     .frame(width: 480)
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
 }

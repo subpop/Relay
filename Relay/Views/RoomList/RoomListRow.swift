@@ -218,16 +218,19 @@ extension AttributedString {
 
 #Preview("Plain Unread") {
     RoomListRow(room: PreviewFixtures.rooms[0])
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 300)
 }
 
 #Preview("Muted Room") {
     RoomListRow(room: PreviewFixtures.rooms[2])
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 300)
 }
 
 #Preview("Unread and Mentions") {
     RoomListRow(room: PreviewFixtures.rooms[4])
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 300)
 }
 
@@ -241,6 +244,7 @@ extension AttributedString {
         notificationCount: 2,
         highlightCount: 2
     ))
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300)
 }
 
@@ -253,11 +257,13 @@ extension AttributedString {
         lastMessageTimestamp: .now.addingTimeInterval(-1800),
         notificationCount: 7
     ))
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300)
 }
 
 #Preview("Unread DM") {
     RoomListRow(room: PreviewFixtures.rooms[1])
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 300)
 }
 
@@ -270,6 +276,7 @@ extension AttributedString {
         lastMessageTimestamp: .now.addingTimeInterval(-7200),
         isDirect: true
     ))
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300)
 }
 
@@ -284,6 +291,7 @@ extension AttributedString {
             name: "Development"
         ))
     }
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 240)
 }
 

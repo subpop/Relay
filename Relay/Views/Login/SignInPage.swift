@@ -250,5 +250,6 @@ private struct OrDivider: View {
 
 #Preview {
     SignInPage(step: .constant(.signIn))
+        .environment(PreviewFixtures.loggedOutClient)
         .frame(width: 700, height: 580)
 }

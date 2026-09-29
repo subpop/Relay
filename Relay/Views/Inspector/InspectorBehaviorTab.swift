@@ -253,5 +253,6 @@ private struct BehaviorOverridePicker: View {
 
 #Preview {
     InspectorBehaviorTab(roomId: "!design:matrix.org")
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }

@@ -176,6 +176,6 @@ struct KeyRestoreBanner: View {
         Spacer()
         KeyRestoreBanner()
     }
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 280, height: 200)
 }

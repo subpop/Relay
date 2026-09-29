@@ -902,25 +902,30 @@ struct InspectorInfoRow: View {
 
 #Preview("Room") {
     InspectorGeneralTab(viewModel: .preview())
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Room (Admin)") {
     InspectorGeneralTab(viewModel: .preview(asAdmin: true))
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Direct") {
     InspectorGeneralTab(viewModel: .preview(isDirect: true))
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Space") {
     InspectorGeneralTab(viewModel: .preview(context: .space), context: .space)
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Space (Admin)") {
     InspectorGeneralTab(viewModel: .preview(context: .space, asAdmin: true), context: .space)
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }

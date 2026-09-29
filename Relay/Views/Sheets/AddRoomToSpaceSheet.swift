@@ -163,5 +163,5 @@ private struct RoomPickerRow: View {
         spaceName: "Work",
         existingChildIds: ["!design:matrix.org"]
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
 }

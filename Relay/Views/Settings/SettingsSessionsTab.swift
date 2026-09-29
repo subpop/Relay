@@ -188,6 +188,6 @@ private struct DeviceRow: View {
         SettingsSessionsTab()
             .tabItem { Label("Sessions", systemImage: "desktopcomputer") }
     }
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 480)
 }

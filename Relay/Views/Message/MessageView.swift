@@ -254,6 +254,7 @@ struct MessageView: View {
         )
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 500)
 }
@@ -282,6 +283,7 @@ struct MessageView: View {
             isOutgoing: true
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 500)
 }
@@ -311,6 +313,7 @@ struct MessageView: View {
             isOutgoing: false
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 500)
 }
@@ -369,6 +372,7 @@ struct MessageView: View {
             showSenderName: true
         )
     }
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 500)
 }

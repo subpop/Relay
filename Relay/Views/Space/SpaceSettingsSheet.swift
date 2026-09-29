@@ -280,5 +280,5 @@ struct SpaceSettingsSheet: View {
             historyVisibility: "shared"
         )
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
 }

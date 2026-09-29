@@ -145,6 +145,7 @@ struct TypingBubble: View {
     TypingIndicatorRowView(users: [
         TypingUser(id: "@alice:matrix.org", displayName: "Alice")
     ])
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }
 
@@ -154,5 +155,6 @@ struct TypingBubble: View {
         TypingUser(id: "@bob:matrix.org", displayName: "Bob"),
         TypingUser(id: "@charlie:matrix.org", displayName: "Charlie")
     ])
+    .environment(PreviewFixtures.previewClient())
     .padding()
 }

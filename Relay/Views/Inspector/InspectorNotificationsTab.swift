@@ -154,5 +154,6 @@ private extension RoomNotificationMode {
 
 #Preview {
     InspectorNotificationsTab(viewModel: .preview())
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }

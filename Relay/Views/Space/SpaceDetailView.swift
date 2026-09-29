@@ -398,7 +398,7 @@ struct SpaceDetailView: View {
         ),
         selectedRoomId: .constant(nil)
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 600, height: 600)
 }
 #Preview("No Rooms") {
@@ -412,7 +412,7 @@ struct SpaceDetailView: View {
         ),
         selectedRoomId: .constant(nil)
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 600, height: 600)
 }
 

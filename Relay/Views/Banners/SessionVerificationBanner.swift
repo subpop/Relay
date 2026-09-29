@@ -256,6 +256,6 @@ struct SessionVerificationBanner: View {
 
 #Preview("Verified") {
     SessionVerificationBanner()
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 200)
 }

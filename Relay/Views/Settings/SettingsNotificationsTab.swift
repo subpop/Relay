@@ -465,7 +465,7 @@ private struct FlowLayout: Layout {
         SettingsNotificationsTab()
             .tabItem { Label("Notifications", systemImage: "bell") }
     }
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 480)
 }
 

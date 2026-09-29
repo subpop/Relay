@@ -177,5 +177,6 @@ private struct QuickSwitchRow: View {
         selectedRoomId: .constant(nil),
         isPresented: .constant(true)
     )
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 600, height: 500)
 }

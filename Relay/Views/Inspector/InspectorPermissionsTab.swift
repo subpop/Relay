@@ -304,5 +304,6 @@ private struct InfoPopoverButton: View {
 
 #Preview("Admin") {
     InspectorPermissionsTab(viewModel: .preview(asAdmin: true))
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 700)
 }

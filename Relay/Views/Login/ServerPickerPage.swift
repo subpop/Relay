@@ -240,5 +240,6 @@ private struct DirectoryLinkRow: View {
 
 #Preview {
     ServerPickerPage(step: .constant(.pickServer))
+        .environment(PreviewFixtures.loggedOutClient)
         .frame(width: 700, height: 580)
 }

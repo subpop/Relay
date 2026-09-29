@@ -161,10 +161,10 @@ struct PinnedMessagesView: View {
 
 #Preview("With Messages") {
     PinnedMessagesView(roomId: "!design:matrix.org")
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }
 
 #Preview("Empty") {
     PinnedMessagesView(roomId: "!hq:matrix.org")
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }

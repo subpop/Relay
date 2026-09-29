@@ -387,6 +387,7 @@ struct MessageBubbleContent: View {
         )
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 450)
 }
@@ -427,6 +428,7 @@ struct MessageBubbleContent: View {
         )
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 450)
 }

@@ -130,5 +130,5 @@ struct JoinRoomSheet: View {
 
 #Preview("Join Room") {
     JoinRoomSheet(selectedRoomId: .constant(nil))
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }

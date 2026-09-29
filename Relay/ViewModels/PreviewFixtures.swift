@@ -96,6 +96,17 @@ enum PreviewFixtures {
         inviterName: "Grace Hopper",
         inviterAvatarURL: nil)
 
+    /// A fresh, inert client for previews that only need a `RelayClient`
+    /// in the environment.
+    ///
+    /// The client never opens a session: its `MatrixClient` stays `nil`,
+    /// so no keychain, network monitor, sync loop, or SwiftData access
+    /// occurs. Prefer the state-specific fixtures below when the preview
+    /// shows banners or verification UI.
+    static func previewClient() -> RelayClient {
+        RelayClient()
+    }
+
     /// A logged-out client (default state).
     static let loggedOutClient: RelayClient = {
         let client = RelayClient()

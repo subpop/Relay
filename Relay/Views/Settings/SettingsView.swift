@@ -57,6 +57,7 @@ struct SettingsView: View {
 
 #Preview("General") {
     SettingsView()
+        .environment(PreviewFixtures.previewClient())
 }
 
 #Preview("Verification — Emoji") {

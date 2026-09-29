@@ -195,6 +195,7 @@ private struct MentionRowButtonStyle: ButtonStyle {
             }(),
             onSelect: { _ in }
         )
+        .environment(PreviewFixtures.previewClient())
         .padding()
     }
     .frame(width: 400, height: 300)
@@ -223,6 +224,7 @@ private struct MentionRowButtonStyle: ButtonStyle {
             }(),
             onSelect: { _ in }
         )
+        .environment(PreviewFixtures.previewClient())
         .padding()
     }
     .frame(width: 400, height: 300)

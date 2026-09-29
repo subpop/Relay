@@ -65,5 +65,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }

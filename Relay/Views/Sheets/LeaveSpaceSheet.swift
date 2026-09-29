@@ -195,5 +195,5 @@ private struct LeaveSpaceChildRow: View {
             LeaveSpaceChild(roomId: RoomId(unchecked: "!admin:matrix.org"), name: "Admin", isLastOwner: true, memberCount: 3)
         ]
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
 }

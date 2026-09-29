@@ -93,6 +93,6 @@ struct SettingsEncryptionTab: View {
         SettingsEncryptionTab()
             .tabItem { Label("Encryption", systemImage: "lock.fill") }
     }
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 480)
 }

@@ -428,7 +428,7 @@ extension RoomListView {
         selectedRoomId: $sel,
         selectedSpaceId: $space
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .environment(AppActions())
     .frame(width: 300, height: 400)
 }
@@ -438,7 +438,7 @@ extension RoomListView {
         selectedRoomId: .constant(nil),
         selectedSpaceId: .constant(nil)
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .environment(AppActions())
     .frame(width: 300, height: 400)
 }

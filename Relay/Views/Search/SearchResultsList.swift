@@ -165,7 +165,7 @@ private let previewResults: [MessageSearchResult] = [
         selectedRoomId: $selected,
         onMessageSelected: { _, _ in }
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300, height: 500)
 }
 
@@ -179,7 +179,7 @@ private let previewResults: [MessageSearchResult] = [
         selectedRoomId: $selected,
         onMessageSelected: { _, _ in }
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300, height: 500)
 }
 
@@ -192,6 +192,6 @@ private let previewResults: [MessageSearchResult] = [
         selectedRoomId: $selected,
         onMessageSelected: { _, _ in }
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 300, height: 500)
 }

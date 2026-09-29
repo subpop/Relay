@@ -42,20 +42,24 @@ struct LoginView: View {
 
 #Preview {
     LoginView()
+        .environment(PreviewFixtures.loggedOutClient)
         .frame(width: 700, height: 580)
 }
 
 #Preview("Welcome") {
     WelcomePage(step: .constant(.welcome))
+        .environment(PreviewFixtures.loggedOutClient)
         .frame(width: 700, height: 580)
 }
 
 #Preview("Server Picker") {
     ServerPickerPage(step: .constant(.pickServer))
+        .environment(PreviewFixtures.loggedOutClient)
         .frame(width: 700, height: 580)
 }
 
 #Preview("Sign In") {
     SignInPage(step: .constant(.signIn))
+        .environment(PreviewFixtures.loggedOutClient)
         .frame(width: 700, height: 580)
 }

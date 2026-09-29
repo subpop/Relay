@@ -168,6 +168,6 @@ struct OfflineBanner: View {
         Spacer()
         OfflineBanner()
     }
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 280, height: 200)
 }

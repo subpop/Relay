@@ -257,6 +257,7 @@ struct SpaceRailDivider: View {
         rooms: PreviewFixtures.rooms,
         selectedSpaceId: $selectedSpace
     )
+    .environment(PreviewFixtures.previewClient())
     .frame(height: 400)
     .background(.background)
 }

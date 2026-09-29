@@ -310,6 +310,7 @@ private func previewRow(
         onAppear: { _ in }
     )
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
 }
 
 /// Sample conversation for row previews.
@@ -378,6 +379,7 @@ private func previewRows(_ messages: [ObservableTimelineEvent]) -> [MessageRow] 
         .padding()
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 500, height: 700)
 }
 
@@ -468,6 +470,7 @@ private func previewRows(_ messages: [ObservableTimelineEvent]) -> [MessageRow] 
         .padding()
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 500, height: 500)
 }
 
@@ -521,6 +524,7 @@ private func previewRows(_ messages: [ObservableTimelineEvent]) -> [MessageRow] 
         )
     }
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .environment(PreviewFixtures.previewClient())
     .padding()
     .frame(width: 500)
 }

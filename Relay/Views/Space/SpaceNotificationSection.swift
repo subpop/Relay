@@ -140,7 +140,7 @@ private struct NotificationModeButton: View {
         )
     }
     .formStyle(.grouped)
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 600, height: 300)
 }
 
@@ -153,6 +153,6 @@ private struct NotificationModeButton: View {
         )
     }
     .formStyle(.grouped)
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 600, height: 300)
 }

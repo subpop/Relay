@@ -247,5 +247,5 @@ private struct DirectoryRoomRow: View {
     @Previewable @State var selected: String?
 
     RoomDirectoryView(selectedRoomId: $selected)
-        .environment(RelayClient())
+        .environment(PreviewFixtures.previewClient())
 }

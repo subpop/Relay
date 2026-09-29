@@ -361,13 +361,13 @@ struct InspectorMembersTab: View {
 
 #Preview("Room") {
     InspectorMembersTab(viewModel: .preview(), selectedProfile: .constant(nil))
-            .environment(RelayClient())
+            .environment(PreviewFixtures.previewClient())
             .frame(width: 280, height: 600)
 }
 
 #Preview("Room (Admin)") {
     InspectorMembersTab(viewModel: .preview(asAdmin: true), selectedProfile: .constant(nil))
-            .environment(RelayClient())
+            .environment(PreviewFixtures.previewClient())
             .frame(width: 280, height: 600)
 }
 
@@ -377,6 +377,6 @@ struct InspectorMembersTab: View {
         context: .space,
         selectedProfile: .constant(nil)
     )
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 280, height: 600)
 }

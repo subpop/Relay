@@ -392,7 +392,13 @@ final class RelayClient {
     // MARK: - Session
 
     /// Restore a previously saved session from the keychain, if any.
+    ///
+    /// Never runs in Xcode previews: restoring would adopt (and sync)
+    /// the user's live account inside the canvas.
     func restoreSession() async {
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else {
+            return
+        }
         guard
             let data = try? await keychain.load(KeyStoreKey(
                 service: Self.sessionService, account: Self.sessionAccount)),

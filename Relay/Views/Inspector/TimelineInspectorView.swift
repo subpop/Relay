@@ -200,10 +200,12 @@ struct TimelineInspectorView: View {
 
 #Preview("Room") {
     TimelineInspectorView(roomId: "!design:matrix.org", context: .room)
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
 
 #Preview("Space") {
     TimelineInspectorView(roomId: "!space-work:matrix.org", context: .space)
+        .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }

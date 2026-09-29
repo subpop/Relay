@@ -273,6 +273,6 @@ private struct CopyableLabeledContent: View {
         SettingsAccountTab()
             .tabItem { Label("Account", systemImage: "person.crop.circle") }
     }
-    .environment(RelayClient())
+    .environment(PreviewFixtures.previewClient())
     .frame(width: 480)
 }
