@@ -31,7 +31,10 @@ A native macOS chat app built with SwiftUI on top of [MatrixKit](https://github.
 
 ## Diagnostics
 
-Relay and MatrixKit log to unified logging instead of an in-app viewer.
+The Activity window (Window menu, or ⌥⌘A) shows live session health:
+connection state, sync mode, session trust, server capabilities, and
+recent notable moments. Relay and MatrixKit log to unified logging
+instead of an in-app viewer.
 Subsystem `app.subpop.Relay` carries app diagnostics (per-feature
 categories: `RelayClient`, `Call`, `Captions`, `Giphy`, `Timeline`, …);
 subsystem `app.subpop.MatrixKit` carries SDK traffic (per-component

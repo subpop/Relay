@@ -58,8 +58,9 @@ protocol-interposition layer.
   MatrixKit's `ObservableRoom` (`events:
   [ObservableTimelineEvent]`, pagination, read markers, send/edit/
   react/redact). Cheap to create; callers make one per opened room.
-- **App-side services** — `ActivityLog` (diagnostic ring buffer fed
-  by `RelayClient`), `GiphyService` (+ `GIFSearchServiceProtocol`),
+- **App-side services** — `RelayClient.SyncStats` (rolling sync
+  counters fed by the live delta monitor) plus the `recentActivity`
+  feed, `GiphyService` (+ `GIFSearchServiceProtocol`),
   `IntentDonationService`, `ComposeDraftStore`, `ErrorReporter`.
 - **Views/Models/Utilities** — SwiftUI views, `MatrixHTMLParser`,
   mention/emoji helpers, text scaling, inspector/settings/directory/
@@ -104,7 +105,7 @@ RelayClient                    (concrete @Observable, in Relay/)
 ```
 
 `RelayApp` owns one `RelayClient` (`@State`) and injects it into
-`ContentView`, `SettingsView`, and `ActivityLogView`. Views declare
+`ContentView`, `SettingsView`, and `ActivityView`. Views declare
 `@Environment(RelayClient.self) private var client` and call it
 directly. Previews construct a bare `RelayClient()` (or fixture
 view models); `RelayApp` skips heavy services under
@@ -141,8 +142,9 @@ Relay/
   ContentView.swift           Routes on RelayClient.AuthState / SyncState
   Views/                      SwiftUI views (import MatrixKit directly)
   ViewModels/                 TimelineViewModel, SearchViewModel, RoomDirectoryViewModel,
-                              SpaceHierarchyViewModel, SessionVerificationViewModel, fixtures
-  Services/                   RelayClient, KeychainKeyStore, ActivityLog,
+                              SpaceHierarchyViewModel, SessionVerificationViewModel,
+                              ActivityViewModel, fixtures
+  Services/                   RelayClient, KeychainKeyStore,
                               GiphyService, IntentDonationService
   Models/ Utilities/          RoomDetails, MatrixHTMLParser, EmojiDetection, …
   Generated/Secrets.swift     GIPHY key plumbing (see Secrets.xcconfig)

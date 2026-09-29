@@ -89,6 +89,14 @@ struct RelayApp: App {
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
 
+        Window("Activity", id: "activity") {
+            ActivityView()
+                .environment(client)
+                .preferredColorScheme(appearanceMode.colorScheme)
+        }
+        .defaultSize(width: 480, height: 600)
+        .keyboardShortcut("a", modifiers: [.option, .command])
+
         Window("Call", id: "call") {
             CallWindowView()
                 .environment(\.callManager, callManager)

@@ -36,7 +36,7 @@
     <h2>Capture logs</h2>
     <p>Relay logs to unified logging: subsystem <code>app.subpop.Relay</code> for the app, subsystem <code>app.subpop.MatrixKit</code> for sync, crypto, and protocol traffic. While reproducing the issue, run in Terminal:</p>
     <pre><code>log stream --predicate 'subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit"' --level debug &gt; relay-trace.log</code></pre>
-    <p>Stop with <kbd>&#x2303;C</kbd> once you've reproduced it, then attach <code>relay-trace.log</code>. Narrow to one subsystem (or add <code>AND category == "Call"</code>, for example) when the file gets large. Console.app shows the same logs with search and level filters.</p>
+    <p>Stop with <kbd>&#x2303;C</kbd> once you've reproduced it, then attach <code>relay-trace.log</code>. Narrow to one subsystem (or add <code>AND category == "Call"</code>, for example) when the file gets large. Console.app shows the same logs with search and level filters. For an at-a-glance overview of connection state, sync mode, session trust, and server capabilities, open the Activity window (Window menu, or <kbd>&#x2325;&#x2318;A</kbd>).</p>
 
     <h2>Privacy considerations</h2>
     <p>The log capture contains room IDs, device IDs, and your homeserver hostname. It does not contain message content, encryption keys, or authentication tokens. If you prefer not to share this information publicly, contact the maintainers privately in the Matrix room.</p>

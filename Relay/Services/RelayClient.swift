@@ -64,6 +64,121 @@ final class RelayClient {
         case error(String)
     }
 
+    /// Rolling sync statistics for the Activity window.
+    ///
+    /// Fed by the live delta monitor (`handleSyncDelta`); samples age
+    /// out after ten minutes so `rates()` and `buckets()` reflect
+    /// recent traffic.
+    struct SyncStats {
+        /// How long per-delta samples are kept.
+        static let sampleRetention: TimeInterval = 600
+
+        /// One sync round-trip's contribution to the rolling window.
+        struct Sample {
+            var date: Date
+            var deltas: Int
+            var events: Int
+        }
+
+        /// Sync traffic within one minute, for the activity chart.
+        struct MinuteBucket {
+            /// The minute this bucket starts at, truncated to the minute.
+            var start: Date
+            var deltas: Int
+            var events: Int
+        }
+
+        /// When the last live delta arrived.
+        var lastSyncAt: Date?
+        /// Live deltas seen since session start.
+        var totalDeltas = 0
+        /// Timeline events carried by those deltas.
+        var totalTimelineEvents = 0
+        /// To-device messages carried by those deltas.
+        var totalToDeviceEvents = 0
+        /// Server-reported remaining one-time keys, if ever advertised.
+        var lastOneTimeKeyCount: Int?
+        /// The most recent sync failure message, if any.
+        var lastSyncError: String?
+        /// When that failure happened.
+        var lastSyncErrorAt: Date?
+        /// Per-delta samples for rate computation (pruned to six minutes).
+        var samples: [Sample] = []
+
+        /// Record one live delta.
+        mutating func record(delta: SyncDelta, at date: Date = Date()) {
+            totalDeltas += 1
+            let eventCount = delta.joined.values.reduce(0) { $0 + $1.timeline.count }
+            totalTimelineEvents += eventCount
+            totalToDeviceEvents += delta.toDevice.count
+            if let count = delta.signedKeyCount {
+                lastOneTimeKeyCount = count
+            }
+            lastSyncAt = date
+            samples.append(Sample(date: date, deltas: 1, events: eventCount))
+            let cutoff = date.addingTimeInterval(-Self.sampleRetention)
+            samples.removeAll { $0.date < cutoff }
+        }
+
+        /// Record a sync failure.
+        mutating func recordError(_ message: String, at date: Date = Date()) {
+            lastSyncError = message
+            lastSyncErrorAt = date
+        }
+
+        /// Deltas and timeline events per minute over the trailing window.
+        func rates(window: TimeInterval = 300, now: Date = Date()) -> (
+            deltasPerMinute: Double, eventsPerMinute: Double
+        ) {
+            let cutoff = now.addingTimeInterval(-window)
+            let recent = samples.filter { $0.date >= cutoff }
+            guard let oldest = recent.map(\.date).min() else { return (0, 0) }
+            let minutes = max(now.timeIntervalSince(oldest), 1) / 60
+            let deltas = recent.reduce(0) { $0 + $1.deltas }
+            let events = recent.reduce(0) { $0 + $1.events }
+            return (Double(deltas) / minutes, Double(events) / minutes)
+        }
+
+        /// Clear all counters (session teardown).
+        mutating func reset() {
+            self = SyncStats()
+        }
+
+        /// Aggregate samples into per-minute buckets covering the trailing
+        /// `minutes` minutes (including empty minutes), oldest first.
+        func buckets(minutes: Int = 10, now: Date = Date()) -> [MinuteBucket] {
+            guard minutes > 0 else { return [] }
+            let minute: TimeInterval = 60
+            let reference = now.timeIntervalSinceReferenceDate
+            let currentStart = Date(
+                timeIntervalSinceReferenceDate: floor(reference / minute) * minute)
+            var buckets = (0..<minutes).map { offset in
+                MinuteBucket(
+                    start: currentStart.addingTimeInterval(
+                        -minute * Double(minutes - 1 - offset)),
+                    deltas: 0,
+                    events: 0)
+            }
+            let windowStart = buckets[0].start.timeIntervalSinceReferenceDate
+            for sample in samples {
+                let index = Int(floor(
+                    (sample.date.timeIntervalSinceReferenceDate - windowStart) / minute))
+                guard buckets.indices.contains(index) else { continue }
+                buckets[index].deltas += sample.deltas
+                buckets[index].events += sample.events
+            }
+            return buckets
+        }
+    }
+
+    /// A notable session moment for the Activity window feed (oldest first).
+    struct ActivityEntry: Identifiable {
+        let id = UUID()
+        let timestamp = Date()
+        /// One-line description (e.g. "Initial sync completed").
+        let text: String
+    }
+
     /// An incoming session verification request from another device.
     struct IncomingVerification: Identifiable, Equatable {
         /// The flow identifier for the verification request.
@@ -134,6 +249,12 @@ final class RelayClient {
     var activeVerificationSession: VerificationSession?
     var shouldPresentVerificationSheet = false
     var pendingDeepLink: MatrixURI?
+    /// Rolling sync statistics, fed by the live delta monitor.
+    var syncStats = SyncStats()
+    /// Notable session moments (oldest first, capped), for the Activity window.
+    var recentActivity: [ActivityEntry] = []
+    /// When the current session was adopted (login or restore). Nil when logged out.
+    var sessionStartedAt: Date?
     let errorReporter = ErrorReporter()
     /// Background key-backup restores with progress + cancellation.
     /// Set in `init`, after the observers that capture `self`.
@@ -174,6 +295,24 @@ final class RelayClient {
         client?.canUseSlidingSync ?? true
     }
 
+    /// Which loop the live sync is running on.
+    var isUsingSlidingSync: Bool { usingSlidingSync }
+
+    /// Sliding-sync support as the server advertised it. Nil when the
+    /// versions fetch never succeeded (e.g. offline at startup).
+    var serverSupportsSlidingSync: Bool? {
+        guard let client, client.serverVersions != nil else { return nil }
+        return client.canUseSlidingSync
+    }
+
+    /// Newest spec version advertised by the homeserver (e.g. "v1.15").
+    /// Nil when the versions fetch never succeeded.
+    var newestServerVersion: String? {
+        client?.serverVersions?.versions.max(by: {
+            Self.compareSpecVersion($0, $1) == .orderedAscending
+        })
+    }
+
     /// Whether the client is actively syncing.
     var isSyncing: Bool {
         syncState == .syncing || syncState == .running
@@ -201,6 +340,8 @@ final class RelayClient {
     /// Pending invites already logged. The server repeats invites in every
     /// sync until resolved; without this each would log once per sync.
     private var loggedInviteRoomIds: Set<String> = []
+    /// Left rooms already recorded in the activity feed (same repeat issue).
+    private var loggedLeftRoomIds: Set<String> = []
     private let avatarCache = NSCache<NSString, NSImage>()
     private let intentDonation = IntentDonationService()
     private var monitor: NWPathMonitor?
@@ -361,6 +502,9 @@ final class RelayClient {
         activeVerificationSession = nil
         shouldPresentVerificationSheet = false
         lastNotifiedEventTimestamp = [:]
+        syncStats = SyncStats()
+        recentActivity = []
+        sessionStartedAt = nil
         relayClientLogger.info("Signed out")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
@@ -389,6 +533,8 @@ final class RelayClient {
             relayClientLogger.error(
                 "Resync after cache clear failed: \(error.localizedDescription, privacy: .public)")
             syncState = .error(error.localizedDescription)
+            syncStats.recordError(error.localizedDescription)
+            recordActivity("Resync after cache clear failed")
         }
     }
 
@@ -925,6 +1071,36 @@ final class RelayClient {
         return await client.encryptionStatus()
     }
 
+    /// Verified/unverified counts for this account's other sessions.
+    /// Nil when logged out or the key query fails.
+    func otherDeviceVerificationCounts() async -> (verified: Int, unverified: Int)? {
+        guard let client, let userId = client.userId, let ownDevice = client.deviceId else {
+            return nil
+        }
+        guard let queried = try? await client.keys.queryKeys(users: [userId]),
+            let devices = queried.deviceKeys[userId.value]
+        else {
+            return nil
+        }
+        var verified = 0
+        var unverified = 0
+        for (deviceId, device) in devices where deviceId != ownDevice.value {
+            if await client.crossSigning.isDeviceVerified(device) {
+                verified += 1
+            } else {
+                unverified += 1
+            }
+        }
+        return (verified, unverified)
+    }
+
+    /// Account capabilities advertised by the server. Nil when logged out
+    /// or the fetch fails.
+    func serverCapabilities() async -> ServerCapabilities? {
+        guard let client else { return nil }
+        return try? await client.auth.capabilities()
+    }
+
     /// Decline the pending incoming verification request.
     func declinePendingVerificationRequest() async {
         guard let request = pendingVerificationRequest else { return }
@@ -1010,7 +1186,7 @@ final class RelayClient {
             try await client.crossSigning.signDevice(
                 userId: userId, deviceId: DeviceId(peerDevice))
             relayClientLogger.info(
-                "Signed peer device \(userId, privacy: .public):\(peerDevice ?? "?", privacy: .public)")
+                "Signed peer device \(userId, privacy: .public):\(peerDevice, privacy: .public)")
             return .verified
         }
         let peerDevice = await session.peerDeviceId
@@ -1873,6 +2049,7 @@ final class RelayClient {
     private func adopt(client: MatrixClient, userId: String) async {
         self.client = client
         authState = .loggedIn(userId: userId)
+        resetActivityState()
         let isOIDC = await client.session.isOIDC
         let hasRefreshToken = await client.session.refreshToken != nil
         relayClientLogger.debug(
@@ -1887,9 +2064,11 @@ final class RelayClient {
                 on: client, keystore: keychain)
             await client.secrets.autoload()
             relayClientLogger.debug("Device keys published")
+            recordActivity("Device keys published")
         } catch {
             relayClientLogger.warning(
                 "Encryption bootstrap failed: \(error.localizedDescription, privacy: .public)")
+            recordActivity("Encryption bootstrap failed")
         }
         await client.configureEncryption()
         relayClientLogger.debug("Restoring cached snapshot")
@@ -1917,6 +2096,7 @@ final class RelayClient {
             hasLoadedRooms = true
             syncState = .running
             relayClientLogger.info("Initial sync completed")
+            recordActivity("Initial sync completed")
             startVerificationMonitor()
             startSecretsMonitor()
             startNotificationMonitor()
@@ -1926,10 +2106,13 @@ final class RelayClient {
             // not a sync failure: leave state alone, the live loop starting
             // below takes over.
             relayClientLogger.debug("Initial sync cancelled by caller")
+            recordActivity("Initial sync cancelled")
         } catch {
             relayClientLogger.error(
                 "Initial sync failed: \(error.localizedDescription, privacy: .public)")
             syncState = .error(error.localizedDescription)
+            syncStats.recordError(error.localizedDescription)
+            recordActivity("Initial sync failed")
         }
         // The live loop starts regardless: a failed initial sync (e.g. a
         // cancelled login-transition task) must not leave the client
@@ -1966,6 +2149,8 @@ final class RelayClient {
                     "Sync loop stopped: \(error.localizedDescription, privacy: .public)")
                 if syncState == .running {
                     syncState = .error(error.localizedDescription)
+                    syncStats.recordError(error.localizedDescription)
+                    recordActivity("Sync loop stopped")
                 }
             }
             syncTask = nil
@@ -2026,6 +2211,7 @@ final class RelayClient {
         } catch {
             relayClientLogger.warning(
                 "Session token refresh failed: \(error.localizedDescription, privacy: .public)")
+            recordActivity("Session token refresh failed")
         }
     }
 
@@ -2038,17 +2224,20 @@ final class RelayClient {
                 case .requestReceived(let request):
                     relayClientLogger.info(
                         "Verification request received from \(request.sender.value, privacy: .public) device \(request.deviceId, privacy: .public)")
+                    recordActivity("Verification request received")
                     pendingVerificationRequest = IncomingVerification(
                         flowId: request.transactionId,
                         deviceId: request.deviceId,
                         senderId: request.sender.value)
                 case .sessionFinished:
+                    recordActivity("Verification completed")
                     await refreshVerificationState()
                 case .sasReady:
                     break
                 case .failed(let transactionId, let message):
                     relayClientLogger.error(
                         "Verification failed \(transactionId, privacy: .public): \(message, privacy: .public)")
+                    recordActivity("Verification failed")
                 }
             }
         }
@@ -2064,6 +2253,7 @@ final class RelayClient {
             for await _ in stream {
                 relayClientLogger.info(
                     "Cross-signing secrets received: refreshing verification state")
+                recordActivity("Cross-signing secrets received")
                 await refreshVerificationState()
             }
         }
@@ -2099,6 +2289,7 @@ final class RelayClient {
     }
 
     private func handleSyncDelta(_ delta: SyncDelta) async {
+        syncStats.record(delta: delta)
         guard let client, let myId = client.userId else { return }
         logMembershipTransitions(delta)
         for (roomId, joined) in delta.joined where !joined.timeline.isEmpty {
@@ -2141,11 +2332,14 @@ final class RelayClient {
             let invitedName = roomDisplayName(for: roomId)
             relayClientLogger.info(
                 "Invited to \(invitedName, privacy: .public) from \(invite.inviter?.value ?? "?", privacy: .public) room=\(roomId.value, privacy: .public)")
+            recordActivity("Invited to \(invitedName)")
         }
         for roomId in delta.left.keys {
+            guard loggedLeftRoomIds.insert(roomId.value).inserted else { continue }
             let leftName = roomDisplayName(for: roomId)
             relayClientLogger.info(
                 "Left \(leftName, privacy: .public) room=\(roomId.value, privacy: .public)")
+            recordActivity("Left \(leftName)")
         }
     }
 
@@ -2188,6 +2382,38 @@ final class RelayClient {
         monitor = nil
     }
 
+    // MARK: - Activity
+
+    /// Reset per-session activity state (fresh login or restore).
+    private func resetActivityState() {
+        syncStats = SyncStats()
+        recentActivity = []
+        sessionStartedAt = Date()
+    }
+
+    /// Append a notable moment to the Activity window feed (capped at 20).
+    private func recordActivity(_ text: String) {
+        recentActivity.append(ActivityEntry(text: text))
+        if recentActivity.count > 20 {
+            recentActivity.removeFirst(recentActivity.count - 20)
+        }
+    }
+
+    /// Compare `"v1.13"`-style spec versions numerically.
+    private static func compareSpecVersion(_ left: String, _ right: String) -> ComparisonResult {
+        func parts(_ string: String) -> [Int] {
+            var text = string
+            if text.hasPrefix("v") || text.hasPrefix("r") { text.removeFirst() }
+            return text.split(separator: ".").compactMap { Int($0) }
+        }
+        let leftParts = parts(left), rightParts = parts(right)
+        for (x, y) in zip(leftParts, rightParts) where x != y {
+            return x < y ? .orderedAscending : .orderedDescending
+        }
+        if leftParts.count == rightParts.count { return .orderedSame }
+        return leftParts.count < rightParts.count ? .orderedAscending : .orderedDescending
+    }
+
     private func startNetworkMonitor() {
         guard monitor == nil else { return }
         let monitor = NWPathMonitor()
@@ -2199,6 +2425,7 @@ final class RelayClient {
                 self.isNetworkConnected = connected
                 if !connected {
                     relayClientLogger.warning("Connectivity lost")
+                    self.recordActivity("Connectivity lost")
                     if self.syncState == .running || self.syncState == .syncing {
                         self.syncState = .offline
                     }
@@ -2207,6 +2434,7 @@ final class RelayClient {
                 } else {
                     if self.syncState == .offline {
                         relayClientLogger.info("Connectivity restored")
+                        self.recordActivity("Connectivity restored")
                         self.syncState = .running
                     }
                     self.startSyncIfNeeded()
