@@ -557,6 +557,9 @@ private struct InspectorAboutSection: View {
                         value: "\(details.alternativeAliases.count)"
                     )
                 }
+
+                Divider().padding(.vertical, 4)
+                InspectorInfoRow(label: "Room Version", value: details.roomVersion)
             }
             .padding(.vertical, 2)
         } label: {
