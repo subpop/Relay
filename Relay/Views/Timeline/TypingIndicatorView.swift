@@ -108,23 +108,44 @@ struct TypingBubble: View {
     let colors: [Color]
 
     var body: some View {
-        SwiftUI.TimelineView(.animation) { context in
-            let elapsed = context.date.timeIntervalSince(startDate)
-            let breatheDuration = 3.0
-            let cycleDuration = breatheDuration * Double(max(colors.count, 1))
-            let progress = (elapsed.truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
-            let userIndex = min(Int(progress * Double(max(colors.count, 1))), max(colors.count - 1, 0))
-            let dotColor = colors.isEmpty ? Color.secondary : colors[userIndex]
+        if colors.isEmpty {
+            staticDots(color: .secondary)
+        } else {
+            SwiftUI.TimelineView(.animation) { context in
+                let elapsed = context.date.timeIntervalSince(startDate)
+                let dotColor = colors[userIndex(elapsed: elapsed)]
+                animatedDots(elapsed: elapsed, color: dotColor)
+            }
+        }
+    }
 
-            HStack(spacing: 5) {
-                ForEach((0..<3).reversed(), id: \.self) { index in
-                    let phase = dotPhase(elapsed: elapsed, index: index)
-                    Circle()
-                        .fill(dotColor)
-                        .frame(width: 8, height: 8)
-                        .scaleEffect(0.6 + 0.4 * phase)
-                        .opacity(0.4 + 0.6 * phase)
-                }
+    private func userIndex(elapsed: TimeInterval) -> Int {
+        let breatheDuration = 3.0
+        let cycleDuration = breatheDuration * Double(max(colors.count, 1))
+        let progress = (elapsed.truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
+        return min(Int(progress * Double(max(colors.count, 1))), max(colors.count - 1, 0))
+    }
+
+    private func animatedDots(elapsed: TimeInterval, color: Color) -> some View {
+        HStack(spacing: 5) {
+            ForEach((0..<3).reversed(), id: \.self) { index in
+                let phase = dotPhase(elapsed: elapsed, index: index)
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(0.6 + 0.4 * phase)
+                    .opacity(0.4 + 0.6 * phase)
+            }
+        }
+    }
+
+    private func staticDots(color: Color) -> some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { _ in
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                    .opacity(0.4)
             }
         }
     }
