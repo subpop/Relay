@@ -67,23 +67,31 @@ class ShareViewController: NSViewController {
         }
 
         var savedFilenames: [String] = []
+        var sharedTexts: [String] = []
 
         for inputItem in extensionContext.inputItems as? [NSExtensionItem] ?? [] {
             for provider in inputItem.attachments ?? [] {
+                if let text = await extractSharedText(provider: provider) {
+                    sharedTexts.append(text)
+                    continue
+                }
                 if let filename = await copyAttachment(provider: provider, to: pendingDir) {
                     savedFilenames.append(filename)
                 }
             }
         }
 
-        guard !savedFilenames.isEmpty else {
+        let combinedText = sharedTexts.isEmpty ? nil : sharedTexts.joined(separator: "\n")
+
+        guard !savedFilenames.isEmpty || combinedText != nil else {
             extensionContext.cancelRequest(withError: ShareError.noAttachments)
             return
         }
 
         let share = PendingShare(
             roomId: roomId,
-            filenames: savedFilenames
+            filenames: savedFilenames,
+            text: combinedText
         )
         savePendingShare(share)
 
@@ -103,6 +111,42 @@ class ShareViewController: NSViewController {
     }
 
     // MARK: - File Handling
+
+    /// Extracts shared text (URL or plain text) from an item provider.
+    ///
+    /// Safari shares URLs as `public.url`; other apps may share selected
+    /// text as plain text. Returns the string representation, or `nil` when
+    /// the provider offers neither type.
+    private func extractSharedText(provider: NSItemProvider) async -> String? {
+        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+           provider.canLoadObject(ofClass: NSURL.self)
+        {
+            return await withCheckedContinuation { continuation in
+                provider.loadObject(ofClass: NSURL.self) { item, _ in
+                    continuation.resume(returning: (item as? URL)?.absoluteString)
+                }
+            }
+        }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+            || provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
+            provider.canLoadObject(ofClass: NSString.self)
+        {
+            return await withCheckedContinuation { continuation in
+                provider.loadObject(ofClass: NSString.self) { item, _ in
+                    guard let string = item as? String,
+                          !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: string)
+                }
+            }
+        }
+
+        return nil
+    }
 
     private func copyAttachment(provider: NSItemProvider, to directory: URL) async -> String? {
         let supportedTypes: [UTType] = [.image, .movie, .audio, .pdf, .data]
@@ -200,7 +244,7 @@ private enum ShareError: Error, LocalizedError {
         case .containerUnavailable:
             "Could not access shared container."
         case .noAttachments:
-            "No attachments found to share."
+            "No content found to share."
         case .cancelled:
             "Share cancelled."
         }

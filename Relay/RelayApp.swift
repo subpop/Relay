@@ -200,8 +200,9 @@ struct RelayApp: App {
     ///
     /// The extension writes the share ID to the ``PendingShareStore`` signal
     /// file and activates the app. This method reads that file, loads the corresponding pending share
-    /// record, navigates to the target room, and stages the attachments in the
-    /// compose bar for user review.
+    /// record, navigates to the target room, stages the attachments in the
+    /// compose bar for user review, and prefills any shared text (e.g. a URL
+    /// from Safari) into the compose draft.
     private func checkForPendingShare() {
         guard let container = AppGroup.containerURL else { return }
 
@@ -229,15 +230,32 @@ struct RelayApp: App {
         let fileURLs = share.filenames.compactMap { PendingShareStore.fileURL(for: $0) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
 
-        guard !fileURLs.isEmpty else {
-            logger.warning("No valid files found for pending share \(idString)")
+        let sharedText: String? = {
+            guard let text = share.text,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return text
+        }()
+
+        guard !fileURLs.isEmpty || sharedText != nil else {
+            logger.warning("No valid content found for pending share \(idString)")
             PendingShareStore.remove(id: shareId)
             return
         }
 
-        // Stage attachments in the compose bar for the target room.
+        // Stage attachments and prefill shared text in the compose bar for
+        // the target room.
         let draft = composeDraftStore.draft(for: share.roomId)
-        draft.stageAttachments(fileURLs, errorReporter: ErrorReporter())
+        if !fileURLs.isEmpty {
+            draft.stageAttachments(fileURLs, errorReporter: ErrorReporter())
+        }
+        if let sharedText {
+            if draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                draft.text = sharedText
+            } else {
+                draft.text += "\n" + sharedText
+            }
+        }
 
         // Remove the pending share record (files will be cleaned up after send
         // by TimelineViewModel.sendAttachment, which deletes the temp URL).

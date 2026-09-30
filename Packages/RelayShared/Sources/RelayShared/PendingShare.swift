@@ -30,13 +30,34 @@ public struct PendingShare: Codable, Sendable, Identifiable {
     /// `pending-shares/` directory.
     public let filenames: [String]
 
+    /// Shared text (e.g. a URL from Safari) to prefill in the compose bar.
+    public let text: String?
+
     /// The time the share was created.
     public let timestamp: Date
 
-    public init(id: UUID = UUID(), roomId: String, filenames: [String], timestamp: Date = .now) {
+    public init(id: UUID = UUID(), roomId: String, filenames: [String], text: String? = nil, timestamp: Date = .now) {
         self.id = id
         self.roomId = roomId
         self.filenames = filenames
+        self.text = text
         self.timestamp = timestamp
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case roomId
+        case filenames
+        case text
+        case timestamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        roomId = try container.decode(String.self, forKey: .roomId)
+        filenames = try container.decode([String].self, forKey: .filenames)
+        text = try container.decodeIfPresent(String.self, forKey: .text)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
     }
 }
