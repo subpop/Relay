@@ -50,6 +50,7 @@ struct MemberDetailPanel: View {
     @State private var isIgnored = false
     @State private var isPerformingAction = false
     @State private var confirmationAction: ModerationAction?
+    @State private var moderationReason = ""
     @State private var showRoleChangeDialog = false
     @State private var quickLookURL: URL?
     @State private var isLoadingAvatar = false
@@ -98,7 +99,7 @@ struct MemberDetailPanel: View {
         .confirmationDialog(
             confirmationAction?.title ?? "",
             isPresented: Binding(
-                get: { confirmationAction != nil },
+                get: { confirmationAction?.showsReasonField == false },
                 set: { if !$0 { confirmationAction = nil } }
             ),
             presenting: confirmationAction
@@ -110,6 +111,28 @@ struct MemberDetailPanel: View {
         } message: { action in
             Text(action.message(for: name))
         }
+        .alert(
+            confirmationAction?.title ?? "",
+            isPresented: Binding(
+                get: { confirmationAction?.showsReasonField == true },
+                set: { if !$0 { confirmationAction = nil; moderationReason = "" } }
+            ),
+            actions: {
+                TextField("Reason (optional)", text: $moderationReason)
+                Button(confirmationAction?.confirmLabel ?? "", role: .destructive) {
+                    if let action = confirmationAction {
+                        performAction(action)
+                    }
+                    moderationReason = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    moderationReason = ""
+                }
+            },
+            message: {
+                Text(confirmationAction?.message(for: name) ?? "")
+            }
+        )
         .confirmationDialog(
             "Change Role",
             isPresented: $showRoleChangeDialog
@@ -259,6 +282,7 @@ struct MemberDetailPanel: View {
                         icon: "door.left.hand.open",
                         color: .orange
                     ) {
+                        moderationReason = ""
                         confirmationAction = .kick
                     }
                 }
@@ -271,6 +295,7 @@ struct MemberDetailPanel: View {
                         icon: "xmark.shield",
                         color: .red
                     ) {
+                        moderationReason = ""
                         confirmationAction = .ban
                     }
                 }
@@ -317,6 +342,8 @@ struct MemberDetailPanel: View {
     }
 
     private func performAction(_ action: ModerationAction) {
+        let trimmedReason = moderationReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let optionalReason = trimmedReason.isEmpty ? nil : trimmedReason
         isPerformingAction = true
         Task {
             defer { isPerformingAction = false }
@@ -324,12 +351,12 @@ struct MemberDetailPanel: View {
                 switch action {
                 case .kick:
                     try await client.kickMember(
-                        roomId: roomId, userId: profile.userId, reason: nil
+                        roomId: roomId, userId: profile.userId, reason: optionalReason
                     )
                     onModerationAction?()
                 case .ban:
                     try await client.banMember(
-                        roomId: roomId, userId: profile.userId, reason: nil
+                        roomId: roomId, userId: profile.userId, reason: optionalReason
                     )
                     onModerationAction?()
                 case .ignore:
@@ -375,6 +402,13 @@ private enum ModerationAction: Identifiable {
         case .ban: "Ban"
         case .ignore: "Ignore"
         case .unignore: "Unignore"
+        }
+    }
+
+    var showsReasonField: Bool {
+        switch self {
+        case .kick, .ban: true
+        case .ignore, .unignore: false
         }
     }
 
