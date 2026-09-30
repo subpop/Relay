@@ -225,7 +225,7 @@ struct MemberDetailPanel: View {
                     Divider().padding(.vertical, 4)
                     InspectorInfoRow(
                         label: "Power Level",
-                        value: profile.isCreator ? "∞" : "\(powerLevel)"
+                        value: powerLevel == .max ? "∞" : "\(powerLevel)"
                     )
                 }
             }
