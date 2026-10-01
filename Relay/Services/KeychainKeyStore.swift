@@ -46,10 +46,17 @@ struct KeychainKeyStore: KeyStore {
     }
 
     func save(_ data: Data, for key: KeyStoreKey) async throws {
-        var query = query(for: key)
-        SecItemDelete(query as CFDictionary)
-        query[kSecValueData as String] = data
-        let status = SecItemAdd(query as CFDictionary, nil)
+        // Add-or-update, never delete-then-add: a crash or kill between
+        // the delete and the add would silently destroy the stored value
+        // (e.g. the session), stranding the next launch logged out.
+        var attributes = query(for: key)
+        attributes[kSecValueData as String] = data
+        var status = SecItemAdd(attributes as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            status = SecItemUpdate(
+                query(for: key) as CFDictionary,
+                [kSecValueData as String: data] as CFDictionary)
+        }
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
         }
