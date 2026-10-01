@@ -63,23 +63,27 @@ struct ContentView: View {
             "Session Signed Out",
             isPresented: Binding(
                 get: { client.remoteSignOutNoticed },
-                set: {
-                    // No recovery path exists: any dismissal (including
-                    // Escape) signs out and returns to the login screen.
-                    if !$0, client.remoteSignOutNoticed {
-                        Task { await client.logout() }
-                    } else {
-                        client.remoteSignOutNoticed = $0
+                set: { isPresented in
+                    // Never destroy on dismissal: Escape, window teardown,
+                    // and app quit all write back `false` without the user
+                    // choosing anything. Re-probe instead — it resumes a
+                    // live session and keeps a dead one armed. Only the
+                    // explicit Sign Out button wipes the session.
+                    if !isPresented {
+                        Task { await client.retrySessionAfterRemoteSignOut() }
                     }
                 }
             )
         ) {
-            Button("Log out") {
-                Task { await client.logout() }
+            Button("Try Again") {
+                Task { await client.retrySessionAfterRemoteSignOut() }
+            }
+            Button("Sign Out", role: .destructive) {
+                Task { await client.logout(reason: "sign-out alert") }
             }
         } message: {
             Text(
-                "This session was signed out from another device or the homeserver's session management page. Sign in again to continue."
+                "This session was signed out from another device or the homeserver's session management page. If that wasn't you, tap Try Again; otherwise sign out and sign in again to continue."
             )
         }
         .relayErrorAlert()

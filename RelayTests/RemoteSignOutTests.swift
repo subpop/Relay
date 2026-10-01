@@ -58,6 +58,16 @@ struct RemoteSignOutTests {
         #expect(client.authState == .loggedOut)
     }
 
+    @Test @MainActor func signOutRetryWithoutSessionIsNoop() async {
+        // The alert-dismissal path must never wipe: with no live client
+        // the retry is a no-op (the flag stays armed, auth state untouched).
+        let client = RelayClient()
+        client.handleRemoteSignOut(source: "test")
+        #expect(client.remoteSignOutNoticed)
+        await client.retrySessionAfterRemoteSignOut()
+        #expect(client.remoteSignOutNoticed)
+        #expect(client.authState == .unknown)
+    }
 
     @Test @MainActor func signOutSourceDefaults() {
         let client = RelayClient()

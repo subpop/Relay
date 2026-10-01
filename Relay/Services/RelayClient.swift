@@ -522,7 +522,10 @@ final class RelayClient {
     /// not trap the UI). Wiping crypto material (cross-signing backup,
     /// device identities, Olm/megolm sessions) means a fresh sign-in
     /// starts unverified, as users expect.
-    func logout() async {
+    ///
+    /// Destructive: only call from explicit user action (never from
+    /// alert dismissal, teardown, or error paths).
+    func logout(reason: String = "explicit") async {
         stopTasks()
         let client = self.client
         self.client = nil
@@ -539,7 +542,7 @@ final class RelayClient {
         syncStats = SyncStats()
         recentActivity = []
         sessionStartedAt = nil
-        relayClientLogger.info("Signed out")
+        relayClientLogger.info("Signed out (reason: \(reason, privacy: .public))")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
             await client.deleteLocalCryptoMaterial()
@@ -2323,6 +2326,38 @@ final class RelayClient {
             }
         }
     }
+
+    /// Retry the session after the sign-out alert is dismissed without
+    /// signing out (Escape, window teardown, app quit). Never destroys
+    /// anything: a live token resumes the session, a still-dead token
+    /// keeps the alert armed, and anything else stands the alert down
+    /// with an error state. Safe to call during termination.
+    func retrySessionAfterRemoteSignOut() async {
+        guard remoteSignOutNoticed, let client else { return }
+        do {
+            _ = try await client.auth.whoAmI()
+            relayClientLogger.info("Session retry succeeded; resuming sync")
+            recordActivity("Session retry succeeded; sync resumed")
+            await persistSessionLoudly(for: client, context: "session retry")
+            remoteSignOutNoticed = false
+            stopTasks()
+            syncState = .running
+            startSessionServices()
+        } catch {
+            if Self.isSessionInvalidation(error) {
+                relayClientLogger.error(
+                    "Session retry failed: token still rejected; keeping sign-out alert armed")
+            } else {
+                relayClientLogger.error(
+                    "Session retry inconclusive: \(error.localizedDescription, privacy: .public)")
+                remoteSignOutNoticed = false
+                syncState = .error(error.localizedDescription)
+                syncStats.recordError(error.localizedDescription)
+                recordActivity("Session retry inconclusive")
+            }
+        }
+    }
+
     /// (Re)start the long-lived per-session services `stopTasks()`
     /// tears down. Idempotent: every starter guards on its task handle.
     private func startSessionServices() {
@@ -2335,9 +2370,12 @@ final class RelayClient {
         startSyncLoop()
         scheduleTokenRefresh()
     }
+
     /// Freeze the session after the homeserver rejects our token: stop
     /// all loops and raise the blocking sign-out alert. Idempotent:
-    /// sync, refresh, and one-shot failures converge here.
+    /// sync, refresh, and one-shot failures converge here. The alert
+    /// itself is non-destructive — only its explicit Sign Out button
+    /// wipes the session (see `retrySessionAfterRemoteSignOut`).
     func handleRemoteSignOut(softLogout: Bool? = nil, source: String = "unspecified") {
         guard !remoteSignOutNoticed else { return }
         remoteSignOutNoticed = true

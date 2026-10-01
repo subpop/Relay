@@ -167,7 +167,7 @@ struct SettingsAccountTab: View {
         .alert("Log Out", isPresented: $showLogoutConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Log Out", role: .destructive) {
-                Task { await client.logout() }
+                Task { await client.logout(reason: "settings sign-out") }
             }
         } message: {
             Text("Are you sure you want to log out? You will need to sign in again.")
