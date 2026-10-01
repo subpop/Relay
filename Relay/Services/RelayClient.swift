@@ -326,7 +326,11 @@ final class RelayClient {
     }
 
     private var client: MatrixClient?
-    private let keychain = KeychainKeyStore()
+    /// Secret storage for the session blob and crypto material.
+    /// Injected so tests can substitute an ephemeral store: the
+    /// default live keychain is shared with the running app, and a
+    /// test calling `logout()` would otherwise wipe the real session.
+    private let keychain: any KeyStore
     private var syncTask: Task<Void, Never>?
     /// Watchdog for silent sync-loop death (see `startSyncWatchLoop`).
     private var syncWatchTask: Task<Void, Never>?
@@ -370,7 +374,8 @@ final class RelayClient {
     /// apart; snapshots are cheap to capture but rewrite the store.
     private var earliestNextBackgroundSave = Date.distantPast
 
-    init() {
+    init(keychain: any KeyStore = KeychainKeyStore()) {
+        self.keychain = keychain
         avatarCache.countLimit = 500
         lifecycleObservers = [
             NotificationCenter.default.addObserver(

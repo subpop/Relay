@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import MatrixKit
+import MatrixKitCrypto
 import Testing
 
 @testable import Relay
@@ -39,7 +40,7 @@ struct RemoteSignOutTests {
     }
 
     @Test @MainActor func handleRemoteSignOutRaisesAlertOnce() {
-        let client = RelayClient()
+        let client = RelayClient(keychain: InMemoryKeyStore())
         #expect(!client.remoteSignOutNoticed)
         client.handleRemoteSignOut()
         #expect(client.remoteSignOutNoticed)
@@ -50,7 +51,7 @@ struct RemoteSignOutTests {
     }
 
     @Test @MainActor func logoutClearsSignOutAlert() async {
-        let client = RelayClient()
+        let client = RelayClient(keychain: InMemoryKeyStore())
         client.handleRemoteSignOut()
         #expect(client.remoteSignOutNoticed)
         await client.logout()
@@ -61,7 +62,7 @@ struct RemoteSignOutTests {
     @Test @MainActor func signOutRetryWithoutSessionIsNoop() async {
         // The alert-dismissal path must never wipe: with no live client
         // the retry is a no-op (the flag stays armed, auth state untouched).
-        let client = RelayClient()
+        let client = RelayClient(keychain: InMemoryKeyStore())
         client.handleRemoteSignOut(source: "test")
         #expect(client.remoteSignOutNoticed)
         await client.retrySessionAfterRemoteSignOut()
@@ -70,7 +71,7 @@ struct RemoteSignOutTests {
     }
 
     @Test @MainActor func signOutSourceDefaults() {
-        let client = RelayClient()
+        let client = RelayClient(keychain: InMemoryKeyStore())
         client.handleRemoteSignOut(softLogout: true)
         #expect(client.remoteSignOutNoticed)
     }

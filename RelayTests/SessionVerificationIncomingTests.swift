@@ -14,6 +14,8 @@
 
 import Testing
 
+import MatrixKitCrypto
+
 @testable import Relay
 
 // MARK: - SessionVerificationIncomingTests
@@ -28,7 +30,7 @@ struct SessionVerificationIncomingTests {
     }
 
     @Test func incomingModelWaitsForUserDecision() async {
-        let client = RelayClient()
+        let client = RelayClient(keychain: InMemoryKeyStore())
         let model = SessionVerificationViewModel(
             client: client, incoming: request())
         // The old init accepted immediately (a bare client fails the
@@ -41,7 +43,7 @@ struct SessionVerificationIncomingTests {
     }
 
     @Test func declineIncomingRequestCancels() async {
-        let client = RelayClient()
+        let client = RelayClient(keychain: InMemoryKeyStore())
         client.pendingVerificationRequest = request()
         let model = SessionVerificationViewModel(
             client: client, incoming: request())
