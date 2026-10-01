@@ -115,6 +115,14 @@ final class TimelineViewModel {
     /// Whether the timeline shows live messages or a focused event.
     var timelineFocus: TimelineFocus { room.timeline?.timelineFocus ?? .live }
 
+    /// In-flight attachment upload fractions by upload ID. Powers the
+    /// thin progress bar above the compose bar; empty when idle.
+    private var uploadFractions: [UUID: Double] = [:]
+
+    /// Overall upload fraction across in-flight attachments (the
+    /// maximum), or nil when no upload is active.
+    var uploadProgress: Double? { uploadFractions.values.max() }
+
     init(room: ObservableRoom, highlights: [String] = [], errorReporter: ErrorReporter) {
         self.room = room
         self.errorReporter = errorReporter
@@ -255,11 +263,27 @@ final class TimelineViewModel {
                 duration = Int(durationSeconds * 1000)
             }
         }
+        let uploadId = UUID()
+        uploadFractions[uploadId] = 0
+        defer { uploadFractions.removeValue(forKey: uploadId) }
+        // The SDK callback is synchronous and `Sendable`, arriving off
+        // the main actor as the channel drains; bridge it through a
+        // stream (matching the recovery-progress pattern) so state
+        // updates stay on the main actor.
+        let (fractions, continuation) = AsyncStream<Double>.makeStream()
+        let consumer = Task { @MainActor in
+            for await fraction in fractions {
+                uploadFractions[uploadId] = fraction
+            }
+        }
         _ = await room.sendAttachment(
             data: data, filename: filename, mimeType: mimeType,
             caption: caption, width: width, height: height, duration: duration,
             thumbnailData: thumbnailData, thumbnailMimeType: "image/jpeg",
-            inReplyTo: inReplyTo.map(EventId.init(unchecked:)))
+            inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
+            onProgress: { continuation.yield($0) })
+        continuation.finish()
+        await consumer.value
     }
 
     /// Toggle an emoji reaction (removes the user's own reaction if present).

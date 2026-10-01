@@ -54,6 +54,15 @@ struct TimelineBottomBar: View {
 
     private var composeBarSection: some View {
         VStack(spacing: 0) {
+            if let progress = viewModel.uploadProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(height: 3)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+                    .accessibilityLabel("Uploading attachment")
+            }
             ComposeBar(
                 compose: compose,
                 onSend: {
@@ -82,6 +91,7 @@ struct TimelineBottomBar: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
+        .animation(.easeOut(duration: 0.2), value: viewModel.uploadProgress == nil)
     }
 
     // MARK: - Room Upgraded Banner
