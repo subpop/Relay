@@ -38,6 +38,23 @@
     <pre><code>log stream --predicate 'subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit"' --level debug &gt; relay-trace.log</code></pre>
     <p>Stop with <kbd>&#x2303;C</kbd> once you've reproduced it, then attach <code>relay-trace.log</code>. Narrow to one subsystem (or add <code>AND category == "Call"</code>, for example) when the file gets large. Console.app shows the same logs with search and level filters. For an at-a-glance overview of connection state, sync mode, session trust, and server capabilities, open the Activity window (Window menu, or <kbd>&#x2325;&#x2318;A</kbd>).</p>
 
+    <h3>Predicate examples</h3>
+    <p>Use <code>log stream</code> for live events and <code>log show --last 10m</code> for recent history. Predicates filter inside <code>log</code> itself, so prefer them over piping to <code>grep</code>. Message text is matched with <code>composedMessage</code> (<code>[c]</code> makes <code>CONTAINS</code> case-insensitive).</p>
+    <ul>
+        <li>Ongoing HTTP traffic only:
+            <pre><code>log stream --predicate 'subsystem == "app.subpop.MatrixKit" AND category == "Transport"' --level debug</code></pre>
+        </li>
+        <li>A certain error (case-insensitive):
+            <pre><code>log stream --predicate '(subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit") AND composedMessage CONTAINS[c] "HTTPClientError"' --level debug</code></pre>
+        </li>
+        <li>Errors only:
+            <pre><code>log stream --predicate '(subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit") AND logType == "error"' --level debug</code></pre>
+        </li>
+        <li>Recent history instead of live (<code>show</code> uses <code>--debug</code>, not <code>--level</code>):
+            <pre><code>log show --last 10m --predicate 'subsystem == "app.subpop.MatrixKit" AND category == "Transport"' --debug</code></pre>
+        </li>
+    </ul>
+
     <h2>Privacy considerations</h2>
     <p>The log capture contains room IDs, device IDs, and your homeserver hostname. It does not contain message content, encryption keys, or authentication tokens. If you prefer not to share this information publicly, contact the maintainers privately in the Matrix room.</p>
 

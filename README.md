@@ -51,6 +51,19 @@ fully private with token redaction as defense in depth; reveal them with
 `sudo log config --mode "private_data:on"`. When reporting an issue,
 attach the relevant slice (see Help > Troubleshooting).
 
+Filter with predicates:
+
+```
+# HTTP traffic only
+log stream --predicate 'subsystem == "app.subpop.MatrixKit" AND category == "Transport"' --level debug
+# A specific error (case-insensitive)
+log stream --predicate '(subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit") AND composedMessage CONTAINS[c] "HTTPClientError"' --level debug
+# Recent history instead of live
+log show --last 10m --predicate 'subsystem == "app.subpop.MatrixKit" AND category == "Transport"' --debug
+```
+
+See Help > Report an issue for more examples.
+
 ## Roadmap
 
 - 🧵 Thread support
