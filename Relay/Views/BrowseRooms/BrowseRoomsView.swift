@@ -35,64 +35,62 @@ struct BrowseRoomsView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var isJoining = false
     @State private var joiningRoomId: String?
-    /// The selected server scope, or nil for all servers.
+    /// The selected directory server. Defaults to the homeserver on appear.
     @State private var scope: String?
     @State private var homeServer: String?
     @State private var remoteServers: [String] = []
-    /// Servers whose list group is collapsed.
-    @State private var collapsedServers: Set<String> = []
 
     private var visiblePages: [BrowseRoomsViewModel.ServerPage] {
-        guard let scope else { return viewModel.pages }
+        guard let scope else { return [] }
         return viewModel.pages.filter { $0.serverName == scope }
     }
 
     var body: some View {
-        VStack {
-            HStack(alignment: .top) {
-                Text("Browse Rooms")
-                    .font(.headline)
-                Spacer()
-                serverScopeBar
-            }
-            .padding([.leading, .trailing, .top], 16)
-
-            Spacer()
+        NavigationStack {
             directoryContent
-            Spacer()
+                .navigationTitle("Browse Rooms")
+                .searchable(text: $query, placement: .toolbar, prompt: "Search rooms by name or alias")
+                .onSubmit(of: .search) { performSearch() }
+                .onChange(of: query) { _, newValue in
+                    debounceSearch(newValue)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { dismiss() }
+                            .keyboardShortcut(.cancelAction)
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        serverScopePicker
+                    }
+                }
         }
-        .searchable(text: $query, prompt: "Search rooms by name or alias")
-        .onSubmit(of: .search) { performSearch() }
-        .onChange(of: query) { _, newValue in
-            debounceSearch(newValue)
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Close") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-        }
-        .frame(width: 640, height: 560)
+        .frame(width: 600, height: 490)
         .task {
             viewModel.client = client
             homeServer = client.homeServerName()
             remoteServers = RoomDirectoryStore.load()
                 .filter(\.isEnabled)
                 .map(\.serverName)
-            await viewModel.search(query: nil, homeServer: homeServer, remotes: remoteServers)
+            if scope == nil {
+                scope = homeServer
+            }
+            performSearch()
+        }
+        .onChange(of: scope) { _, _ in
+            performSearch()
         }
     }
 
     // MARK: - Server Scope
 
-    private var serverScopeBar: some View {
-        Picker("", selection: $scope) {
-            Text("All Servers").tag(nil as String?)
+    private var serverScopePicker: some View {
+        Picker("Server", selection: $scope) {
             ForEach(allServerNames, id: \.self) { server in
                 Text(server).tag(server as String?)
             }
         }
         .pickerStyle(.menu)
+        .labelsHidden()
         .fixedSize()
         .help("Choose which directory to browse")
     }
@@ -113,7 +111,7 @@ struct BrowseRoomsView: View {
                 "No Rooms Found",
                 systemImage: "magnifyingglass",
                 description: Text(query.isEmpty
-                    ? "No public rooms are available on the selected directories."
+                    ? "No public rooms are available on \(scope ?? "this server")."
                     : "No rooms match \"\(query)\". Try a different search.")
             )
         } else {
@@ -125,57 +123,43 @@ struct BrowseRoomsView: View {
 
     private var roomList: some View {
         List {
-            ForEach(visiblePages, id: \.serverName) { page in
-                Section(isExpanded: isExpandedBinding(for: page.serverName)) {
-                    if let errorMessage = page.errorMessage, page.rooms.isEmpty {
-                        ContentUnavailableView(
-                            "Couldn't load \(page.serverName)",
-                            systemImage: "exclamationmark.triangle",
-                            description: Text(errorMessage)
-                        )
+            ForEach(listItems) { item in
+                switch item {
+                case .room(let room):
+                    BrowseRoomsRow(
+                        room: room,
+                        isJoining: joiningRoomId == room.roomId.value,
+                        onJoin: { joinRoom(room) }
+                    )
+                case .loadMore(let server, let count):
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer()
+                    }
+                    .id("more-\(server)-\(count)")
+                    .onAppear {
+                        Task { await viewModel.loadMore(serverName: server) }
+                    }
+                case .pageError(let server, let message):
+                    HStack {
+                        Text("Couldn't load \(server): \(message)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
                         Button("Retry") {
-                            Task { await viewModel.retry(serverName: page.serverName) }
+                            Task { await viewModel.retry(serverName: server) }
                         }
                         .buttonStyle(.link)
-                    } else {
-                        ForEach(page.rooms, id: \.roomId) { room in
-                            BrowseRoomsRow(
-                                room: room,
-                                isJoining: joiningRoomId == room.roomId.value,
-                                onJoin: { joinRoom(room) }
-                            )
-                        }
-
-                        if let errorMessage = page.errorMessage, !page.rooms.isEmpty {
-                            HStack {
-                                Text(errorMessage)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Button("Retry") {
-                                    Task { await viewModel.retry(serverName: page.serverName) }
-                                }
-                                .buttonStyle(.link)
-                            }
-                        } else if !page.isAtEnd {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                    .controlSize(.small)
-                                Spacer()
-                            }
-                            .id("\(page.serverName)-\(page.rooms.count)")
-                            .onAppear {
-                                Task { await viewModel.loadMore(serverName: page.serverName) }
-                            }
-                        }
                     }
-                } header: {
-                    Text(page.serverName)
                 }
             }
         }
-        .listStyle(.sidebar)
+        .listStyle(.inset)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .overlay {
             if viewModel.isSearching, visiblePages.allSatisfy(\.rooms.isEmpty) {
                 ProgressView("Searching directories…")
@@ -185,19 +169,42 @@ struct BrowseRoomsView: View {
         }
     }
 
-    /// Collapsed-state binding for a server group. A single-server scope
-    /// is always expanded; with all servers each group collapses independently.
-    private func isExpandedBinding(for server: String) -> Binding<Bool> {
-        guard scope == nil else { return .constant(true) }
-        return Binding(
-            get: { !collapsedServers.contains(server) },
-            set: { isExpanded in
-                if isExpanded {
-                    collapsedServers.remove(server)
-                } else {
-                    collapsedServers.insert(server)
+    /// Every visible page flattened into one list: each server's rooms in
+    /// order, each followed by its own loader or error row, so per-server
+    /// paging continues invisibly underneath the merged list.
+    private var listItems: [BrowseListItem] {
+        var items: [BrowseListItem] = []
+        for page in visiblePages {
+            if let errorMessage = page.errorMessage, page.rooms.isEmpty {
+                items.append(.pageError(server: page.serverName, message: errorMessage))
+            } else {
+                items += page.rooms.map(BrowseListItem.room)
+                if let errorMessage = page.errorMessage {
+                    items.append(.pageError(server: page.serverName, message: errorMessage))
+                } else if !page.isAtEnd {
+                    items.append(.loadMore(server: page.serverName, count: page.rooms.count))
                 }
-            })
+            }
+        }
+        return items
+    }
+
+    /// One row of the flattened browse list.
+    private enum BrowseListItem: Identifiable {
+        case room(PublicRoomEntry)
+        case loadMore(server: String, count: Int)
+        case pageError(server: String, message: String)
+
+        var id: String {
+            switch self {
+            case .room(let room):
+                room.roomId.value
+            case .loadMore(let server, let count):
+                "more-\(server)-\(count)"
+            case .pageError(let server, _):
+                "error-\(server)"
+            }
+        }
     }
 
     // MARK: - Search Logic
@@ -215,10 +222,21 @@ struct BrowseRoomsView: View {
         searchTask?.cancel()
         searchTask = Task {
             let trimmed = query.trimmingCharacters(in: .whitespaces)
+            let scoped = scopedServers()
             await viewModel.search(
                 query: trimmed.isEmpty ? nil : trimmed,
-                homeServer: homeServer, remotes: remoteServers)
+                homeServer: scoped.home, remotes: scoped.remotes)
         }
+    }
+
+    /// Only the selected directory is queried: the homeserver without a
+    /// `server` filter, or exactly one remote.
+    private func scopedServers() -> (home: String?, remotes: [String]) {
+        guard let scope else { return (homeServer, []) }
+        if scope == homeServer {
+            return (scope, [])
+        }
+        return (nil, [scope])
     }
 
     // MARK: - Join
@@ -252,22 +270,22 @@ struct BrowseRoomsView: View {
 
 // MARK: - Browse Rooms Row
 
-/// A single row in the directory list showing the room avatar, name, topic,
-/// member count, and a join button.
+/// A single row in the directory list showing the room avatar, name,
+/// topic with member count, and a join button.
 private struct BrowseRoomsRow: View {
     let room: PublicRoomEntry
     var isJoining: Bool = false
     let onJoin: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             AvatarView(
                 name: room.name ?? room.roomId.value,
                 mxcURL: room.avatarUrl,
-                size: 36
+                size: 40
             )
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(room.name ?? room.canonicalAlias ?? room.roomId.value)
                     .fontWeight(.medium)
                     .lineLimit(1)
@@ -277,28 +295,33 @@ private struct BrowseRoomsRow: View {
 
             Spacer()
 
-            if room.numJoinedMembers > 0 {
-                Label("\(room.numJoinedMembers)", systemImage: "person.2")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-
             joinButton
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 10)
     }
 
     private var subtitle: some View {
         Group {
             if let topic = room.topic, !topic.isEmpty {
-                Text(topic)
+                Text(topic) + memberSuffix
             } else if let alias = room.canonicalAlias {
-                Text(alias)
+                Text(alias) + memberSuffix
+            } else {
+                memberSuffix
             }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .lineLimit(1)
+    }
+
+    /// The member count tucked onto the subtitle line (`Topic · 35,305 members`).
+    private var memberSuffix: Text {
+        if room.numJoinedMembers > 0 {
+            Text(" · \(room.numJoinedMembers, format: .number) members")
+        } else {
+            Text("")
+        }
     }
 
     @ViewBuilder
@@ -321,4 +344,31 @@ private struct BrowseRoomsRow: View {
 
     BrowseRoomsView(selectedRoomId: $selected)
         .environment(PreviewFixtures.previewClient())
+}
+
+#Preview("Browse Rooms Row") {
+    List {
+        BrowseRoomsRow(
+            room: PublicRoomEntry(
+                roomId: RoomId(unchecked: "!matrix:matrix.org"),
+                name: "Matrix Community",
+                topic: "All things Matrix. There's a lot of rooms in this space.",
+                canonicalAlias: "#community:matrix.org",
+                numJoinedMembers: 35305),
+            onJoin: {})
+        BrowseRoomsRow(
+            room: PublicRoomEntry(
+                roomId: RoomId(unchecked: "!kde:kde.org"),
+                canonicalAlias: "#user:kde.org",
+                numJoinedMembers: 7906),
+            onJoin: {})
+        BrowseRoomsRow(
+            room: PublicRoomEntry(
+                roomId: RoomId(unchecked: "!quiet:example.org"),
+                name: "Quiet Corner"),
+            isJoining: true,
+            onJoin: {})
+    }
+    .frame(width: 560, height: 260)
+    .environment(PreviewFixtures.previewClient())
 }
