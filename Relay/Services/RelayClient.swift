@@ -694,6 +694,18 @@ final class RelayClient {
         clearDeliveredNotifications(forRoomId: roomId)
     }
 
+    /// Mark every joined room read up to its latest message. Rooms already
+    /// read are cheap no-ops via the `markAsRead` dedupe, and per-room
+    /// failures are logged-and-continued there so one room never aborts
+    /// the sweep.
+    func markAllRoomsAsRead(
+        sendReceipt: Bool = UserDefaults.standard.object(forKey: "safety.sendReadReceipts") as? Bool ?? true
+    ) async {
+        for room in rooms {
+            await markAsRead(roomId: room.roomId.value, sendReceipt: sendReceipt)
+        }
+    }
+
     /// The receipt type for a mark-as-read: public when the user shares
     /// read state, private (same-account, invisible to others) otherwise.
     /// Pure so the selection stays unit-tested.

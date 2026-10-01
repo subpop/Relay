@@ -59,6 +59,7 @@ struct RelayApp: App {
             EditLastMessageCommand(appActions: appActions)
             SearchCommand(appActions: appActions)
             QuickSwitchCommand(appActions: appActions)
+            MarkAllRoomsAsReadCommand(client: client)
             SidebarCommands()
             InspectorCommands()
             TextSizeCommands()
@@ -440,6 +441,33 @@ struct QuickSwitchCommand: Commands {
             }
             .keyboardShortcut("k", modifiers: .command)
         }
+    }
+}
+
+// MARK: - Mark All as Read Command
+
+/// Adds a "Mark All as Read" item (Shift-Esc) to the Edit menu.
+///
+/// Marks every joined room read, including muted ones. Menu-item-only:
+/// no toolbar or sidebar surface. Disabled when logged out or when no
+/// joined room shows an unread count.
+struct MarkAllRoomsAsReadCommand: Commands {
+    let client: RelayClient
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Mark All as Read") {
+                Task { await client.markAllRoomsAsRead() }
+            }
+            .keyboardShortcut(.escape, modifiers: .shift)
+            .disabled(!canMarkAllRead)
+        }
+    }
+
+    private var canMarkAllRead: Bool {
+        guard case .loggedIn = client.authState else { return false }
+        return client.rooms.contains { client.displayUnreadCount(for: $0) > 0 }
     }
 }
 
