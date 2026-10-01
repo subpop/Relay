@@ -265,6 +265,13 @@ final class RelayClient {
     /// per-render network calls.
     var notificationModeCache: [String: MatrixKit.RoomNotificationMode] = [:]
 
+    /// Set when the homeserver rejects our access token (`M_UNKNOWN_TOKEN`),
+    /// meaning the session was signed out remotely (e.g. from the
+    /// homeserver's session management page). Drives the blocking
+    /// "Session Signed Out" alert in `ContentView`. Cleared on the next
+    /// login or logout.
+    var remoteSignOutNoticed = false
+
     /// Cached highlight keywords from push rules (fed to timelines).
     var notificationKeywords: [String] = []
 
@@ -321,6 +328,11 @@ final class RelayClient {
     private var client: MatrixClient?
     private let keychain = KeychainKeyStore()
     private var syncTask: Task<Void, Never>?
+    /// Watchdog for silent sync-loop death (see `startSyncWatchLoop`).
+    private var syncWatchTask: Task<Void, Never>?
+    /// True while a stop/restart we initiated is in flight, so the sync
+    /// liveness watcher doesn't mistake our own teardown for a dead session.
+    private var syncStopRequested = false
     /// Which loop `startSyncLoop` started last (sliding vs. classic),
     /// so preference changes can restart only on a real mode switch.
     private var usingSlidingSync = false
@@ -500,6 +512,7 @@ final class RelayClient {
         let client = self.client
         self.client = nil
         authState = .loggedOut
+        remoteSignOutNoticed = false
         syncState = .idle
         hasLoadedRooms = false
         isSessionVerified = false
@@ -538,9 +551,13 @@ final class RelayClient {
         } catch {
             relayClientLogger.error(
                 "Resync after cache clear failed: \(error.localizedDescription, privacy: .public)")
-            syncState = .error(error.localizedDescription)
-            syncStats.recordError(error.localizedDescription)
-            recordActivity("Resync after cache clear failed")
+            if Self.isSessionInvalidation(error) {
+                handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+            } else {
+                syncState = .error(error.localizedDescription)
+                syncStats.recordError(error.localizedDescription)
+                recordActivity("Resync after cache clear failed")
+            }
         }
     }
 
@@ -2055,6 +2072,7 @@ final class RelayClient {
     private func adopt(client: MatrixClient, userId: String) async {
         self.client = client
         authState = .loggedIn(userId: userId)
+        remoteSignOutNoticed = false
         resetActivityState()
         let isOIDC = await client.session.isOIDC
         let hasRefreshToken = await client.session.refreshToken != nil
@@ -2116,9 +2134,13 @@ final class RelayClient {
         } catch {
             relayClientLogger.error(
                 "Initial sync failed: \(error.localizedDescription, privacy: .public)")
-            syncState = .error(error.localizedDescription)
-            syncStats.recordError(error.localizedDescription)
-            recordActivity("Initial sync failed")
+            if Self.isSessionInvalidation(error) {
+                handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+            } else {
+                syncState = .error(error.localizedDescription)
+                syncStats.recordError(error.localizedDescription)
+                recordActivity("Initial sync failed")
+            }
         }
         // The live loop starts regardless: a failed initial sync (e.g. a
         // cancelled login-transition task) must not leave the client
@@ -2138,6 +2160,7 @@ final class RelayClient {
 
     private func startSyncLoop() {
         guard let client, syncTask == nil else { return }
+        syncStopRequested = false
         // The Labs sliding-sync experiment replaces the classic loop.
         // Unknown versions proceed optimistically; known-unsupported
         // servers fall back to classic sync (the toggle is disabled there).
@@ -2151,16 +2174,104 @@ final class RelayClient {
                     try await client.startSync()
                 }
             } catch {
-                relayClientLogger.error(
-                    "Sync loop stopped: \(error.localizedDescription, privacy: .public)")
-                if syncState == .running {
-                    syncState = .error(error.localizedDescription)
-                    syncStats.recordError(error.localizedDescription)
-                    recordActivity("Sync loop stopped")
+                if Self.isSessionInvalidation(error) {
+                    handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+                } else {
+                    relayClientLogger.error(
+                        "Sync loop stopped: \(error.localizedDescription, privacy: .public)")
+                    if syncState == .running {
+                        syncState = .error(error.localizedDescription)
+                        syncStats.recordError(error.localizedDescription)
+                        recordActivity("Sync loop stopped")
+                    }
                 }
             }
             syncTask = nil
         }
+        startSyncWatchLoop()
+    }
+
+    /// Watchdog for silent sync-loop death. MatrixKit ends a revoked-token
+    /// loop by finishing its delta stream (sync status back to `.idle`)
+    /// rather than throwing, so `startSyncLoop` never sees it. When the
+    /// loop dies unexpectedly with the network up, verify with `whoami`:
+    /// a rejected token means remote sign-out, anything else restarts
+    /// the loop and lets the SDK's own retry/backoff take over.
+    private func startSyncWatchLoop() {
+        guard syncWatchTask == nil else { return }
+        syncWatchTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                await checkSyncLiveness()
+            }
+        }
+    }
+
+    private func checkSyncLiveness() async {
+        guard !syncStopRequested, !remoteSignOutNoticed,
+            isNetworkConnected, didFinishStartupSync,
+            let client, case .loggedIn = authState,
+            syncState == .running
+        else { return }
+        let status = usingSlidingSync ? client.slidingSyncStatus : client.syncStatus
+        guard case .idle = status else { return }
+        await verifySessionAfterSyncDeath()
+    }
+
+    /// One-shot `whoami` probe: only a rejected token proves remote
+    /// sign-out. Anything else restarts the loop.
+    private func verifySessionAfterSyncDeath() async {
+        guard let client, !remoteSignOutNoticed else { return }
+        do {
+            _ = try await client.auth.whoAmI()
+            relayClientLogger.warning("Sync loop ended with a live token; restarting")
+            recordActivity("Sync loop restarted")
+            syncStopRequested = false
+            startSyncLoop()
+        } catch {
+            if Self.isSessionInvalidation(error) {
+                handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+            } else {
+                relayClientLogger.warning(
+                    "Sync liveness probe failed, restarting loop: \(error.localizedDescription, privacy: .public)")
+                syncStopRequested = false
+                startSyncLoop()
+            }
+        }
+    }
+
+    /// Whether `error` is a dead or absent access token
+    /// (`M_UNKNOWN_TOKEN`). MatrixKit surfaces this from any
+    /// authenticated call: sync, token refresh, and one-shot fetches.
+    static func isSessionInvalidation(_ error: Error) -> Bool {
+        guard let matrixError = error as? MatrixError else { return false }
+        if case .unknownToken = matrixError { return true }
+        return false
+    }
+
+    /// The response's `soft_logout` hint carried by an unknown-token
+    /// error (nil when absent or when `error` is not one).
+    static func softLogoutHint(_ error: Error) -> Bool? {
+        guard let matrixError = error as? MatrixError,
+            case .unknownToken(let softLogout) = matrixError
+        else { return nil }
+        return softLogout
+    }
+
+    /// Freeze the session after the homeserver rejects our token: stop
+    /// all loops and raise the blocking sign-out alert. Idempotent:
+    /// sync, refresh, and one-shot failures converge here.
+    func handleRemoteSignOut(softLogout: Bool? = nil) {
+        guard !remoteSignOutNoticed else { return }
+        remoteSignOutNoticed = true
+        syncState = .idle
+        stopTasks()
+        syncStats.recordError("Session signed out remotely")
+        recordActivity("Session signed out remotely")
+        relayClientLogger.error(
+            "Access token rejected (soft logout: \(softLogout.map(String.init(describing:)) ?? "unknown", privacy: .public)): session signed out remotely"
+        )
     }
 
     /// Restart the sync loop when the Labs sliding-sync preference
@@ -2172,6 +2283,7 @@ final class RelayClient {
         guard let client, didFinishStartupSync, isNetworkConnected else { return }
         let wantSliding = isSlidingSyncEnabled && client.canUseSlidingSync
         guard wantSliding != usingSlidingSync else { return }
+        syncStopRequested = true
         syncTask?.cancel()
         syncTask = nil
         relayClientLogger.info(
@@ -2218,6 +2330,11 @@ final class RelayClient {
             relayClientLogger.warning(
                 "Session token refresh failed: \(error.localizedDescription, privacy: .public)")
             recordActivity("Session token refresh failed")
+            if Self.isSessionInvalidation(error) {
+                // The refresh token is dead; the access token may still
+                // be alive, so probe before raising the sign-out alert.
+                await verifySessionAfterSyncDeath()
+            }
         }
     }
 
@@ -2369,8 +2486,11 @@ final class RelayClient {
     }
 
     private func stopTasks() {
+        syncStopRequested = true
         syncTask?.cancel()
         syncTask = nil
+        syncWatchTask?.cancel()
+        syncWatchTask = nil
         verificationTask?.cancel()
         verificationTask = nil
         secretsTask?.cancel()

@@ -59,6 +59,29 @@ struct ContentView: View {
         .task {
             await client.restoreSession()
         }
+        .alert(
+            "Session Signed Out",
+            isPresented: Binding(
+                get: { client.remoteSignOutNoticed },
+                set: {
+                    // No recovery path exists: any dismissal (including
+                    // Escape) signs out and returns to the login screen.
+                    if !$0, client.remoteSignOutNoticed {
+                        Task { await client.logout() }
+                    } else {
+                        client.remoteSignOutNoticed = $0
+                    }
+                }
+            )
+        ) {
+            Button("Log out") {
+                Task { await client.logout() }
+            }
+        } message: {
+            Text(
+                "This session was signed out from another device or the homeserver's session management page. Sign in again to continue."
+            )
+        }
         .relayErrorAlert()
     }
 }
