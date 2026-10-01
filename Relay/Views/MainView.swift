@@ -158,10 +158,10 @@ struct MainView: View {
             JoinRoomSheet(selectedRoomId: $selectedRoomId)
         }
         .sheet(isPresented: Binding(
-            get: { appActions.showRoomDirectory },
-            set: { appActions.showRoomDirectory = $0 }
+            get: { appActions.showBrowseRooms },
+            set: { appActions.showBrowseRooms = $0 }
         )) {
-            RoomDirectoryView(selectedRoomId: $selectedRoomId)
+            BrowseRoomsView(selectedRoomId: $selectedRoomId)
         }
         .sheet(isPresented: Binding(
             get: { appActions.showCreateDirectMessage },

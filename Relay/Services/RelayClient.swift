@@ -1764,14 +1764,23 @@ final class RelayClient {
 
     // MARK: - Directory & Search
 
+    /// The server name (`host[:port]`) of the connected homeserver, if logged in.
+    func homeServerName() -> String? {
+        localServerName
+    }
+
     /// List public rooms, optionally filtered by search text.
+    /// Pass a `server` to browse that server's directory through the
+    /// logged-in homeserver (federation-backed third-party directory
+    /// lookup, e.g. `matrixrooms.info`). Pass nil for the local directory.
     /// Returns the page plus the cursor for the next page, if any.
     func publicRooms(
-        filter: String? = nil, limit: Int = 100, since: String? = nil
+        filter: String? = nil, limit: Int = 100, since: String? = nil,
+        server: String? = nil
     ) async throws -> (rooms: [PublicRoomEntry], nextBatch: String?) {
         guard let client else { return ([], nil) }
         let response = try await client.rooms.publicRooms(
-            limit: limit, since: since, filter: filter)
+            limit: limit, since: since, server: server, filter: filter)
         return (response.chunk, response.nextBatch)
     }
 

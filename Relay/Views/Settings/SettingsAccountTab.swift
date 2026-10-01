@@ -16,7 +16,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The Account tab of the Settings window, displaying the user's profile avatar,
-/// display name, user ID, account info, and logout/cache actions.
+/// display name, user ID, account info, room directories, and logout/cache actions.
 struct SettingsAccountTab: View {
     @Environment(RelayClient.self) private var client
     @Environment(\.errorReporter) private var errorReporter
@@ -31,6 +31,11 @@ struct SettingsAccountTab: View {
     @State private var showClearCacheConfirmation = false
 
     @State private var deviceId: String?
+
+    @State private var directoryServers: [RoomDirectoryServer] = RoomDirectoryStore.load()
+    @State private var selectedDirectoryIDs: Set<RoomDirectoryServer.ID> = []
+    @State private var focusDirectoryID: RoomDirectoryServer.ID?
+    @State private var directoryInputError: String?
 
     private var userId: String? { client.userId() }
 
@@ -135,6 +140,96 @@ struct SettingsAccountTab: View {
             }
 
             Section {
+                if let homeServerName = client.homeServerName() {
+                    LabeledContent(content: {
+                        Text(homeServerName)
+                    }, label: {
+                        Text("Homeserver")
+                    })
+                }
+                VStack(spacing: 0) {
+                    Table($directoryServers, selection: $selectedDirectoryIDs) {
+                        TableColumn("Enable") { server in
+                            Toggle(
+                                "Show \(server.wrappedValue.serverName) in Browse Rooms",
+                                isOn: server.isEnabled
+                            )
+                            .labelsHidden()
+                            .onChange(of: server.wrappedValue.isEnabled) { _, _ in
+                                persistDirectories()
+                            }
+                        }
+                        .width(40)
+
+                        TableColumn("Server") { server in
+                            DirectoryNameCell(
+                                server: server,
+                                existingNames: directoryNamesExcluding(server.wrappedValue.id),
+                                autofocus: server.wrappedValue.id == focusDirectoryID,
+                                onError: { directoryInputError = $0 },
+                                onPersist: persistDirectories,
+                                onRemove: { removeDirectory(id: server.wrappedValue.id) }
+                            )
+                        }
+                    }
+                    .frame(height: directoryListHeight)
+
+                    Divider()
+
+                    HStack(spacing: 6) {
+                        Button("Add directory", systemImage: "plus") {
+                            let server = RoomDirectoryServer(serverName: "")
+                            directoryServers.append(server)
+                            selectedDirectoryIDs = [server.id]
+                            focusDirectoryID = server.id
+                            directoryInputError = nil
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .help("Add directory")
+
+                        Divider()
+                            .frame(height: 14)
+
+                        Button("Remove directory", systemImage: "minus") {
+                            removeSelectedDirectories()
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .disabled(selectedDirectoryIDs.isEmpty)
+                        .help("Remove directory")
+
+                        Spacer()
+
+                        Button("Restore Defaults") {
+                            directoryServers = [
+                                RoomDirectoryServer(serverName: RoomDirectoryStore.defaultServerName)
+                            ]
+                            selectedDirectoryIDs = []
+                            persistDirectories()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                }
+                .clipShape(.rect(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(.separator)
+                }
+
+                if let directoryInputError {
+                    Text(directoryInputError)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                Text("Public Rooms")
+                Text("In addition to your homeserver, search these servers for public rooms.")
+            }
+
+            Section("Advanced") {
                 HStack {
                     Button("Clear Cache…") {
                         showClearCacheConfirmation = true
@@ -186,6 +281,40 @@ struct SettingsAccountTab: View {
 
     // MARK: - Actions
 
+    /// Table height: header plus one row per server, scrolling past five.
+    private var directoryListHeight: CGFloat {
+        min(28 + CGFloat(max(directoryServers.count, 1)) * 30, 208)
+    }
+
+    /// Server names already taken by the homeserver and every directory
+    /// except the given one, for rename validation.
+    private func directoryNamesExcluding(_ id: RoomDirectoryServer.ID) -> Set<String> {
+        var names = Set(directoryServers.filter { $0.id != id }.map(\.serverName))
+        if let home = client.homeServerName() {
+            names.insert(home)
+        }
+        return names
+    }
+
+    private func removeDirectory(id: RoomDirectoryServer.ID) {
+        directoryServers.removeAll { $0.id == id }
+        selectedDirectoryIDs.remove(id)
+        if focusDirectoryID == id {
+            focusDirectoryID = nil
+        }
+        persistDirectories()
+    }
+
+    private func removeSelectedDirectories() {
+        directoryServers.removeAll { selectedDirectoryIDs.contains($0.id) }
+        selectedDirectoryIDs = []
+        persistDirectories()
+    }
+
+    private func persistDirectories() {
+        RoomDirectoryStore.save(directoryServers)
+    }
+
     private func saveDisplayName() {
         let trimmed = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed != savedDisplayName else {
@@ -232,6 +361,71 @@ struct SettingsAccountTab: View {
         } catch {
             errorReporter.report(.avatarUpdateFailed(error.localizedDescription))
         }
+    }
+}
+
+// MARK: - Directory Name Cell
+
+/// The editable server-name cell of the directories table. The name
+/// commits on Return or focus loss (normalized, duplicate-checked);
+/// committing an empty name on a new row removes it.
+private struct DirectoryNameCell: View {
+    @Binding var server: RoomDirectoryServer
+    var existingNames: Set<String>
+    var autofocus: Bool = false
+    var onError: (String?) -> Void = { _ in }
+    var onPersist: () -> Void = {}
+    var onRemove: () -> Void = {}
+
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("", text: $draft)
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .onSubmit { commit() }
+            .onAppear {
+                draft = server.serverName
+                if autofocus {
+                    Task { isFocused = true }
+                }
+            }
+            .onChange(of: server.serverName) { _, newValue in
+                if !isFocused {
+                    draft = newValue
+                }
+            }
+            .onChange(of: isFocused) { _, focused in
+                if !focused {
+                    commit()
+                }
+            }
+    }
+
+    private func commit() {
+        guard draft != server.serverName else {
+            onError(nil)
+            return
+        }
+        guard let normalized = RoomDirectoryStore.normalize(draft) else {
+            if server.serverName.isEmpty {
+                onRemove()
+            } else {
+                draft = server.serverName
+            }
+            onError(nil)
+            return
+        }
+        guard !existingNames.contains(normalized) else {
+            draft = server.serverName
+            onError("\(normalized) is already listed.")
+            return
+        }
+        server.serverName = normalized
+        draft = normalized
+        onError(nil)
+        onPersist()
     }
 }
 

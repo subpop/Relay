@@ -318,7 +318,7 @@ final class AppActions {
     var showCreateSpace = false
     var showCreateDirectMessage = false
     var showJoinRoom = false
-    var showRoomDirectory = false
+    var showBrowseRooms = false
     var focusSearch = false
     var showQuickSwitch = false
     /// The currently focused timeline's edit-last-message action, if any.
@@ -371,8 +371,8 @@ struct FileMenuCommands: Commands {
             }
             .keyboardShortcut("j", modifiers: .command)
 
-            Button("Room Directory") {
-                appActions.showRoomDirectory = true
+            Button("Browse Rooms…") {
+                appActions.showBrowseRooms = true
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
         }

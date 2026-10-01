@@ -141,7 +141,7 @@ Relay/
   RelayApp.swift              App entry point (creates RelayClient, share pickup, notifications)
   ContentView.swift           Routes on RelayClient.AuthState / SyncState
   Views/                      SwiftUI views (import MatrixKit directly)
-  ViewModels/                 TimelineViewModel, SearchViewModel, RoomDirectoryViewModel,
+  ViewModels/                 TimelineViewModel, SearchViewModel, BrowseRoomsViewModel,
                               SpaceHierarchyViewModel, SessionVerificationViewModel,
                               ActivityViewModel, fixtures
   Services/                   RelayClient, KeychainKeyStore,

@@ -126,7 +126,7 @@ struct RoomListView: View {
         .focusSection()
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
-                roomDirectoryButton
+                browseRoomsButton
                 sortMenu
             }
         }
@@ -177,9 +177,9 @@ struct RoomListView: View {
         Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
     }
 
-    // MARK: - Room Directory
+    // MARK: - Browse Rooms
 
-    private var roomDirectoryButton: some View {
+    private var browseRoomsButton: some View {
         Menu {
             Button("Create Room\u{2026}") {
                 appActions.showCreateRoom = true
@@ -191,13 +191,13 @@ struct RoomListView: View {
                 appActions.showJoinRoom = true
             }
             Divider()
-            Button("Room Directory\u{2026}") {
-                appActions.showRoomDirectory = true
+            Button("Browse Rooms\u{2026}") {
+                appActions.showBrowseRooms = true
             }
         } label: {
-            Label("Room Directory", systemImage: "plus.bubble")
+            Label("Browse Rooms", systemImage: "plus.bubble")
         }
-        .help("Room Directory")
+        .help("Browse Rooms")
     }
 
     // MARK: - Sort Menu
