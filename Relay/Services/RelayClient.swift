@@ -380,7 +380,13 @@ final class RelayClient {
             NotificationCenter.default.addObserver(
                 forName: NSApplication.willTerminateNotification, object: nil,
                 queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.saveCache() } },
+                    MainActor.assumeIsolated {
+                        self?.saveCache()
+                        // Best effort: settle any debounced crypto
+                        // writes so a quit inside the loss window
+                        // cannot drop ratchet state.
+                        Task { await self?.flushCryptoState() }
+                    } },
             // The Labs sliding-sync toggle writes UserDefaults directly;
             // restart the loop when the preference changes mid-session.
             NotificationCenter.default.addObserver(
@@ -2759,6 +2765,16 @@ final class RelayClient {
             }
         }
         hasLoadedRooms = true
+    }
+
+    /// Settle any debounced crypto-state writes immediately.
+    /// Best-effort durability for paths where the debounce loss
+    /// window is unacceptable (e.g. app termination). No-op when
+    /// logged out.
+    func flushCryptoState() async {
+        guard let client else { return }
+        await client.olm.flushCryptoState()
+        await client.roomCrypto.flushCryptoState()
     }
 
     /// Best-effort persist of converged in-memory state (read markers
