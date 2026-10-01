@@ -57,4 +57,11 @@ struct RemoteSignOutTests {
         #expect(!client.remoteSignOutNoticed)
         #expect(client.authState == .loggedOut)
     }
+
+
+    @Test @MainActor func signOutSourceDefaults() {
+        let client = RelayClient()
+        client.handleRemoteSignOut(softLogout: true)
+        #expect(client.remoteSignOutNoticed)
+    }
 }

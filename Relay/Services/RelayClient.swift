@@ -411,12 +411,27 @@ final class RelayClient {
         guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else {
             return
         }
+        let sessionKey = KeyStoreKey(
+            service: Self.sessionService, account: Self.sessionAccount)
+        let data: Data?
+        do {
+            data = try await keychain.load(sessionKey)
+        } catch {
+            relayClientLogger.error(
+                "Saved session unreadable (keychain load failed); staying logged out: \(error.localizedDescription, privacy: .public)")
+            authState = .loggedOut
+            return
+        }
+        guard let data else {
+            relayClientLogger.info("No saved session in keychain")
+            authState = .loggedOut
+            return
+        }
         guard
-            let data = try? await keychain.load(KeyStoreKey(
-                service: Self.sessionService, account: Self.sessionAccount)),
             let stored = try? JSONDecoder().decode(StoredSession.self, from: data),
             let homeserver = URL(string: stored.homeserver)
         else {
+            relayClientLogger.error("Saved session present but undecodable; staying logged out")
             authState = .loggedOut
             return
         }
@@ -437,7 +452,7 @@ final class RelayClient {
         // (e.g. offline) keeps the stored identity rather than logging out.
         do {
             try await client.reconcileIdentity()
-            try await persistSession(for: client)
+            await persistSessionLoudly(for: client, context: "reconcile")
         } catch {
             relayClientLogger.warning(
                 "Identity reconciliation failed, using stored user ID: \(error.localizedDescription, privacy: .public)")
@@ -552,7 +567,7 @@ final class RelayClient {
             relayClientLogger.error(
                 "Resync after cache clear failed: \(error.localizedDescription, privacy: .public)")
             if Self.isSessionInvalidation(error) {
-                handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+                handleRemoteSignOut(softLogout: Self.softLogoutHint(error), source: "cache resync")
             } else {
                 syncState = .error(error.localizedDescription)
                 syncStats.recordError(error.localizedDescription)
@@ -2128,7 +2143,7 @@ final class RelayClient {
                 }
             }
             saveCache()
-            try? await persistSession(for: client)
+            await persistSessionLoudly(for: client, context: "initial sync")
             hasLoadedRooms = true
             syncState = .running
             relayClientLogger.info("Initial sync completed")
@@ -2147,7 +2162,8 @@ final class RelayClient {
             relayClientLogger.error(
                 "Initial sync failed: \(error.localizedDescription, privacy: .public)")
             if Self.isSessionInvalidation(error) {
-                handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+                await confirmSessionInvalidation(
+                    source: "initial sync", softLogout: Self.softLogoutHint(error))
             } else {
                 syncState = .error(error.localizedDescription)
                 syncStats.recordError(error.localizedDescription)
@@ -2164,10 +2180,7 @@ final class RelayClient {
         // keyed by room ID.
         await refreshNotificationModes()
         refreshShareRoomCache()
-        startShareRoomCacheWatcher()
-        didFinishStartupSync = true
-        startSyncLoop()
-        scheduleTokenRefresh()
+        startSessionServices()
     }
 
     private func startSyncLoop() {
@@ -2187,7 +2200,14 @@ final class RelayClient {
                 }
             } catch {
                 if Self.isSessionInvalidation(error) {
-                    handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+                    // Verify on a fresh task: this task's epilogue clears
+                    // `syncTask`, so resuming inline would orphan the
+                    // replacement loop's handle.
+                    let hint = Self.softLogoutHint(error)
+                    Task {
+                        await self.confirmSessionInvalidation(
+                            source: "sync loop", softLogout: hint)
+                    }
                 } else {
                     relayClientLogger.error(
                         "Sync loop stopped: \(error.localizedDescription, privacy: .public)")
@@ -2243,7 +2263,8 @@ final class RelayClient {
             startSyncLoop()
         } catch {
             if Self.isSessionInvalidation(error) {
-                handleRemoteSignOut(softLogout: Self.softLogoutHint(error))
+                handleRemoteSignOut(
+                    softLogout: Self.softLogoutHint(error), source: "liveness probe")
             } else {
                 relayClientLogger.warning(
                     "Sync liveness probe failed, restarting loop: \(error.localizedDescription, privacy: .public)")
@@ -2271,10 +2292,53 @@ final class RelayClient {
         return softLogout
     }
 
+    /// Confirm a suspected session invalidation before arming the
+    /// sign-out alert. The transport already retried once past a
+    /// refresh, but a rotation may still have been in flight, so one
+    /// explicit `whoami` probe decides: a live token resumes the
+    /// session (persisting any rotated tokens); only a second
+    /// rejection arms the alert. Anything else leaves the session
+    /// frozen with an error state instead of signing out.
+    private func confirmSessionInvalidation(source: String, softLogout: Bool?) async {
+        guard let client, !remoteSignOutNoticed else { return }
+        do {
+            _ = try await client.auth.whoAmI()
+            relayClientLogger.warning(
+                "Session probe succeeded after \(source, privacy: .public); resuming sync")
+            recordActivity("Session probe succeeded; sync resumed")
+            await persistSessionLoudly(for: client, context: "session probe")
+            stopTasks()
+            syncState = .running
+            startSessionServices()
+        } catch {
+            if Self.isSessionInvalidation(error) {
+                handleRemoteSignOut(
+                    softLogout: Self.softLogoutHint(error), source: source)
+            } else {
+                relayClientLogger.error(
+                    "Session probe failed (\(source, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                syncState = .error(error.localizedDescription)
+                syncStats.recordError(error.localizedDescription)
+                recordActivity("Session probe failed")
+            }
+        }
+    }
+    /// (Re)start the long-lived per-session services `stopTasks()`
+    /// tears down. Idempotent: every starter guards on its task handle.
+    private func startSessionServices() {
+        startNetworkMonitor()
+        startVerificationMonitor()
+        startSecretsMonitor()
+        startNotificationMonitor()
+        startShareRoomCacheWatcher()
+        didFinishStartupSync = true
+        startSyncLoop()
+        scheduleTokenRefresh()
+    }
     /// Freeze the session after the homeserver rejects our token: stop
     /// all loops and raise the blocking sign-out alert. Idempotent:
     /// sync, refresh, and one-shot failures converge here.
-    func handleRemoteSignOut(softLogout: Bool? = nil) {
+    func handleRemoteSignOut(softLogout: Bool? = nil, source: String = "unspecified") {
         guard !remoteSignOutNoticed else { return }
         remoteSignOutNoticed = true
         syncState = .idle
@@ -2282,7 +2346,7 @@ final class RelayClient {
         syncStats.recordError("Session signed out remotely")
         recordActivity("Session signed out remotely")
         relayClientLogger.error(
-            "Access token rejected (soft logout: \(softLogout.map(String.init(describing:)) ?? "unknown", privacy: .public)): session signed out remotely"
+            "Access token rejected (source: \(source, privacy: .public), soft logout: \(softLogout.map(String.init(describing:)) ?? "unknown", privacy: .public)): session signed out remotely"
         )
     }
 
@@ -2336,7 +2400,7 @@ final class RelayClient {
         guard let client else { return }
         do {
             try await client.auth.refresh()
-            try? await persistSession(for: client)
+            await persistSessionLoudly(for: client, context: "token refresh")
             relayClientLogger.debug("Session tokens refreshed")
         } catch {
             relayClientLogger.warning(
@@ -2589,6 +2653,20 @@ final class RelayClient {
             throw RelayError.oauthInvalidURL
         }
         return url
+    }
+
+    /// Persist the session, logging loudly on failure. A rotation that
+    /// succeeds server-side but never reaches the keychain strands the
+    /// next launch with a consumed refresh token, so these failures
+    /// must never be silent.
+    private func persistSessionLoudly(for client: MatrixClient, context: String) async {
+        do {
+            try await persistSession(for: client)
+        } catch {
+            relayClientLogger.error(
+                "Session persist failed (\(context, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            recordActivity("Session persist failed (\(context))")
+        }
     }
 
     private func persistSession(for client: MatrixClient) async throws {
