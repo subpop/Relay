@@ -81,8 +81,30 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
         case .audio: "Sent an audio message"
         case .file: "Sent a file"
         case .location: "Sent a location"
-        case .emote, .notice, .text: content.body.strippingInlineMarkdown
+        case .emote, .notice, .text: previewText(body: content.body, formattedBody: content.formattedBody)
         }
+    }
+
+    /// Prefers the HTML `formatted_body`, parsed to plain text, since some
+    /// clients leave markup unstripped in the plain-text `body` fallback.
+    private static func previewText(body: String, formattedBody: String?) -> String {
+        if let formattedBody,
+           let parsed = NSAttributedString(matrixHTML: formattedBody)?.string {
+            return parsed
+                .replacing("\u{FFFC}", with: "")
+                .collapsingWhitespaceToSingleLine
+        }
+        return body.strippingInlineMarkdown
+    }
+}
+
+private extension String {
+    /// Collapses runs of whitespace (including newlines) into single spaces,
+    /// for one-line previews of text that may contain block-level HTML output.
+    var collapsingWhitespaceToSingleLine: String {
+        components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 
