@@ -191,28 +191,35 @@ private struct ReactionBadge: View {
 
     var body: some View {
         HStack(spacing: 4) {
-                    Button(action: onToggle) {
-                        Text(reaction.key)
-                            .font(.system(size: 13))
-                    }
-                    .buttonStyle(.plain)
-                        Text("\(reaction.count)")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(reaction.highlightedByCurrentUser ? .white : .secondary)
-                            .onHover{
-                                hovering in isHovering = hovering
-                            }
-                            .popover(isPresented: $isHovering, arrowEdge: .top) {
-                                       ReactionAuthors(reaction: reaction)
-                                           .padding(8)
-                                   }
-                    }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(
-                    Capsule().fill(reaction.highlightedByCurrentUser ? fillColor : .secondary.opacity(0.15))
-                )
+            Button(action: onToggle) {
+                Text(reaction.key)
+                    .font(.system(size: 13))
             }
+            .buttonStyle(.plain)
+            Text("\(reaction.count)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(reaction.highlightedByCurrentUser ? .white : .secondary)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            Capsule().fill(reaction.highlightedByCurrentUser ? fillColor : .secondary.opacity(0.15))
+        )
+        .contentShape(Capsule())
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .popover(isPresented: $isHovering, arrowEdge: .top) {
+            ReactionAuthors(reaction: reaction)
+                .padding(8)
+                // Disabling interactive dismissal makes the popover
+                // nontransient on macOS, so a click on the emoji button
+                // underneath reaches the button instead of being consumed
+                // to dismiss the popover. We still close it ourselves via
+                // the onHover-driven `isHovering` binding above.
+                .interactiveDismissDisabled()
+        }
+    }
 }
 
 /// Shows the authors of each reaction up to maxShown.
