@@ -15,8 +15,8 @@
 import Foundation
 
 /// Extracts the first previewable URL from a message body, filtering out
-/// Matrix identifiers, `matrix.to` links, loopback hosts, and bare URLs
-/// without an explicit scheme.
+/// Matrix identifiers, `matrix.to` links, loopback hosts, bare URLs
+/// without an explicit scheme, and domains in `LinkPreviewSkipList`.
 enum URLPreviewExtractor {
 
     /// Cache for `firstPreviewURL` results to avoid running `NSDataDetector` on
@@ -58,6 +58,7 @@ enum URLPreviewExtractor {
                       scheme == "https" || scheme == "http",
                       url.host?.lowercased() != "matrix.to",
                       !isLoopbackHost(url.host?.lowercased() ?? ""),
+                      !LinkPreviewSkipList.isSkipped(url),
                       let matchRange = Range(match.range, in: body) else { continue }
 
                 // Skip URLs whose detected range overlaps a Matrix identifier.

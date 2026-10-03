@@ -64,6 +64,34 @@ log show --last 10m --predicate 'subsystem == "app.subpop.MatrixKit" AND categor
 
 See Help > Report an issue for more examples.
 
+## Advanced Configuration
+
+A few settings aren't exposed in the Settings UI and are only
+configurable directly via `UserDefaults`.
+
+Relay is sandboxed, so `defaults write app.subpop.Relay ...` targets its
+container preferences rather than `~/Library/Preferences/`. Writing there
+requires your terminal app to have **Full Disk Access** (System Settings
+> Privacy & Security > Full Disk Access) — without it, `defaults write`
+fails with `Could not write domain ...; exiting`. Also quit Relay before
+running these commands, since a running app can overwrite your change
+with its in-memory defaults the next time it writes anything, and
+relaunch it afterward to pick up the change.
+
+**Skip link previews for specific domains** — set an array of domains
+under the `linkPreview.skippedDomains` key. Previews are skipped for
+the given domain and all of its subdomains:
+
+```
+defaults write app.subpop.Relay linkPreview.skippedDomains -array "example.com" "tracker.example"
+```
+
+Remove the key to restore previews for all domains:
+
+```
+defaults delete app.subpop.Relay linkPreview.skippedDomains
+```
+
 ## Roadmap
 
 - 🧵 Thread support

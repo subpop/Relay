@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark">
     <meta name="description" content="Configure privacy settings in Relay, including read receipts, typing indicators, and per-room overrides.">
-    <meta name="keywords" content="privacy, read receipts, typing indicators, URL previews, per-room overrides, media previews, timeline events">
+    <meta name="keywords" content="privacy, read receipts, typing indicators, URL previews, skipped domains, per-room overrides, media previews, timeline events">
     <meta name="robots" content="anchors">
     <title>Privacy settings</title>
     <link rel="stylesheet" href="../../Shared/relay-help.css">
@@ -25,6 +25,15 @@
 
     <h2>URL previews</h2>
     <p>Toggle <strong>Show URL previews</strong> to control whether link previews are fetched and displayed inline in conversations.</p>
+
+    <h2>Skipping specific domains</h2>
+    <p>There's no Settings UI for this, but Relay can be configured to always skip link previews for specific domains (and their subdomains) by setting an advanced preference from Terminal:</p>
+    <pre><code>defaults write app.subpop.Relay linkPreview.skippedDomains -array "example.com" "tracker.example"</code></pre>
+    <p>Remove the key to restore previews for all domains:</p>
+    <pre><code>defaults delete app.subpop.Relay linkPreview.skippedDomains</code></pre>
+    <div class="callout note">
+        <p><strong class="callout-label">Note: </strong>This is an advanced, Terminal-only setting intended for people comfortable with the command line. Relay is sandboxed, so your terminal app needs <strong>Full Disk Access</strong> (System Settings &gt; Privacy &amp; Security &gt; Full Disk Access) to write this preference — without it, the command fails with <code>Could not write domain ...; exiting</code>. Also quit Relay before running the command, since a running app can overwrite your change the next time it writes any preference, and relaunch it afterward to pick up the change.</p>
+    </div>
 
     <h2>Per-room overrides</h2>
     <p>In the room inspector's <strong>Behavior</strong> tab, you can override these settings on a per-room basis. Each setting shows whether it's using the global default or has been overridden. Click <strong>Restore All Defaults</strong> to reset all overrides.</p>
