@@ -121,7 +121,8 @@ extension MessageTextView {
                 userId: mention.uri.identifier,
                 displayName: mention.displayName,
                 font: baseFont,
-                style: isHighlightedUser ? .highlightedMention : pillStyle
+                style: isHighlightedUser ? .highlightedMention : pillStyle,
+                prefixSigil: mention.uri.isRoom ? "#" : "@"
             )
             let attachmentString = NSMutableAttributedString(attachment: pill)
             // Preserve the .link attribute so click-to-navigate still works.

@@ -46,8 +46,8 @@ enum MentionPillStyle: Sendable {
 ///
 /// ``MentionPillView`` is displayed inline by ``PillTextAttachment``, which
 /// keeps a bitmap snapshot of it as the attachment image. It displays
-/// `@DisplayName` in a rounded capsule styled according to its
-/// ``MentionPillStyle``.
+/// `<sigil>DisplayName` (e.g. `@DisplayName` for a user, `#DisplayName` for a
+/// room) in a rounded capsule styled according to its ``MentionPillStyle``.
 struct MentionPillView: View {
     let displayName: String
 
@@ -58,9 +58,10 @@ struct MentionPillView: View {
     /// The visual style of the pill. Defaults to `.compose`.
     var style: MentionPillStyle = .compose
 
-    /// Whether to prepend `@` to the display name. Defaults to `true`.
-    /// Set to `false` for keyword highlight pills.
-    var showAtPrefix: Bool = true
+    /// The sigil prepended to the display name — `@` for a user mention,
+    /// `#` for a room mention. `nil` means no prefix, used for keyword
+    /// highlight pills. Defaults to `@`.
+    var prefixSigil: Character? = "@"
 
     /// Point size of the surrounding message text. The pill's own text renders
     /// one point smaller than this, so the pill scales with the timeline's
@@ -69,8 +70,8 @@ struct MentionPillView: View {
     var fontSize: CGFloat = NSFont.systemFontSize
 
     private var pillText: String {
-        if !showAtPrefix { return displayName }
-        return displayName.hasPrefix("@") ? displayName : "@\(displayName)"
+        guard let prefixSigil else { return displayName }
+        return displayName.hasPrefix(String(prefixSigil)) ? displayName : "\(prefixSigil)\(displayName)"
     }
 
     private var textColor: Color {
@@ -112,12 +113,12 @@ struct MentionPillView: View {
     private static let verticalPadding: CGFloat = 1
 
     /// Measures the size the pill will occupy for layout purposes.
-    static func measureSize(displayName: String, font: NSFont, showAtPrefix: Bool = true) -> CGSize {
+    static func measureSize(displayName: String, font: NSFont, prefixSigil: Character? = "@") -> CGSize {
         let label: String
-        if !showAtPrefix {
-            label = displayName
+        if let prefixSigil {
+            label = displayName.hasPrefix(String(prefixSigil)) ? displayName : "\(prefixSigil)\(displayName)"
         } else {
-            label = displayName.hasPrefix("@") ? displayName : "@\(displayName)"
+            label = displayName
         }
         let text = label as NSString
         let attributes: [NSAttributedString.Key: Any] = [

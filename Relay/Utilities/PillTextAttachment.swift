@@ -52,8 +52,9 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     /// The visual style of the pill (compose, message, highlight).
     let style: MentionPillStyle
 
-    /// Whether to prepend `@` to the display name.
-    let showAtPrefix: Bool
+    /// The sigil prepended to the display name — `@` for a user mention,
+    /// `#` for a room mention. `nil` means no prefix.
+    let prefixSigil: Character?
 
     /// Creates a pill attachment for the compose bar (stable color tint, no border).
     convenience init(userId: String, displayName: String, font: NSFont) {
@@ -62,38 +63,27 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
             displayName: displayName,
             font: font,
             style: .compose,
-            showAtPrefix: true
+            prefixSigil: "@"
         )
     }
 
-    /// Creates a pill attachment for message rendering with a specific style.
-    convenience init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle) {
-        self.init(
-            userId: userId,
-            displayName: displayName,
-            font: font,
-            style: style,
-            showAtPrefix: true
-        )
-    }
-
-    /// Creates a pill attachment for a keyword highlight (no `@` prefix, no link).
+    /// Creates a pill attachment for a keyword highlight (no prefix, no link).
     convenience init(keyword: String, font: NSFont, style: MentionPillStyle) {
         self.init(
             userId: "",
             displayName: keyword,
             font: font,
             style: style,
-            showAtPrefix: false
+            prefixSigil: nil
         )
     }
 
-    init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle, showAtPrefix: Bool) {
+    init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle, prefixSigil: Character?) {
         self.userId = userId
         self.displayName = displayName
         self.pillFontSize = font.pointSize
         self.style = style
-        self.showAtPrefix = showAtPrefix
+        self.prefixSigil = prefixSigil
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
@@ -102,7 +92,7 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
             displayName: displayName,
             fontSize: font.pointSize,
             style: style,
-            showAtPrefix: showAtPrefix
+            prefixSigil: prefixSigil
         )
         self.image = rendered.image
         self.bounds = Self.paddedBounds(pillSize: rendered.size, fontSize: font.pointSize)
@@ -119,7 +109,7 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     /// This bitmap is the pill's rendered form in every TextKit 2 context.
     private static func renderPill(
         userId: String, displayName: String, fontSize: CGFloat,
-        style: MentionPillStyle, showAtPrefix: Bool = true
+        style: MentionPillStyle, prefixSigil: Character? = "@"
     ) -> (image: NSImage, size: CGSize) {
         MainActor.assumeIsolated {
             let tintColor = Color(stableColorFor: userId)
@@ -128,7 +118,7 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
                     ? .dark : .light
             let pillView = MentionPillView(
                 displayName: displayName, tintColor: tintColor, style: style,
-                showAtPrefix: showAtPrefix, fontSize: fontSize
+                prefixSigil: prefixSigil, fontSize: fontSize
             )
             .environment(\.colorScheme, colorScheme)
             let renderer = ImageRenderer(content: pillView)
@@ -140,7 +130,7 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
             let size = MentionPillView.measureSize(
                 displayName: displayName,
                 font: NSFont.systemFont(ofSize: fontSize),
-                showAtPrefix: showAtPrefix
+                prefixSigil: prefixSigil
             )
             return (NSImage(size: size), size)
         }
