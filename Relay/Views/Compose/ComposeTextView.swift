@@ -619,6 +619,20 @@ final class ComposeInputTextView: NSTextView {
         recalculateHeight()
     }
 
+    /// Re-measures height whenever the view's width changes. This covers
+    /// restoring a saved draft: the text can be set before AppKit has
+    /// settled the view's real on-screen width, so the initial
+    /// `recalculateHeight()` call measures wrapping against a stale width.
+    /// Catching later width changes here corrects the cached height once
+    /// layout actually settles, without needing to rely on a keystroke.
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldWidth = frame.width
+        super.setFrameSize(newSize)
+        if newSize.width != oldWidth {
+            recalculateHeight()
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         // When an input method (e.g. the emoji picker) has marked text,
         // let the system handle the key event so Return confirms the
