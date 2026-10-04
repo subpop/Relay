@@ -2338,6 +2338,7 @@ final class RelayClient {
             recordActivity("Session probe succeeded; sync resumed")
             await persistSessionLoudly(for: client, context: "session probe")
             stopTasks()
+            await stopSDKSync()
             syncState = .running
             startSessionServices()
         } catch {
@@ -2368,6 +2369,7 @@ final class RelayClient {
             await persistSessionLoudly(for: client, context: "session retry")
             remoteSignOutNoticed = false
             stopTasks()
+            await stopSDKSync()
             syncState = .running
             startSessionServices()
         } catch {
@@ -2408,6 +2410,7 @@ final class RelayClient {
         remoteSignOutNoticed = true
         syncState = .idle
         stopTasks()
+        Task { await stopSDKSync() }
         syncStats.recordError("Session signed out remotely")
         recordActivity("Session signed out remotely")
         relayClientLogger.error(
@@ -2624,6 +2627,14 @@ final class RelayClient {
             if body.localizedStandardContains(keyword) { return true }
         }
         return false
+    }
+
+    /// Stop MatrixKit's own sync loops. Cancelling `syncTask` alone does
+    /// not: it only awaits the call that spawns them.
+    private func stopSDKSync() async {
+        guard let client else { return }
+        await client.stopSync()
+        await client.stopSlidingSync()
     }
 
     private func stopTasks() {
