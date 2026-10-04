@@ -78,8 +78,16 @@ final class TimelineInspectorViewModel {
     func loadAllMembers() async {
         guard let client, !isLoadingMembers else { return }
         isLoadingMembers = true
-        allMembers = await client.roomDetails(roomId: roomId)?.members ?? allMembers
+        if let fetched = await client.roomDetails(roomId: roomId) {
+            allMembers = fetched.members
+            details = fetched
+        }
         isLoadingMembers = false
+    }
+
+    /// Whether `userId` is currently banned from the room.
+    func isBanned(_ userId: String) -> Bool {
+        details?.bannedUserIds.contains(UserId(unchecked: userId)) ?? false
     }
 
     /// Resolve a possibly-stale ``UserProfile`` (e.g. captured when a
@@ -222,6 +230,7 @@ final class TimelineInspectorViewModel {
                 alternativeAliases: altAliases,
                 memberCount: current.memberCount,
                 members: current.members,
+                bannedUserIds: current.bannedUserIds,
                 pinnedEventIds: current.pinnedEventIds,
                 joinRule: current.joinRule,
                 historyVisibility: current.historyVisibility,

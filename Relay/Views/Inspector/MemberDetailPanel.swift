@@ -21,6 +21,8 @@ import SwiftUI
 ///
 /// Shows the user's avatar, display name, Matrix ID, role badge, a "Message" button
 /// for opening a DM, info section, and moderation actions (mute, kick, ban, ignore).
+/// When ``isBanned`` is set, the real profile is suppressed in favor of a generic
+/// placeholder, with only an "Unban" action available (when ``canUnban``).
 struct MemberDetailPanel: View {
     let profile: UserProfile
     let roomId: String
@@ -33,6 +35,13 @@ struct MemberDetailPanel: View {
 
     /// Whether the current user has permission to ban members.
     var canBan = false
+
+    /// Whether the current user has permission to unban members.
+    var canUnban = false
+
+    /// Whether this member is currently banned from the room. When `true`,
+    /// their real profile is hidden behind a generic placeholder.
+    var isBanned = false
 
     /// Called when the user selects a new power level for this member.
     var onRoleChange: ((Int) async throws -> Void)?
@@ -71,20 +80,24 @@ struct MemberDetailPanel: View {
 
             ScrollView {
                 VStack(spacing: 20) {
-                    headerSection
+                    if isBanned {
+                        bannedPlaceholderSection
+                    } else {
+                        headerSection
 
-                    if !isSelf, let onMessageTap {
-                        Button("Message", systemImage: "bubble.left.fill", action: onMessageTap)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal)
-                    }
+                        if !isSelf, let onMessageTap {
+                            Button("Message", systemImage: "bubble.left.fill", action: onMessageTap)
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal)
+                        }
 
-                    infoSection
+                        infoSection
 
-                    if !isSelf {
-                        actionsSection
+                        if !isSelf {
+                            actionsSection
+                        }
                     }
                 }
                 .padding(.vertical)
@@ -232,6 +245,30 @@ struct MemberDetailPanel: View {
         .padding(.horizontal)
     }
 
+    // MARK: - Banned Placeholder
+
+    /// A generic placeholder shown in place of the real profile for a banned
+    /// member, so their display name, avatar, and Matrix ID stay hidden.
+    private var bannedPlaceholderSection: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(
+                "Banned User",
+                systemImage: "person.fill.xmark",
+                description: Text("This person has been banned and their profile is hidden.")
+            )
+
+            if canUnban {
+                Button("Unban User", systemImage: "arrow.uturn.backward") {
+                    confirmationAction = .unban
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 40)
+    }
+
     // MARK: - Info
 
     private var infoSection: some View {
@@ -359,6 +396,9 @@ struct MemberDetailPanel: View {
                         roomId: roomId, userId: profile.userId, reason: optionalReason
                     )
                     onModerationAction?()
+                case .unban:
+                    try await client.unbanMember(roomId: roomId, userId: profile.userId)
+                    onModerationAction?()
                 case .ignore:
                     try await client.ignoreUser(userId: profile.userId)
                     isIgnored = true
@@ -376,12 +416,13 @@ struct MemberDetailPanel: View {
 // MARK: - Moderation Action
 
 private enum ModerationAction: Identifiable {
-    case kick, ban, ignore, unignore
+    case kick, ban, unban, ignore, unignore
 
     var id: String {
         switch self {
         case .kick: "kick"
         case .ban: "ban"
+        case .unban: "unban"
         case .ignore: "ignore"
         case .unignore: "unignore"
         }
@@ -391,6 +432,7 @@ private enum ModerationAction: Identifiable {
         switch self {
         case .kick: "Kick User"
         case .ban: "Ban User"
+        case .unban: "Unban User"
         case .ignore: "Ignore User"
         case .unignore: "Unignore User"
         }
@@ -400,6 +442,7 @@ private enum ModerationAction: Identifiable {
         switch self {
         case .kick: "Kick"
         case .ban: "Ban"
+        case .unban: "Unban"
         case .ignore: "Ignore"
         case .unignore: "Unignore"
         }
@@ -408,7 +451,7 @@ private enum ModerationAction: Identifiable {
     var showsReasonField: Bool {
         switch self {
         case .kick, .ban: true
-        case .ignore, .unignore: false
+        case .unban, .ignore, .unignore: false
         }
     }
 
@@ -418,6 +461,10 @@ private enum ModerationAction: Identifiable {
             "Remove \(name) from this room. They can rejoin if invited."
         case .ban:
             "Ban \(name) from this room. They will not be able to rejoin until unbanned."
+        case .unban:
+            // Intentionally generic: the panel hides this person's identity
+            // while they remain banned, so the confirmation shouldn't leak it.
+            "Allow this person to rejoin the room."
         case .ignore:
             "Ignore \(name). Their messages will be hidden across all rooms."
         case .unignore:
@@ -462,6 +509,22 @@ private struct ModerationButton: View {
         canEditRoles: true,
         onRoleChange: { _ in },
         onMessageTap: { print("Message tapped") },
+        onBack: { print("Back tapped") }
+    )
+    .environment(PreviewFixtures.previewClient())
+    .frame(width: 260, height: 600)
+}
+
+#Preview("Banned") {
+    MemberDetailPanel(
+        profile: UserProfile(
+            userId: "@mallory:matrix.org",
+            displayName: "Mallory Banned",
+            role: .user
+        ),
+        roomId: "!design:matrix.org",
+        canUnban: true,
+        isBanned: true,
         onBack: { print("Back tapped") }
     )
     .environment(PreviewFixtures.previewClient())

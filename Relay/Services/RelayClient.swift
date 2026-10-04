@@ -1678,6 +1678,13 @@ final class RelayClient {
             RoomId(unchecked: roomId), user: UserId(unchecked: userId), reason: reason)
     }
 
+    /// Unban a member.
+    func unbanMember(roomId: String, userId: String) async throws {
+        guard let client else { return }
+        try await client.rooms.unban(
+            RoomId(unchecked: roomId), user: UserId(unchecked: userId))
+    }
+
     /// Invite a user to a room.
     func inviteUser(roomId: String, userId: String) async throws {
         guard let client else { return }

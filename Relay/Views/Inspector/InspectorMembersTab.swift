@@ -101,6 +101,8 @@ struct InspectorMembersTab: View {
                     canEditRoles: canEditRoles,
                     canKick: canKick,
                     canBan: canBan,
+                    canUnban: canBan,
+                    isBanned: viewModel.isBanned(profile.userId),
                     onRoleChange: { powerLevel in
                         try await viewModel.setMemberPowerLevel(
                             userId: profile.userId,
