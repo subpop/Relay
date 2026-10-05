@@ -106,6 +106,19 @@ struct TimelineView: View {
         composeBarHeight + 6
     }
 
+    /// The unread divider's displayed anchor. Hidden when the user is
+    /// actually looking at the live, scrolled-to-bottom timeline with the
+    /// app active — in that case there's nothing to catch up on, even if
+    /// the debounced read receipt hasn't landed yet. Otherwise mirrors
+    /// `viewModel.firstUnreadMessageId` so it stays pinned while scrolled
+    /// back, reappearing the moment focus/scroll/activity state changes.
+    private var displayedUnreadMessageId: String? {
+        guard let id = viewModel.firstUnreadMessageId else { return nil }
+        let isLiveAtBottom = viewModel.timelineFocus == .live && isNearEnd
+        if isLiveAtBottom && scenePhase == .active { return nil }
+        return id
+    }
+
     init(
         roomId: String,
         roomName: String,
@@ -124,6 +137,13 @@ struct TimelineView: View {
         self.onUserTap = onUserTap
         self.onRoomTap = onRoomTap
         self.readOnly = readOnly
+
+        // When the room will open focused on the unread spot rather than
+        // the live tail (`behavior.alwaysLoadNewest` off), seed `isNearEnd`
+        // to false so the unread-divider gate doesn't briefly think we're
+        // at the bottom before the first real scroll-position report.
+        let alwaysLoadNewest = UserDefaults.standard.object(forKey: "behavior.alwaysLoadNewest") as? Bool ?? true
+        _isNearEnd = State(wrappedValue: alwaysLoadNewest)
     }
 
     var body: some View {
@@ -304,7 +324,7 @@ struct TimelineView: View {
         TimelineScrollView(
             rows: viewModel.messageRows,
             config: .init(
-                firstUnreadMessageID: viewModel.firstUnreadMessageId,
+                firstUnreadMessageID: displayedUnreadMessageId,
                 highlightedMessageID: highlightedMessageId,
                 showURLPreviews: showURLPreviews,
                 hasReachedBottom: viewModel.hasReachedEnd,
