@@ -2,35 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>CFBundleHelpBookFolder</key>
 	<string>Relay.help</string>
 	<key>CFBundleHelpBookName</key>
 	<string>app.subpop.Relay.help</string>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Relay Member Drag Item</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.anomaly.relay.member-drag-item</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Relay uses the camera for video calls in Matrix rooms.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Relay uses the microphone for audio and video calls in Matrix rooms.</string>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>INSendMessageIntent</string>
-	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -48,6 +23,25 @@
 			<array>
 				<string>matrix</string>
 			</array>
+		</dict>
+	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Relay Member Drag Item</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.anomaly.relay.member-drag-item</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
 		</dict>
 	</array>
 </dict>

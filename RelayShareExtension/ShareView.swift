@@ -93,7 +93,7 @@ struct ShareView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Relay")
                     .font(.headline)
-                Text(attachmentCount == 1 ? "1 item" : "\(attachmentCount) items")
+                Text("\(attachmentCount) items")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -185,4 +185,3 @@ private struct RoomGridItem: View {
         return String(name.prefix(2)).uppercased()
     }
 }
-

@@ -4,6 +4,10 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+    </array>
     <key>CFBundleIdentifier</key>
     <string>app.subpop.Relay.help</string>
     <key>CFBundleInfoDictionaryVersion</key>

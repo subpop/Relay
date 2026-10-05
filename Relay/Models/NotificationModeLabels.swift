@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Foundation
 import MatrixKit
 
 extension DefaultNotificationMode {
     /// Short human-readable label for settings pickers.
     var label: String {
         switch self {
-        case .allMessages: "All Messages"
-        case .mentionsAndKeywordsOnly: "Mentions and Keywords Only"
-        case .mute: "Mute"
+        case .allMessages: String(localized: "All Messages", comment: "Notification mode label: notify for every message")
+        case .mentionsAndKeywordsOnly: String(localized: "Mentions and Keywords Only", comment: "Notification mode label: notify only for @mentions and configured keywords")
+        case .mute: String(localized: "Mute", comment: "Notification mode label (noun, not a verb): all notifications are silenced")
         }
     }
 }
@@ -29,9 +30,9 @@ extension RoomNotificationMode {
     /// Short human-readable label for per-room override rows.
     var label: String {
         switch self {
-        case .allMessages: "All Messages"
-        case .mentionsAndKeywordsOnly: "Mentions Only"
-        case .mute: "Mute"
+        case .allMessages: String(localized: "All Messages", comment: "Per-room notification override label: notify for every message")
+        case .mentionsAndKeywordsOnly: String(localized: "Mentions Only", comment: "Per-room notification override label: notify only for @mentions")
+        case .mute: String(localized: "Mute", comment: "Per-room notification override label (noun, not a verb): notifications silenced for this room")
         }
     }
 

@@ -145,86 +145,87 @@ enum RelayError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            "Not Signed In"
+            String(localized: "Not Signed In", comment: "Error alert title: user attempted an action that requires authentication")
         case .loginFailed:
-            "Sign In Failed"
+            String(localized: "Sign In Failed", comment: "Error alert title: authentication failed")
         case .sessionExpired:
-            "Session Expired"
+            String(localized: "Session Expired", comment: "Error alert title: the user's session tokens could not be refreshed")
         case .oauthNotSupported:
-            "OAuth Not Supported"
+            String(localized: "OAuth Not Supported", comment: "Error alert title: the homeserver does not support OAuth login")
         case .oauthInvalidURL:
-            "Invalid OAuth URL"
+            String(localized: "Invalid OAuth URL", comment: "Error alert title: the OAuth login flow returned a malformed URL")
         case .syncFailed:
-            "Sync Error"
+            String(localized: "Sync Error", comment: "Error alert title: the background sync service stopped with an error")
         case .roomCreationFailed:
-            "Room Creation Failed"
+            String(localized: "Room Creation Failed", comment: "Error alert title: creating a new room failed")
         case .roomJoinFailed:
-            "Could Not Join Room"
+            String(localized: "Could Not Join Room", comment: "Error alert title: joining a room failed")
         case .directorySearchFailed:
-            "Directory Search Failed"
+            String(localized: "Directory Search Failed", comment: "Error alert title: searching the public room directory failed")
         case .messageSearchFailed:
-            "Message Search Failed"
+            String(localized: "Message Search Failed", comment: "Error alert title: searching messages failed")
         case .spaceHierarchyFailed:
-            "Space Hierarchy Failed"
+            String(localized: "Space Hierarchy Failed", comment: "Error alert title: loading a space's room hierarchy failed")
         case .roomLeaveFailed:
-            "Could Not Leave Room"
+            String(localized: "Could Not Leave Room", comment: "Error alert title: leaving a room failed")
         case .roomNotFound:
-            "Room Not Found"
+            String(localized: "Room Not Found", comment: "Error alert title: the requested room does not exist or is inaccessible")
         case .messageSendFailed:
-            "Could Not Send Message"
+            String(localized: "Could Not Send Message", comment: "Error alert title: sending a message failed")
         case .messageLoadFailed:
-            "Could Not Load Messages"
+            String(localized: "Could Not Load Messages", comment: "Error alert title: loading timeline messages failed")
         case .reactionFailed:
-            "Could Not Toggle Reaction"
+            String(localized: "Could Not Toggle Reaction", comment: "Error alert title: adding or removing an emoji reaction failed")
         case .editFailed:
-            "Could Not Edit Message"
+            String(localized: "Could Not Edit Message", comment: "Error alert title: editing a sent message failed")
         case .redactFailed:
-            "Could Not Delete Message"
+            String(localized: "Could Not Delete Message", comment: "Error alert title: deleting (redacting) a message failed")
         case .pinFailed:
-            "Could Not Update Pin"
+            String(localized: "Could Not Update Pin", comment: "Error alert title: pinning or unpinning a message failed")
         case .favouriteFailed:
-            "Could Not Update Favorite"
+            String(localized: "Could Not Update Favorite", comment: "Error alert title: favoriting or unfavoriting a room failed")
         case .mediaPreviewFailed:
-            "Could Not Preview File"
+            String(localized: "Could Not Preview File", comment: "Error alert title: generating a preview for a media attachment failed")
         case .mediaSaveFailed:
-            "Could Not Save File"
+            String(localized: "Could Not Save File", comment: "Error alert title: saving a media attachment to disk failed")
         case .attachmentSendFailed:
-            "Could Not Send Attachment"
+            String(localized: "Could Not Send Attachment", comment: "Error alert title: sending a file attachment failed")
         case .fileCopyFailed:
-            "Could Not Read File"
+            String(localized: "Could Not Read File", comment: "Error alert title: copying a file for upload staging failed")
         case .verificationFailed:
-            "Verification Failed"
+            String(localized: "Verification Failed", comment: "Error alert title: device/session cross-signing verification failed")
         case .keyBackupRestoreFailed:
-            "Could Not Restore Backup"
+            String(localized: "Could Not Restore Backup", comment: "Error alert title: restoring encryption keys from backup failed")
         case .notificationSettingsFailed:
-            "Notification Settings Error"
+            String(localized: "Notification Settings Error", comment: "Error alert title: loading or updating notification settings failed")
         case .sessionsFailed:
-            "Sessions Error"
+            String(localized: "Sessions Error", comment: "Error alert title: loading the list of active login sessions/devices failed")
         case .displayNameUpdateFailed:
-            "Could Not Update Display Name"
+            String(localized: "Could Not Update Display Name", comment: "Error alert title: changing the user's display name failed")
         case .avatarUpdateFailed:
-            "Could Not Update Avatar"
+            String(localized: "Could Not Update Avatar", comment: "Error alert title: changing the user's profile photo failed")
         case .dmCreationFailed:
-            "Could Not Open Conversation"
+            String(localized: "Could Not Open Conversation", comment: "Error alert title: opening or creating a direct message room failed")
         case .callFailed:
-            "Call Failed"
+            String(localized: "Call Failed", comment: "Error alert title: starting or joining a voice/video call failed")
         case .searchFailed:
-            "Search Failed"
+            String(localized: "Search Failed", comment: "Error alert title: a message search request failed")
         }
     }
 
     var recoverySuggestion: String? {
         switch self {
         case .notLoggedIn:
-            "Please sign in to continue."
+            String(localized: "Please sign in to continue.", comment: "Error alert message: prompts the user to sign in")
         case .loginFailed(let reason):
+            // `reason` originates from the Matrix SDK or homeserver, not Relay's own UI copy, so it isn't localized here.
             reason
         case .sessionExpired:
-            "Your session's authentication token could not be refreshed. Please sign in again."
+            String(localized: "Your session's authentication token could not be refreshed. Please sign in again.", comment: "Error alert message: OAuth/OIDC refresh token expired")
         case .oauthNotSupported:
-            "This homeserver does not support OAuth login."
+            String(localized: "This homeserver does not support OAuth login.", comment: "Error alert message: homeserver lacks OAuth support")
         case .oauthInvalidURL:
-            "The OAuth login URL was invalid."
+            String(localized: "The OAuth login URL was invalid.", comment: "Error alert message: malformed OAuth login URL")
         case .syncFailed(let reason):
             reason
         case .roomCreationFailed(let reason):
@@ -256,13 +257,13 @@ enum RelayError: LocalizedError, Sendable {
         case .favouriteFailed(let reason):
             reason
         case .mediaPreviewFailed(let filename, let reason):
-            "Could not preview \(filename): \(reason)"
+            String(localized: "Could not preview \(filename): \(reason)", comment: "Error alert message: filename is the attachment's name, reason is why the preview failed")
         case .mediaSaveFailed(let filename, let reason):
-            "Could not save \(filename): \(reason)"
+            String(localized: "Could not save \(filename): \(reason)", comment: "Error alert message: filename is the attachment's name, reason is why saving failed")
         case .attachmentSendFailed(let filename, let reason):
-            "Could not send \(filename): \(reason)"
+            String(localized: "Could not send \(filename): \(reason)", comment: "Error alert message: filename is the attachment's name, reason is why sending failed")
         case .fileCopyFailed(let filename, let reason):
-            "Could not read \(filename): \(reason)"
+            String(localized: "Could not read \(filename): \(reason)", comment: "Error alert message: filename is the attachment's name, reason is why reading failed")
         case .verificationFailed(let reason):
             reason
         case .keyBackupRestoreFailed(let reason):
