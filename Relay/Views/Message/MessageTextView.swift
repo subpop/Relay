@@ -442,8 +442,8 @@ final class MessageTextContent: NSTextView {
             from: textLayoutManager.documentRange.location, to: fragStart
         )
         guard fragOffset >= 0, localCharIndex >= 0 else { return nil }
-        let charIndex = fragOffset + localCharIndex
-        guard charIndex >= 0, charIndex < textStorage.length else { return nil }
+        let (charIndex, overflow) = fragOffset.addingReportingOverflow(localCharIndex)
+        guard !overflow, charIndex >= 0, charIndex < textStorage.length else { return nil }
 
         var effectiveRange = NSRange()
         guard textStorage.attribute(.link, at: charIndex, effectiveRange: &effectiveRange) != nil
