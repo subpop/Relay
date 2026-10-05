@@ -103,8 +103,12 @@ struct TimelineInspectorView: View {
     /// is tapped). The binding is cleared after being consumed.
     @Binding var initialTab: InspectorTab?
 
+    /// The currently focused tab. Owned by the caller (``MainView``) so it
+    /// survives the inspector panel being recreated when the selected room
+    /// or space changes (the panel is given a fresh identity via `.id()`).
+    @Binding var selectedTab: InspectorTab
+
     @State private var viewModel: TimelineInspectorViewModel
-    @State private var selectedTab: InspectorTab = .general
 
     private var availableTabs: [InspectorTab] {
         var tabs = InspectorTab.tabs(for: context)
@@ -119,6 +123,7 @@ struct TimelineInspectorView: View {
         context: InspectorContext = .room,
         selectedProfile: Binding<UserProfile?> = .constant(nil),
         initialTab: Binding<InspectorTab?> = .constant(nil),
+        selectedTab: Binding<InspectorTab> = .constant(.general),
         onMessageUser: ((String) -> Void)? = nil,
         onScrollToMessage: ((String) -> Void)? = nil
     ) {
@@ -126,6 +131,7 @@ struct TimelineInspectorView: View {
         self.context = context
         self._selectedProfile = selectedProfile
         self._initialTab = initialTab
+        self._selectedTab = selectedTab
         self.onMessageUser = onMessageUser
         self.onScrollToMessage = onScrollToMessage
         self._viewModel = State(initialValue: TimelineInspectorViewModel(roomId: roomId, context: context))
@@ -140,6 +146,11 @@ struct TimelineInspectorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             await viewModel.load(client: client)
+            // Permissions load asynchronously, so re-validate once they're known:
+            // a tab like Permissions may no longer apply in this room/space.
+            if !availableTabs.contains(selectedTab) {
+                selectedTab = .general
+            }
         }
         .onChange(of: selectedProfile) { _, profile in
             if profile != nil {
@@ -156,6 +167,10 @@ struct TimelineInspectorView: View {
             if let tab = initialTab {
                 selectedTab = tab
                 initialTab = nil
+            } else if !InspectorTab.tabs(for: context).contains(selectedTab) {
+                // A previously focused tab (e.g. Behavior) doesn't apply in this
+                // context (e.g. a space) — fall back rather than show it anyway.
+                selectedTab = .general
             }
         }
     }

@@ -31,6 +31,7 @@ struct MainView: View {
     @State private var showInspector = false
     @State private var inspectorProfile: UserProfile?
     @State private var inspectorTab: InspectorTab?
+    @State private var inspectorSelectedTab: InspectorTab = .general
     @State private var searchModel = SearchViewModel()
     @FocusState private var isSearchFocused: Bool
     @State private var verificationModel: SessionVerificationViewModel?
@@ -326,6 +327,7 @@ struct MainView: View {
             roomId: roomId,
             selectedProfile: $inspectorProfile,
             initialTab: $inspectorTab,
+            selectedTab: $inspectorSelectedTab,
             onMessageUser: messageUser,
             onScrollToMessage: { [self] eventId in
                 focusedMessageId = eventId
@@ -341,6 +343,7 @@ struct MainView: View {
             context: .space,
             selectedProfile: $inspectorProfile,
             initialTab: $inspectorTab,
+            selectedTab: $inspectorSelectedTab,
             onMessageUser: messageUser
         )
     }
