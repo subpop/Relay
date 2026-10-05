@@ -20,13 +20,20 @@ struct RoomListRow: View {
     let room: RoomRowData
 
     @Environment(\.hasSpaceRail) private var hasSpaceRail
+    @Environment(\.roomListMeasuredWidth) private var sharedWidth
     @AppStorage("appearance.showUnreadCounts") private var showUnreadCounts = true
     @State private var rowWidth: CGFloat = 0
 
     private static let compactThreshold: CGFloat = 100
 
+    /// The width to use for the compact/full decision: the room list's
+    /// shared, settle-gated width when available, falling back to this
+    /// row's own measured frame when rendered without a ``RoomListView``
+    /// ancestor (e.g. an Xcode preview).
+    private var measuredWidth: CGFloat { sharedWidth ?? rowWidth }
+
     private var isCompact: Bool {
-        let effectiveWidth = hasSpaceRail ? rowWidth : rowWidth - SpaceRail.width
+        let effectiveWidth = hasSpaceRail ? measuredWidth : measuredWidth - SpaceRail.width
         return effectiveWidth < Self.compactThreshold
     }
 
@@ -47,9 +54,14 @@ struct RoomListRow: View {
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { newValue in
+            // Only needed as a fallback for standalone use (previews, etc.)
+            // — once an ancestor RoomListView supplies a shared width, local
+            // per-row measurement is ignored so it can't reintroduce the
+            // scrollbar-drag jitter that shared width is settle-gated against.
+            guard sharedWidth == nil else { return }
             rowWidth = newValue
         }
-        .animation(.default, value: isCompact)
+        .animation(.easeInOut(duration: 0.15), value: isCompact)
     }
 
     private var compactBody: some View {
@@ -294,4 +306,3 @@ extension AttributedString {
     .environment(PreviewFixtures.previewClient())
     .frame(width: 240)
 }
-

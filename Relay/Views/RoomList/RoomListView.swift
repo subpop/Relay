@@ -33,6 +33,10 @@ struct RoomListView: View {
     @State private var showLeaveConfirmation = false
     @State private var inviteToDecline: InviteRowData?
     @State private var showDeclineConfirmation = false
+    @State private var measuredWidth: CGFloat = 0
+    @State private var pendingWidth: CGFloat?
+    @State private var isListScrolling = false
+    @State private var hasMeasuredWidthOnce = false
 
     var body: some View {
         // Compute filtered results once per body evaluation to avoid
@@ -119,6 +123,21 @@ struct RoomListView: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newValue in
+            commitOrDeferWidth(newValue)
+        }
+        .onScrollPhaseChange { oldPhase, newPhase in
+            Task { @MainActor in
+                isListScrolling = newPhase == .interacting || newPhase == .decelerating
+                if !isListScrolling, let pendingWidth {
+                    measuredWidth = pendingWidth
+                    self.pendingWidth = nil
+                }
+            }
+        }
+        .environment(\.roomListMeasuredWidth, measuredWidth)
         .animation(.default, value: favorites.map(\.id))
         .animation(.default, value: roomsAndDMs.map(\.id))
         .animation(.default, value: muted.map(\.id))
@@ -321,6 +340,27 @@ extension RoomListView {
                 errorReporter.report(.roomLeaveFailed(error.localizedDescription))
             }
         }
+    }
+}
+
+// MARK: - Width Measurement
+
+extension RoomListView {
+    /// Commits a newly measured list width immediately, except while the
+    /// list is actively being scrolled — including fast scrollbar-drag
+    /// scrolling, where a tracked `NSScroller` can transiently perturb the
+    /// measured width right at a row's compact/full breakpoint. A deferred
+    /// width is flushed the instant scrolling settles (see
+    /// `onScrollPhaseChange` in ``body``). The first measurement always
+    /// commits immediately so the initial layout isn't delayed.
+    private func commitOrDeferWidth(_ newValue: CGFloat) {
+        guard hasMeasuredWidthOnce, isListScrolling else {
+            hasMeasuredWidthOnce = true
+            pendingWidth = nil
+            measuredWidth = newValue
+            return
+        }
+        pendingWidth = newValue
     }
 }
 
