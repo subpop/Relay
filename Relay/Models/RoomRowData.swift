@@ -17,7 +17,7 @@ import MatrixKit
 
 /// Display-ready room row data for the sidebar.
 ///
-/// A plain value type mapped from ``ObservableRoom`` so room rows render
+/// A plain value type mapped from ``RelayRoom`` so room rows render
 /// (and preview) without holding observable graph references.
 struct RoomRowData: Identifiable, Hashable, Sendable {
     var id: String { roomId }
@@ -50,7 +50,7 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
     /// applies its optimistic unread clear so badges drop immediately
     /// after marking read, instead of lingering on the stale synced
     /// server count.
-    static func from(room: ObservableRoom, isMuted: Bool, client: RelayClient? = nil) -> RoomRowData {
+    static func from(room: RelayRoom, isMuted: Bool, client: RelayClient? = nil) -> RoomRowData {
         let latest = room.latestMessage
         let sender = latest.map(\.sender)
         return RoomRowData(
@@ -119,7 +119,7 @@ struct InviteRowData: Identifiable, Hashable, Sendable {
     var inviterAvatarURL: String? = nil
     var isSpace: Bool = false
 
-    static func from(room: ObservableRoom) -> InviteRowData {
+    static func from(room: RelayRoom) -> InviteRowData {
         InviteRowData(
             roomId: room.roomId.value,
             name: room.displayName,

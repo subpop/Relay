@@ -13,11 +13,10 @@
 // limitations under the License.
 
 import Foundation
-import MatrixKit
 
 /// Relay-level display classification for direct chats.
 ///
-/// MatrixKit's `ObservableRoom.isDirect` is spec-pure (`m.direct` account
+/// MatrixKit's `SDRoom.isDirect` is spec-pure (`m.direct` account
 /// data only). For display and behavior defaults, Relay additionally treats
 /// a room as DM-like when it has no public alias and two or fewer joined
 /// members. This is computed on demand, never stored, so partial member
@@ -27,28 +26,5 @@ enum RoomPresentation {
         isDirect: Bool, isSpace: Bool, canonicalAlias: String?, joinedMemberCount: Int
     ) -> Bool {
         isDirect || (!isSpace && canonicalAlias == nil && joinedMemberCount <= 2)
-    }
-}
-
-extension ObservableRoom {
-    /// Spec `m.direct`, or the Relay DM-like display heuristic.
-    var presentsAsDirect: Bool {
-        RoomPresentation.presentsAsDirect(
-            isDirect: isDirect,
-            isSpace: isSpace,
-            canonicalAlias: canonicalAlias,
-            joinedMemberCount: memberDetails.values.filter { $0.membership == .join }.count)
-    }
-
-    /// Avatar for list rows: the room avatar, falling back to the other
-    /// joined member's avatar when the room presents as a direct chat
-    /// (DMs carry no room avatar).
-    var presentingAvatarURL: MXCURI? {
-        if let avatarURL { return avatarURL }
-        guard presentsAsDirect else { return nil }
-        return memberDetails
-            .first { $0.key != localUserId && $0.value.membership == .join }?
-            .value.avatarUrl
-            .flatMap { try? MXCURI($0) }
     }
 }

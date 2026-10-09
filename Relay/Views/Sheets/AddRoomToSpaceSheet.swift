@@ -34,7 +34,7 @@ struct AddRoomToSpaceSheet: View {
     @State private var isAdding = false
 
     /// The rooms available for adding — joined rooms not already in the space.
-    private var availableRooms: [ObservableRoom] {
+    private var availableRooms: [RelayRoom] {
         client.rooms.filter { room in
             room.membership == .join
                 && !room.isSpace
@@ -43,7 +43,7 @@ struct AddRoomToSpaceSheet: View {
     }
 
     /// Filtered rooms based on search text.
-    private var filteredRooms: [ObservableRoom] {
+    private var filteredRooms: [RelayRoom] {
         guard !searchText.isEmpty else { return availableRooms }
         return availableRooms.filter { room in
             room.displayName.localizedStandardContains(searchText)
@@ -101,7 +101,7 @@ struct AddRoomToSpaceSheet: View {
         .listStyle(.plain)
     }
 
-    private func addRoom(_ room: ObservableRoom) {
+    private func addRoom(_ room: RelayRoom) {
         guard !isAdding else { return }
         isAdding = true
         Task {
@@ -120,7 +120,7 @@ struct AddRoomToSpaceSheet: View {
 
 /// A single row in the room picker list with an Add button.
 private struct RoomPickerRow: View {
-    let room: ObservableRoom
+    let room: RelayRoom
     let isAdding: Bool
     var onAdd: () -> Void
 

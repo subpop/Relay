@@ -22,6 +22,7 @@ import Network
 import Observation
 import OSLog
 import RelayShared
+import SwiftData
 import UserNotifications
 
 private nonisolated let relayClientLogger = Logger(
@@ -31,7 +32,7 @@ private nonisolated let relayClientLogger = Logger(
 ///
 /// ``RelayClient`` owns the MatrixKit `MatrixClient` lifecycle (session
 /// restore, login, sync, logout), persists sessions in the keychain,
-/// caches snapshots in SwiftData, tracks connectivity, and fans
+/// owns the normalized SwiftData store, tracks connectivity, and fans
 /// verification-request events out to the UI. Views observe it directly
 /// through `@Environment(RelayClient.self)`.
 @Observable
@@ -275,19 +276,19 @@ final class RelayClient {
     /// Cached highlight keywords from push rules (fed to timelines).
     var notificationKeywords: [String] = []
 
-    /// Joined rooms (refresh-driven by the sync engine).
-    var rooms: [ObservableRoom] {
-        client?.roomList.joined ?? []
+    /// Joined rooms (store-backed snapshots, rebuilt after sync).
+    var rooms: [RelayRoom] {
+        cachedRooms
     }
 
     /// Joined top-level spaces for the space rail.
-    var spaces: [ObservableRoom] {
+    var spaces: [RelayRoom] {
         rooms.filter { $0.isSpace && $0.membership == .join && $0.successorRoomId == nil }
     }
 
     /// Pending invites.
-    var invitedRooms: [ObservableRoom] {
-        client?.roomList.invited ?? []
+    var invitedRooms: [RelayRoom] {
+        cachedInvitedRooms
     }
 
     /// Whether the Labs sliding-sync experiment is enabled.
@@ -326,6 +327,49 @@ final class RelayClient {
     }
 
     private var client: MatrixClient?
+    /// Normalized store container for the active session. Owned here
+    /// (not by MatrixKit): the writer persists sync deltas into it and
+    /// every read below opens short-lived contexts against it.
+    private var storeContainer: ModelContainer?
+    /// Incremental write path for sync deltas (also a marker healer and
+    /// ciphertext store for the SDK).
+    var storeWriter: MatrixStoreWriter?
+    /// Fetch-based reads over the normalized store.
+    var storeReader: MatrixStoreReader?
+    /// Store-backed room snapshots driving the room list and every
+    /// per-room lookup. Rebuilt off the main thread after each sync
+    /// delta (see `scheduleRoomCacheRebuild()`); `@Observable`
+    /// invalidation refreshes readers when it is reassigned.
+    private var cachedRooms: [RelayRoom] = []
+    /// Parent-to-children space map driving hierarchy filters (room
+    /// list, search). Built off-main alongside the room snapshots;
+    /// read-only on the main actor thereafter.
+    private var spaceChildIds: [RoomId: Set<RoomId>] = [:]
+    /// Pending-invite snapshots, rebuilt alongside `cachedRooms`.
+    private var cachedInvitedRooms: [RelayRoom] = []
+    /// Background builder for the cached snapshots. Owns the only
+    /// off-main `ModelContext`, so room-list rebuilds never touch the
+    /// main thread. Recreated per session in `openStore(for:)`.
+    private var roomIndex: RoomIndexBuilder?
+    /// Store-backed room sends (echoes, encryption dispatch, reactions,
+    /// edits, redacts, pins, markers). Recreated per session in
+    /// `openStore(for:)`; nil when logged out.
+    var messageSender: MessageSender?
+    /// Typing state folded from sync ephemeral. Fed by the delta
+    /// monitor; revision bumps wake timelines without re-rendering.
+    private let typingTracker = TypingTracker()
+    /// Coalesced rebuild driver: at most one background rebuild runs at
+    /// a time; requests landing mid-rebuild run once more afterwards.
+    private var roomRebuildTask: Task<Void, Never>?
+    /// Set when a rebuild was requested while one is in flight.
+    private var roomRebuildRequested = false
+    /// Per-room revision counters, bumped for every room touched by a
+    /// sync delta. Timelines observe their room's entry to refresh.
+    var roomRevisions: [String: UInt64] = [:]
+    /// Typing revision counters, bumped for rooms with typing-ephemeral
+    /// traffic. Observed separately from `roomRevisions` so typing
+    /// storms don't trigger full timeline re-renders.
+    var typingRevisions: [String: UInt64] = [:]
     /// Secret storage for the session blob and crypto material.
     /// Injected so tests can substitute an ephemeral store: the
     /// default live keychain is shared with the running app, and a
@@ -361,32 +405,25 @@ final class RelayClient {
     private let avatarCache = NSCache<NSString, NSImage>()
     private let intentDonation = IntentDonationService()
     private var monitor: NWPathMonitor?
-    /// Gates `startSyncIfNeeded` until the adopt flow has restored the
-    /// snapshot and run its first sync. The path monitor fires
+    /// Gates `startSyncIfNeeded` until the adopt flow has attached the
+    /// store and run its first sync. The path monitor fires
     /// immediately on install (before restore), and starting the live
     /// loop tokenless forces a wasteful full initial sync that visibly
     /// reconverges every badge. The flow's own `startSyncLoop()` is the
     /// backstop, so skipping early monitor starts loses nothing.
     private var didFinishStartupSync = false
-    /// Retained block observers (app lifecycle → cache saves).
+    /// Retained block observers (app lifecycle → crypto flush;
+    /// sync-mode preference changes).
     private var lifecycleObservers: [NSObjectProtocol] = []
-    /// Next allowed background save: app switches can come seconds
-    /// apart; snapshots are cheap to capture but rewrite the store.
-    private var earliestNextBackgroundSave = Date.distantPast
 
     init(keychain: any KeyStore = KeychainKeyStore()) {
         self.keychain = keychain
         avatarCache.countLimit = 500
         lifecycleObservers = [
             NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification, object: nil,
-                queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.saveCacheThrottled() } },
-            NotificationCenter.default.addObserver(
                 forName: NSApplication.willTerminateNotification, object: nil,
                 queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
-                        self?.saveCache()
                         // Best effort: settle any debounced crypto
                         // writes so a quit inside the loss window
                         // cannot drop ratchet state.
@@ -553,6 +590,19 @@ final class RelayClient {
         syncStats = SyncStats()
         recentActivity = []
         sessionStartedAt = nil
+        notificationModeCache = [:]
+        notificationKeywords = []
+        cachedRooms = []
+        cachedInvitedRooms = []
+        roomRevisions = [:]
+        typingRevisions = [:]
+        await typingTracker.setLocalUser(nil)
+        spaceChildIds = [:]
+        roomIndex = nil
+        messageSender = nil
+        storeContainer = nil
+        storeWriter = nil
+        storeReader = nil
         relayClientLogger.info("Signed out (reason: \(reason, privacy: .public))")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
@@ -565,14 +615,20 @@ final class RelayClient {
 
     /// Clear cached data and resync, staying logged in.
     func clearLocalData() async {
-        guard let client, let userId = client.userId else { return }
+        guard let client, client.userId != nil else { return }
         syncTask?.cancel()
         didFinishStartupSync = false
-        try? await cache(for: userId)?.clear()
+        await stopSDKSync()
+        await client.clearDeltaSinks()
+        client.setMarkerHealer(nil)
+        client.setCiphertextStore(nil)
+        await client.setRoomStateProvider(nil)
+        await resetStore()
+        await openStore(for: client)
         syncState = .syncing
         do {
             try await initialSyncRoundTrip()
-            saveCache()
+            scheduleRoomCacheRebuild()
             syncState = .running
             await refreshNotificationModes()
             didFinishStartupSync = true
@@ -668,7 +724,13 @@ final class RelayClient {
     /// Pin or unpin a room (`m.favourite` tag).
     func setFavourite(roomId: String, isFavourite: Bool) async throws {
         guard let client else { return }
-        try await client.room(RoomId(unchecked: roomId)).setFavourite(isFavourite)
+        try await client.accountData.setFavourite(
+            RoomId(unchecked: roomId), isFavourite: isFavourite)
+        // Sync converges the flag within a round-trip; update the cache
+        // immediately so the row moves sections without waiting.
+        if let index = cachedRooms.firstIndex(where: { $0.roomId.value == roomId }) {
+            cachedRooms[index].isFavourite = isFavourite
+        }
     }
 
     /// Mark a room read up to its latest message. With `sendReceipt` false
@@ -682,23 +744,25 @@ final class RelayClient {
     /// round-trip.
     func markAsRead(roomId: String, sendReceipt: Bool = true) async {
         guard let client else { return }
-        let room = await client.room(RoomId(unchecked: roomId))
+        let matrixRoomId = RoomId(unchecked: roomId)
         // Local echoes (`local:<txn>`) have no server-side event yet, so
         // neither endpoint accepts them — mark up to the newest
         // server-assigned event instead.
-        guard let latest = newestServerEvent(in: room) else { return }
+        guard let latestEventId = newestMarkableEventId(roomId: matrixRoomId) else { return }
         // Skip when the latest event hasn't advanced since the last mark:
         // layout churn (e.g. window resizes) must not re-post. Re-fire only
         // if a room receipt is now requested that wasn't sent before.
         if !Self.shouldSendMark(
             lastMarked: lastMarkedRead[roomId],
-            latestEventId: latest.eventId.value,
+            latestEventId: latestEventId.value,
             sendReceipt: sendReceipt) {
             return
         }
         var receiptSent = false
         do {
-            try await room.markRead(latest.eventId, receiptType: Self.receiptType(sendReceipt: sendReceipt))
+            try await client.roomState.sendReceipt(
+                matrixRoomId, eventId: latestEventId,
+                receiptType: Self.receiptType(sendReceipt: sendReceipt))
             receiptSent = true
         } catch {
             relayClientLogger.warning(
@@ -706,7 +770,7 @@ final class RelayClient {
         }
         var fullyReadSent = false
         do {
-            try await room.sendFullyRead(latest.eventId)
+            try await client.accountData.setFullyRead(matrixRoomId, eventId: latestEventId)
             fullyReadSent = true
         } catch {
             relayClientLogger.warning(
@@ -718,8 +782,8 @@ final class RelayClient {
         // receipt only, so flipping Send Read Receipts on re-fires the
         // mark for an event previously cleared privately.
         guard receiptSent || fullyReadSent else { return }
-        lastMarkedRead[roomId] = (latest.eventId.value, sendReceipt && receiptSent)
-        optimisticReadMarkers[roomId] = latest.eventId.value
+        lastMarkedRead[roomId] = (latestEventId.value, sendReceipt && receiptSent)
+        optimisticReadMarkers[roomId] = latestEventId.value
         clearDeliveredNotifications(forRoomId: roomId)
     }
 
@@ -774,30 +838,41 @@ final class RelayClient {
     /// is one this client already marked read (the synced server count may
     /// still be stale). Falls back to the server count when a newer event
     /// arrived or nothing was marked yet.
-    func displayUnreadCount(for room: ObservableRoom) -> Int {
+    func displayUnreadCount(for room: RelayRoom) -> Int {
         isOptimisticallyRead(room) ? 0 : room.unreadCount
     }
 
     /// Highlight count for display, with the same optimistic clear as
     /// `displayUnreadCount(for:)`.
-    func displayHighlightCount(for room: ObservableRoom) -> Int {
+    func displayHighlightCount(for room: RelayRoom) -> Int {
         isOptimisticallyRead(room) ? 0 : room.highlightCount
     }
 
     /// Whether the room's newest server-assigned event was already marked
     /// read by this client. A pending own echo neither defeats the clear
     /// nor hides genuine unread state: only server-assigned IDs count.
-    private func isOptimisticallyRead(_ room: ObservableRoom) -> Bool {
+    private func isOptimisticallyRead(_ room: RelayRoom) -> Bool {
         guard let marker = optimisticReadMarkers[room.roomId.value],
-              let newest = newestServerEvent(in: room) else {
+              let newest = room.newestEventId,
+              Self.isMarkableEventId(newest) else {
             return false
         }
-        return newest.eventId.value == marker
+        return newest == marker
     }
 
-    /// The room's newest server-assigned timeline event, if any.
-    private func newestServerEvent(in room: ObservableRoom) -> ObservableTimelineEvent? {
-        room.timeline?.events.last(where: { Self.isMarkableEventId($0.eventId.value) })
+    /// The room's newest markable (server-assigned) event ID, if any.
+    /// Local echoes (`local:<txn>`) are skipped: the receipt/read-marker
+    /// endpoints reject them.
+    private func newestMarkableEventId(roomId: RoomId) -> EventId? {
+        guard let newest = storedRoom(roomId)?.newestEventId,
+              Self.isMarkableEventId(newest)
+        else {
+            // The cache may not know this room yet (e.g. mid-sync); fall
+            // back to a bounded store read.
+            let ids = ((try? storeReader?.timeline(roomId, limit: 5)) ?? []).map(\.eventId.value)
+            return Self.newestMarkableEventId(in: ids).map { EventId(unchecked: $0) }
+        }
+        return EventId(unchecked: newest)
     }
 
     /// Remove this room's delivered message banners now that it reads as
@@ -916,11 +991,11 @@ final class RelayClient {
     }
 
     /// Make a timeline view model for a room, or nil when unknown.
-    func makeTimelineViewModel(roomId: String) async -> TimelineViewModel? {
-        guard let client else { return nil }
-        let room = await client.room(RoomId(unchecked: roomId))
+    func makeTimelineViewModel(roomId: String) -> TimelineViewModel? {
+        guard storedRoom(RoomId(unchecked: roomId)) != nil else { return nil }
         return TimelineViewModel(
-            room: room,
+            roomId: roomId,
+            client: self,
             highlights: notificationKeywords,
             errorReporter: errorReporter)
     }
@@ -996,7 +1071,7 @@ final class RelayClient {
     }
 
     /// Effective notification mode for a room (override or type default).
-    func effectiveNotificationMode(for room: ObservableRoom) async -> MatrixKit.RoomNotificationMode {
+    func effectiveNotificationMode(for room: RelayRoom) async -> MatrixKit.RoomNotificationMode {
         if let cached = notificationModeCache[room.roomId.value] {
             return cached
         }
@@ -1065,7 +1140,7 @@ final class RelayClient {
         }
     }
 
-    private func effectiveDefault(for room: ObservableRoom) async -> MatrixKit.RoomNotificationMode {
+    private func effectiveDefault(for room: RelayRoom) async -> MatrixKit.RoomNotificationMode {
         guard let client else { return .mentionsAndKeywordsOnly }
         let isOneToOne = room.presentsAsDirect
         guard
@@ -1575,7 +1650,6 @@ final class RelayClient {
     func prepareCall(roomId: String) async throws -> CallViewModel {
         guard let client else { throw RelayError.notLoggedIn }
         let matrixRoomId = RoomId(unchecked: roomId)
-        let room = await client.room(matrixRoomId)
         let session = RTCCallSession(client: client)
         let joined: JoinedCall
         do {
@@ -1587,11 +1661,12 @@ final class RelayClient {
         }
         guard let userId = client.userId else { throw RelayError.notLoggedIn }
         let deviceId = await client.session.deviceId
+        let isEncrypted = storedRoom(matrixRoomId)?.isEncrypted ?? false
         return CallViewModel(
             session: session,
             joined: joined,
             roomId: roomId,
-            isRoomEncrypted: room.isEncrypted,
+            isRoomEncrypted: isEncrypted,
             localUserId: userId.value,
             localDeviceId: deviceId.value)
     }
@@ -1600,31 +1675,37 @@ final class RelayClient {
 
     /// Full room details (members, permissions, power levels).
     ///
-    /// Falls back to the locally cached snapshot when the server fetch
-    /// fails, so inspector UI never stalls on a spinner. The fallback
-    /// omits permissions, power levels, and roles, which require full
-    /// state. Failures are logged for diagnosis.
+    /// Assembled live by the SDK; Relay overlays the DM display
+    /// heuristic. Falls back to the locally cached store rows when the
+    /// server fetch fails, so inspector UI never stalls on a spinner.
+    /// The fallback omits permissions, power levels, and roles, which
+    /// require full state. Failures are logged for diagnosis.
     func roomDetails(roomId: String) async -> RoomDetails? {
         guard let client else { return nil }
-        let room = await client.room(RoomId(unchecked: roomId))
+        let matrixRoomId = RoomId(unchecked: roomId)
         do {
-            var details = try await room.roomDetails()
+            var details = try await client.rooms.roomDetails(
+                matrixRoomId,
+                localUser: client.userId,
+                isDirect: storedRoom(matrixRoomId)?.isDirect ?? false)
+            let storedIsSpace = storedRoom(matrixRoomId)?.isSpace ?? false
             details.isDirect = RoomPresentation.presentsAsDirect(
                 isDirect: details.isDirect,
-                isSpace: room.isSpace,
+                isSpace: storedIsSpace,
                 canonicalAlias: details.canonicalAlias,
                 joinedMemberCount: details.memberCount)
             return details
         } catch {
             relayClientLogger.warning(
-                "Full room details failed, using cached snapshot: \(error.localizedDescription, privacy: .public)")
-            return cachedRoomDetails(room: room)
+                "Full room details failed, using cached store rows: \(error.localizedDescription, privacy: .public)")
+            return cachedRoomDetails(roomId: matrixRoomId)
         }
     }
 
     /// Best-effort room details from locally cached state (no network).
-    private func cachedRoomDetails(room: ObservableRoom) -> RoomDetails {
-        RoomDetails(
+    private func cachedRoomDetails(roomId: RoomId) -> RoomDetails? {
+        guard let room = storedRoom(roomId) else { return nil }
+        return RoomDetails(
             id: room.roomId,
             name: room.name,
             topic: room.topic,
@@ -1634,7 +1715,7 @@ final class RelayClient {
             isDirect: room.presentsAsDirect,
             canonicalAlias: room.canonicalAlias,
             alternativeAliases: room.altAliases,
-            memberCount: room.memberDetails.count,
+            memberCount: room.memberCount,
             members: room.memberDetails.map { userId, content in
                 RoomMemberDetails(
                     userId: userId,
@@ -1695,13 +1776,13 @@ final class RelayClient {
     /// Rename a room.
     func setRoomName(roomId: String, name: String) async throws {
         guard let client else { return }
-        try await client.room(RoomId(unchecked: roomId)).setName(name)
+        try await client.roomState.setName(RoomId(unchecked: roomId), name: name)
     }
 
     /// Retopic a room.
     func setRoomTopic(roomId: String, topic: String) async throws {
         guard let client else { return }
-        try await client.room(RoomId(unchecked: roomId)).setTopic(topic)
+        try await client.roomState.setTopic(RoomId(unchecked: roomId), topic: topic)
     }
 
     /// Upload a room avatar.
@@ -1873,20 +1954,20 @@ final class RelayClient {
                 "events": .object(["org.matrix.msc3401.call.member": .int(0)])
             ]
         }
-        let room = try await client.createRoom(request)
+        let roomId = try await client.createRoom(request)
         // Spec creator behavior: record the room in our own `m.direct`.
         // Best effort (creation is not idempotent, so a bookkeeping
         // failure must not fail the call).
         if isDirect, let userId = client.userId {
             do {
                 try await client.accountData.setDirectRoom(
-                    room.roomId, for: userId, isDirect: true)
+                    roomId, for: userId, isDirect: true)
             } catch {
                 relayClientLogger.warning(
-                    "m.direct record failed for \(room.roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    "m.direct record failed for \(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
-        return room.roomId.value
+        return roomId.value
     }
 
     /// Open or create a direct-message room with a user.
@@ -1923,17 +2004,17 @@ final class RelayClient {
         request.powerLevelContentOverride = [
             "events": .object(["org.matrix.msc3401.call.member": .int(0)])
         ]
-        let room = try await client.createRoom(request)
+        let roomId = try await client.createRoom(request)
         if let selfId = client.userId {
             do {
                 try await client.accountData.setDirectRoom(
-                    room.roomId, for: selfId, isDirect: true)
+                    roomId, for: selfId, isDirect: true)
             } catch {
                 relayClientLogger.warning(
-                    "m.direct record failed for \(room.roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    "m.direct record failed for \(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
-        return room.roomId.value
+        return roomId.value
     }
 
     /// Add a room to a space.
@@ -1961,8 +2042,8 @@ final class RelayClient {
     /// The edges carry each direct child's `order` hint and timestamp for
     /// spec-compliant ordering of the current level.
     ///
-    /// Fetched pages are cached on the space's store actor (and from there
-    /// to the on-disk snapshot), so the next open renders from
+    /// Fetched pages persist through the store writer (via the SDK's
+    /// room-state provider), so the next open renders from
     /// ``cachedSpaceHierarchy(spaceId:)`` without a network round trip.
     func spaceHierarchy(
         spaceId: String, since: String? = nil
@@ -1988,20 +2069,22 @@ final class RelayClient {
     /// network), plus the level's direct-child edges and the next-page
     /// cursor, if any. Empty when the space was never opened (or the cache
     /// was rebuilt since).
-    func cachedSpaceHierarchy(spaceId: String) async -> (
+    func cachedSpaceHierarchy(spaceId: String) -> (
         children: [SpaceChild],
         directChildren: [SpaceChildEdge],
         nextBatch: String?
     ) {
-        guard let client else { return ([], [], nil) }
-        guard
-            let space = await client.store.existingRoom(
-                RoomId(unchecked: spaceId))
+        guard let container = storeContainer else { return ([], [], nil) }
+        let context = ModelContext(container)
+        let id = spaceId
+        guard let row = try? context.fetch(
+            FetchDescriptor<SDRoom>(
+                predicate: #Predicate { $0.roomId == id })).first
         else { return ([], [], nil) }
         return (
-            await space.hierarchyChildren,
-            await space.hierarchyDirectChildren,
-            await space.hierarchyNextBatch?.value)
+            row.decodedHierarchyChildren(),
+            row.decodedHierarchyDirectChildren(),
+            row.hierarchyNextBatch)
     }
 
     /// Spaces the user can add children to.
@@ -2033,14 +2116,17 @@ final class RelayClient {
 
     /// Pinned messages as display-ready events.
     func pinnedMessages(roomId: String) async -> [ObservableTimelineEvent] {
-        guard let client else { return [] }
-        let room = await client.room(RoomId(unchecked: roomId))
-        guard let events = try? await room.pinnedMessages() else { return [] }
-        return events.map {
-            ObservableTimelineEvent.make(
-                from: $0, localUser: client.userId,
-                members: room.memberDetails)
+        guard let client, let room = storedRoom(RoomId(unchecked: roomId)) else { return [] }
+        var rendered: [ObservableTimelineEvent] = []
+        for id in room.pinnedEventIds {
+            guard let eventId = try? EventId(id),
+                  let event = try? await client.messages.event(room.roomId, eventId)
+            else { continue }
+            rendered.append(ObservableTimelineEvent.make(
+                from: event, localUser: client.userId,
+                members: room.memberDetails))
         }
+        return rendered
     }
 
     /// Whether a user is on the ignore list.
@@ -2064,37 +2150,49 @@ final class RelayClient {
 
     /// Refresh the share extension's room cache (best effort, background).
     func refreshShareRoomCache() {
+        // Snapshot plain values first: the sweep runs detached (off the
+        // main actor), where MainActor-isolated room properties are
+        // unreachable.
+        struct ShareSnapshot: Sendable {
+            var id: String
+            var name: String
+            var isDirect: Bool
+            var avatarMXC: String?
+            var lastActivity: Date?
+        }
+        let snapshot: [ShareSnapshot] = rooms.compactMap { room in
+            guard room.membership == .join, room.isSpace == false else { return nil }
+            return ShareSnapshot(
+                id: room.roomId.value,
+                name: room.displayName,
+                isDirect: room.presentsAsDirect,
+                avatarMXC: room.presentingAvatarURL?.value,
+                lastActivity: room.latestMessage?.timestamp)
+        }
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             var shareable: [ShareableRoom] = []
-            for room in await self.rooms {
-                guard await room.membership == .join, await room.isSpace == false else { continue }
+            for room in snapshot {
                 let avatarData: Data?
-                if let mxc = await room.presentingAvatarURL?.value {
+                if let mxc = room.avatarMXC {
                     avatarData = await self.shareCacheAvatarData(mxcURL: mxc, size: 72)
                 } else {
                     avatarData = nil
                 }
                 shareable.append(ShareableRoom(
-                    id: await room.roomId.value,
-                    name: await room.displayName,
-                    isDirect: await room.presentsAsDirect,
+                    id: room.id,
+                    name: room.name,
+                    isDirect: room.isDirect,
                     avatarData: avatarData,
-                    lastActivityTimestamp: await room.latestMessage?.timestamp))
+                    lastActivityTimestamp: room.lastActivity))
             }
             PendingShareStore.writeRoomCache(shareable)
         }
     }
 
-    /// Refresh the share extension's room cache on a slow poll.
-    /// MatrixKit reassigns `roomList.joined` on every sync
-    /// (set-semantics notification), so an observation-driven watcher
-    /// is unusable here: a `withObservationTracking` loop wakes tens
-    /// of thousands of times per second, pinning the main thread and
-    /// leaking one tracking registration per wake (12GB in 10 minutes
-    /// in Instruments). A 60s poll is plenty fresh for a share picker
-    /// and allocates nothing between fires. Session teardown cancels
-    /// via `stopTasks()`.
+    /// Refresh the share extension's room cache on a slow poll. A 60s
+    /// poll is plenty fresh for a share picker and allocates nothing
+    /// between fires. Session teardown cancels via `stopTasks()`.
     private func startShareRoomCacheWatcher() {
         guard client != nil, shareCacheWatchTask == nil else { return }
         shareCacheWatchTask = Task { @MainActor [weak self] in
@@ -2122,6 +2220,45 @@ final class RelayClient {
     func donateOutgoingInteraction(roomId: String) {
         guard let room = rooms.first(where: { $0.roomId.value == roomId }) else { return }
         intentDonation.donateOutgoingMessage(roomId: roomId, roomName: room.displayName)
+    }
+
+    // MARK: - Timeline sends
+
+    /// The message namespace client for timeline paging backends
+    /// (`FocusedTimeline`/`ThreadTimeline`).
+    var messageClient: MessageClient? {
+        client?.messages
+    }
+
+    /// Room crypto for detached-window decryption.
+    var roomCrypto: RoomCrypto? {
+        client?.roomCrypto
+    }
+
+    /// This session's user ID.
+    var localUserId: UserId? {
+        client?.userId
+    }
+
+    /// Decrypt one event in a room, for detached timeline windows.
+    func decryptEvent(_ event: MessageEvent, in roomId: RoomId) async -> MessageEvent? {
+        guard let client else { return nil }
+        return await client.roomCrypto.decryptRoomEvent(event, in: roomId)
+    }
+
+    /// Power-level content for a room, if fetchable. Thin facade
+    /// routing over the namespace client (no domain logic).
+    func roomPowerLevels(roomId: RoomId) async -> [String: AnyCodable]? {
+        guard let client else { return nil }
+        return try? await client.roomState.powerLevels(roomId)
+    }
+
+
+    /// Bump one room's revision so its timeline refreshes. Used after
+    /// local-only store mutations (e.g. read markers) that change
+    /// rendered state without a sync delta to announce them.
+    func bumpRevision(_ roomId: RoomId) {
+        roomRevisions[roomId.value, default: 0] += 1
     }
 
     // MARK: - Private
@@ -2152,27 +2289,30 @@ final class RelayClient {
             recordActivity("Encryption bootstrap failed")
         }
         await client.configureEncryption()
-        relayClientLogger.debug("Restoring cached snapshot")
-        await restoreCache(into: client)
-        relayClientLogger.debug("Cache restore done")
+        // Attach the normalized store before the first sync: every delta
+        // persists through the writer, and the stored cursor turns the
+        // first sync incremental on relaunch. Rooms render from disk
+        // immediately (see `scheduleRoomCacheRebuild()`), before sync completes.
+        await openStore(for: client)
+        scheduleRoomCacheRebuild()
+        relayClientLogger.debug("Store attached")
         syncState = .syncing
         do {
             relayClientLogger.debug("Starting initial sync")
             try await initialSyncRoundTrip()
             relayClientLogger.debug("Initial sync request done")
+            scheduleRoomCacheRebuild()
             // Heal rooms whose avatar update sync missed (e.g. delivered
             // only inside a timeline window): one cheap state-event fetch
             // each. DMs are skipped since they present a member avatar.
-            // Runs before `saveCache()` so healed avatars persist.
-            for room in client.roomList.joined
+            for room in rooms
                 where room.avatarURL == nil && !room.presentsAsDirect
             {
-                if await room.hydrateMissingAvatar() {
+                if await healMissingAvatar(roomId: room.roomId) {
                     relayClientLogger.info(
                         "Healed missing room avatar room=\(room.roomId.value, privacy: .public)")
                 }
             }
-            saveCache()
             await persistSessionLoudly(for: client, context: "initial sync")
             hasLoadedRooms = true
             syncState = .running
@@ -2557,10 +2697,23 @@ final class RelayClient {
 
     private func handleSyncDelta(_ delta: SyncDelta) async {
         syncStats.record(delta: delta)
+        // The writer persisted this delta before fanning it out, so the
+        // cache rebuild below observes it. Revision bumps wake timelines.
+        scheduleRoomCacheRebuild()
+        for roomId in delta.joined.keys {
+            roomRevisions[roomId.value, default: 0] += 1
+        }
+        for roomId in delta.invited.keys {
+            roomRevisions[roomId.value, default: 0] += 1
+        }
+        for roomId in delta.left.keys {
+            roomRevisions[roomId.value, default: 0] += 1
+        }
+        await updateTyping(from: delta)
         guard let client, let myId = client.userId else { return }
         logMembershipTransitions(delta)
         for (roomId, joined) in delta.joined where !joined.timeline.isEmpty {
-            guard let room = rooms.first(where: { $0.roomId == roomId }) else { continue }
+            guard let room = storedRoom(roomId) else { continue }
             for event in joined.timeline {
                 if event.type == "m.room.encrypted" { continue }
                 guard event.type == EventType.roomMessage.rawValue,
@@ -2589,6 +2742,20 @@ final class RelayClient {
         }
     }
 
+    /// Refresh typing state from a delta's ephemeral events, reporting
+    /// touched rooms so only they invalidate.
+    private func updateTyping(from delta: SyncDelta) async {
+        for roomId in await typingTracker.update(from: delta) {
+            typingRevisions[roomId.value, default: 0] += 1
+        }
+    }
+
+    /// Users currently typing in a room, with stale entries filtered.
+    /// Thin routing over the SDK tracker.
+    func typingTrackerUsers(in roomId: RoomId) async -> [UserId] {
+        await typingTracker.users(in: roomId)
+    }
+
     /// Log own-membership transitions (invites, leaves) to the room-list
     /// category. Deltas only flow from live sync — startup history arrives
     /// via `syncOnce`, which never emits them — so this never replays.
@@ -2611,7 +2778,7 @@ final class RelayClient {
     }
 
     private func roomDisplayName(for roomId: RoomId) -> String {
-        rooms.first(where: { $0.roomId == roomId })?.displayName ?? roomId.value
+        storedRoom(roomId)?.displayName ?? roomId.value
     }
 
     /// Whether a message body mentions the local user: an explicit
@@ -2643,6 +2810,9 @@ final class RelayClient {
         syncTask = nil
         syncWatchTask?.cancel()
         syncWatchTask = nil
+        roomRebuildTask?.cancel()
+        roomRebuildTask = nil
+        roomRebuildRequested = false
         verificationTask?.cancel()
         verificationTask = nil
         secretsTask?.cancel()
@@ -2768,26 +2938,268 @@ final class RelayClient {
                 service: Self.sessionService, account: Self.sessionAccount))
     }
 
-    private func cache(for userId: UserId) -> SwiftDataCache? {
-        guard let file = SwiftDataCache.databaseURL(for: userId) else { return nil }
-        return try? SwiftDataCache(database: file)
-    }
+    // MARK: - Normalized store
 
-    private func restoreCache(into client: MatrixClient) async {
-        guard
-            let userId = client.userId,
-            let snapshot = await cache(for: userId)?.load()
+    /// Open (creating) the per-user normalized store and wire it into
+    /// the SDK: deltas persist through the writer, read markers heal
+    /// through it, late-key decryption refreshes stored ciphertext, and
+    /// space/search enrichment reads from it. The stored sync cursor
+    /// makes the first sync incremental on relaunch.
+    private func openStore(for client: MatrixClient) async {
+        guard let userId = client.userId,
+              let file = MatrixStore.databaseURL(for: userId),
+              let container = try? MatrixStore.makeContainer(at: file)
         else {
+            relayClientLogger.error("Normalized store unavailable; running without persistence")
             return
         }
-        await client.store.restore(snapshot)
-        await client.roomList.refresh()
-        for room in snapshot.rooms {
-            if let mode = room.notificationMode {
-                notificationModeCache[room.roomId.value] = mode
+        let writer = MatrixStoreWriter(modelContainer: container)
+        do {
+            try await writer.setLocalUser(userId)
+        } catch {
+            relayClientLogger.warning(
+                "Store local-user setup failed: \(error.localizedDescription, privacy: .public)")
+        }
+        storeContainer = container
+        storeWriter = writer
+        let reader = MatrixStoreReader(modelContainer: container, localUser: userId)
+        storeReader = reader
+        roomIndex = await RoomIndexBuilder(container: container, localUser: userId)
+        messageSender = await MessageSender(
+            messages: client.messages, media: client.media,
+            rooms: client.rooms, roomState: client.roomState,
+            accountData: client.accountData, roomCrypto: client.roomCrypto,
+            writer: writer, reader: reader,
+            localUser: userId, ownDeviceId: client.deviceId)
+        await typingTracker.setLocalUser(userId)
+        // Wired synchronously: the initial sync that follows must fold
+        // through the writer, or its delta is never persisted.
+        await client.addDeltaSink(writer)
+        client.setMarkerHealer(writer)
+        client.setCiphertextStore(writer)
+        await client.setRoomStateProvider(
+            NormalizedRoomStateProvider(modelContainer: container, writer: writer))
+    }
+
+    /// Schedule a background rebuild of the room snapshots. Called
+    /// after the store attaches (instant launch from disk), after the
+    /// initial sync, and after every live delta. Finished snapshots are
+    /// assigned on the main actor, driving `@Observable` invalidation
+    /// for every room-list reader. Bursts coalesce: at most one rebuild
+    /// runs at a time, and requests landing mid-rebuild run once more.
+    private func scheduleRoomCacheRebuild() {
+        guard roomIndex != nil else {
+            cachedRooms = []
+            cachedInvitedRooms = []
+            return
+        }
+        guard roomRebuildTask == nil else {
+            roomRebuildRequested = true
+            return
+        }
+        roomRebuildTask = Task {
+            repeat {
+                roomRebuildRequested = false
+                if let index = roomIndex {
+                    let result = await index.rebuild()
+                    // Sorting value snapshots is main-thread-cheap; the
+                    // store I/O and decoding already happened off-thread.
+                    cachedRooms = result.joined.sorted {
+                        Self.latestTimestamp(of: $0) > Self.latestTimestamp(of: $1)
+                    }
+                    cachedInvitedRooms = result.invited.sorted {
+                        $0.displayName < $1.displayName
+                    }
+                    spaceChildIds = result.spaceChildren
+                }
+            } while roomRebuildRequested && !Task.isCancelled
+            roomRebuildTask = nil
+        }
+    }
+
+    /// All room/space IDs contained in a space, transitively. Feeds
+    /// hierarchy filters (room list, search): a room matches when any
+    /// ancestor chain reaches the selected space, not just direct
+    /// parents. Cycle-safe BFS; unjoined never-browsed branches are
+    /// absent by construction (no local data — see `spaceChildIds`).
+    func descendantRoomIds(of spaceId: RoomId) -> Set<String> {
+        Self.descendants(of: spaceId, children: spaceChildIds)
+    }
+
+    /// Transitive closure over a parent-to-children map. Pure so the
+    /// traversal stays unit-tested.
+    static nonisolated func descendants(
+        of spaceId: RoomId, children: [RoomId: Set<RoomId>]
+    ) -> Set<String> {
+        var seen: Set<RoomId> = [spaceId]
+        var queue = [spaceId]
+        var out = Set<String>()
+        while let current = queue.popLast() {
+            for child in children[current] ?? [] where seen.insert(child).inserted {
+                out.insert(child.value)
+                queue.append(child)
             }
         }
-        hasLoadedRooms = true
+        return out
+    }
+
+    /// Map one store row to its room snapshot. Pure (over the row and
+    /// its related rows) so the column mapping stays unit-tested.
+    static nonisolated func relayRoom(
+        row: SDRoom,
+        members: [SDRoomMember],
+        parentSpaceIds: Set<RoomId> = [],
+        newestEventId: String? = nil,
+        newestMessage: MessageEvent? = nil,
+        localUser: UserId? = nil
+    ) -> RelayRoom {
+        var room = RelayRoom(
+            roomId: RoomId(unchecked: row.roomId),
+            displayName: row.roomId,
+            membership: Membership(rawValue: row.membership) ?? .join,
+            // Effective (client-estimated) unread, matching the old
+            // live `unreadCount` semantics: the raw server count
+            // alone undercounts (e.g. zeroed by a stale receipt).
+            unreadCount: row.effectiveUnread,
+            highlightCount: row.highlight,
+            effectiveUnread: row.effectiveUnread,
+            localUserId: localUser)
+        room.name = row.name
+        room.topic = row.topic
+        room.avatarURL = row.avatarURL.flatMap { try? MXCURI($0) }
+        room.canonicalAlias = row.canonicalAlias
+        room.firstUnreadEventId = row.firstUnreadEventId.map { EventId(unchecked: $0) }
+        room.prevBatch = row.prevBatch.map { BatchToken($0) }
+        room.fullyReadEventId = row.fullyRead.map { EventId(unchecked: $0) }
+        room.isSpace = row.isSpace
+        room.isFavourite = row.isFavourite
+        room.isEncrypted = row.isEncrypted
+        room.isDirect = row.isDirect
+        room.successorRoomId = row.successorRoomId
+        room.inviterId = row.inviterId.map { UserId(unchecked: $0) }
+        room.parentSpaceIds = parentSpaceIds
+        room.memberDetails = Dictionary(
+            uniqueKeysWithValues: members.map {
+                (UserId(unchecked: $0.userId), MemberContent(
+                    membership: Membership(rawValue: $0.membership) ?? .join,
+                    displayname: $0.displayname,
+                    avatarUrl: $0.avatarUrl,
+                    reason: $0.reason,
+                    isDirect: $0.isDirect))
+            })
+        room.memberCount = members.count
+        room.displayName = Self.displayName(
+            room: row, memberIds: members.map(\.userId), localUser: localUser?.value)
+        // Pinned IDs and alt aliases are JSON blobs on the row.
+        let decoder = JSONDecoder()
+        if let data = row.pinnedEventIds,
+           let ids = try? decoder.decode([String].self, from: data) {
+            room.pinnedEventIds = ids
+        }
+        if let data = row.altAliases,
+           let aliases = try? decoder.decode([String].self, from: data) {
+            room.altAliases = aliases
+        }
+        room.newestEventId = newestEventId
+        room.latestMessage = newestMessage
+        return room
+    }
+
+    /// Best-effort display name: explicit name, else other members'
+    /// IDs, else the room ID. Mirrors the SDK reader.
+    private static nonisolated func displayName(
+        room: SDRoom, memberIds: [String], localUser: String?
+    ) -> String {
+        if let name = room.name, !name.isEmpty { return name }
+        let others = memberIds.filter { $0 != localUser }
+        if !others.isEmpty { return others.sorted().joined(separator: ", ") }
+        return room.roomId
+    }
+
+    /// Sort key for the room list: latest message timestamp, else the
+    /// room's activity timestamp, else never.
+    private static nonisolated func latestTimestamp(of room: RelayRoom) -> Date {
+        room.latestMessage?.timestamp ?? .distantPast
+    }
+
+    /// Cached snapshot for a room, if known.
+    func storedRoom(_ roomId: RoomId) -> RelayRoom? {
+        cachedRooms.first(where: { $0.roomId == roomId })
+            ?? cachedInvitedRooms.first(where: { $0.roomId == roomId })
+    }
+
+    /// Member map for a room, preferring the cache, falling back to a
+    /// direct store read.
+    func roomMembersMap(roomId: RoomId) -> [UserId: MemberContent] {
+        if let cached = storedRoom(roomId) {
+            return cached.memberDetails
+        }
+        guard let members = try? storeReader?.members(roomId) else { return [:] }
+        return Dictionary(
+            uniqueKeysWithValues: members.map {
+                ($0.userId, MemberContent(
+                    membership: $0.membership,
+                    displayname: $0.displayname,
+                    avatarUrl: $0.avatarUrl))
+            })
+    }
+
+    /// Live-window payload for a room, fetched off the main actor (see
+    /// `RoomIndexBuilder`). Empty when the store is unavailable.
+    func timelinePayload(roomId: RoomId, limit: Int) async -> TimelinePayload {
+        guard let index = roomIndex else {
+            return TimelinePayload(
+                snapshot: [], sendStates: [:],
+                firstUnreadEventId: nil, prevBatch: nil)
+        }
+        return await index.timelinePayload(roomId: roomId.value, limit: limit)
+    }
+
+    /// Marker and pagination-cursor columns for a room, fetched off the
+    /// main actor. For detached windows that don't need the event window.
+    func markerSummary(roomId: RoomId) async -> (
+        firstUnreadEventId: String?, prevBatch: String?
+    ) {
+        guard let index = roomIndex else { return (nil, nil) }
+        return await index.markerSummary(roomId: roomId.value)
+    }
+
+    /// Heal a missing room avatar with a direct state fetch, adopting
+    /// the URL into the store. Returns whether an avatar was adopted.
+    /// DMs are skipped by the caller (they present a member avatar).
+    private func healMissingAvatar(roomId: RoomId) async -> Bool {
+        guard let client, let writer = storeWriter else { return false }
+        guard let content = try? await client.roomState.getStateEvent(
+            roomId, type: "m.room.avatar"),
+            let urlString = content["url"]?.stringValue,
+            let url = try? MXCURI(urlString)
+        else { return false }
+        try? await writer.adoptAvatarURL(url, roomId: roomId)
+        scheduleRoomCacheRebuild()
+        return true
+    }
+
+    /// Clear the store and cached rooms, staying logged in. The next
+    /// sync rebuilds everything from scratch.
+    private func resetStore() async {
+        guard let userId = client?.userId,
+              let file = MatrixStore.databaseURL(for: userId)
+        else { return }
+        MatrixStore.removeStoreFiles(file: file)
+        roomRebuildTask?.cancel()
+        roomRebuildTask = nil
+        roomRebuildRequested = false
+        roomIndex = nil
+        messageSender = nil
+        await typingTracker.setLocalUser(nil)
+        storeContainer = nil
+        storeWriter = nil
+        storeReader = nil
+        cachedRooms = []
+        cachedInvitedRooms = []
+        roomRevisions = [:]
+        typingRevisions = [:]
+        spaceChildIds = [:]
     }
 
     /// Settle any debounced crypto-state writes immediately.
@@ -2798,31 +3210,6 @@ final class RelayClient {
         guard let client else { return }
         await client.olm.flushCryptoState()
         await client.roomCrypto.flushCryptoState()
-    }
-
-    /// Best-effort persist of converged in-memory state (read markers
-    /// especially): without it the on-disk snapshot is forever the
-    /// pre-convergence startup state and every launch replays the flash.
-    private func saveCacheThrottled() {
-        guard Date() >= earliestNextBackgroundSave else { return }
-        earliestNextBackgroundSave = Date().addingTimeInterval(60)
-        saveCache()
-    }
-
-    private func saveCache() {
-        guard let client, let userId = client.userId else { return }
-        Task {
-            var snapshot = await client.store.snapshot()
-            for index in snapshot.rooms.indices {
-                if let mode = notificationModeCache[snapshot.rooms[index].roomId.value] {
-                    snapshot.rooms[index].notificationMode = mode
-                }
-            }
-            Task.detached(priority: .background) {
-                guard let file = SwiftDataCache.databaseURL(for: userId) else { return }
-                try? await SwiftDataCache(database: file).save(snapshot)
-            }
-        }
     }
 }
 

@@ -129,12 +129,16 @@ creates the `RelayClient` once and injects it with
   the SDK app-side.
 - `RelayClient` (`Relay/Services/RelayClient.swift`) is the single
   app facade (session restore/login/OIDC, sync lifecycle, keychain
-  session, SwiftData cache, verification, notifications, media).
-  Route cross-cutting session/sync/room logic through it. Per-room
-  timeline state lives in `TimelineViewModel` (`Relay/ViewModels/`),
-  a thin layer over MatrixKit's `ObservableRoom`.
+  session, normalized SwiftData store, verification, notifications,
+  media). Route cross-cutting session/sync/room logic through it. It
+  owns the `MatrixStore` container/writer/reader, rebuilds `RelayRoom`
+  snapshots after every sync delta, and hosts the store-backed send
+  pipeline (echoes, encrypted/plaintext branching). Per-room timeline
+  state lives in `TimelineViewModel` (`Relay/ViewModels/`), which
+  renders stored events via `ObservableTimelineEvent.render` and pages
+  detached `FocusedTimeline`/`ThreadTimeline` windows.
 - Views and view models use MatrixKit concrete types directly
-  (`ObservableRoom`, `ObservableTimelineEvent`, `RoomId`, …) — there
+  (`ObservableTimelineEvent`, `StoredRoomDetail`, `RoomId`, …) — there
   is no protocol-interposition layer.
 - Keep `Packages/RelayShared/` zero-dependency and `Codable`-only.
   It is imported by both the app and the share extension.

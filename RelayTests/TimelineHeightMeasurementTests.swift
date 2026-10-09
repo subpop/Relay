@@ -149,7 +149,7 @@ struct TimelineHeightMeasurementTests {
     @Test func pillAttachmentBoundsFitWithinFontLineBox() {
         let pill = PillTextAttachment(
             userId: "@sample:matrix.org", displayName: "Sample User",
-            font: baseFont, style: .messageDefault
+            font: baseFont, style: .messageDefault, prefixSigil: "@"
         )
         let bounds = pill.bounds
         // Baseline-relative, +y up: top = bounds.maxY, bottom = bounds.minY.

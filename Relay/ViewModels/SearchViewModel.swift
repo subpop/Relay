@@ -37,12 +37,14 @@ final class SearchViewModel {
 
     private var searchTask: Task<Void, Never>?
 
-    func filteredRooms(from rooms: [RoomRowData], spaceId: String?) -> [RoomRowData] {
+    func filteredRooms(
+        from rooms: [RoomRowData], spaceId: String?, in containedIds: Set<String> = []
+    ) -> [RoomRowData] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return [] }
         return rooms.filter { room in
-            if let spaceId {
-                guard room.parentSpaceIds.contains(spaceId) else { return false }
+            if spaceId != nil {
+                guard containedIds.contains(room.roomId) else { return false }
             }
             return room.name.localizedStandardContains(query)
                 || (room.topic?.localizedStandardContains(query) ?? false)

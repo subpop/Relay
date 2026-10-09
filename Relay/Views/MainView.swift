@@ -245,7 +245,10 @@ struct MainView: View {
             if searchModel.isActive {
                 SearchResultsList(
                     rooms: searchModel.filteredRooms(
-                        from: roomRows, spaceId: selectedSpaceId),
+                        from: roomRows, spaceId: selectedSpaceId,
+                        in: selectedSpaceId.map {
+                            client.descendantRoomIds(of: RoomId(unchecked: $0))
+                        } ?? []),
                     searchModel: searchModel,
                     selectedRoomId: $selectedRoomId,
                     onMessageSelected: { roomId, eventId in
@@ -276,7 +279,7 @@ struct MainView: View {
     // MARK: - Detail
 
     /// The currently selected room, if any.
-    private var currentRoom: ObservableRoom? {
+    private var currentRoom: RelayRoom? {
         guard let selectedRoomId else { return nil }
         return client.rooms.first { $0.roomId.value == selectedRoomId }
             ?? client.invitedRooms.first { $0.roomId.value == selectedRoomId }
@@ -363,7 +366,7 @@ struct MainView: View {
 
     /// Inline invite card. The full room preview returns with the
     /// directory UI.
-    private func inviteCard(for room: ObservableRoom) -> some View {
+    private func inviteCard(for room: RelayRoom) -> some View {
         let invite = InviteRowData.from(room: room)
         return VStack(spacing: 24) {
             Spacer()
@@ -399,7 +402,7 @@ struct MainView: View {
     /// The timeline for the selected room, backed by a per-room view model
     /// built when the selection changes.
     @ViewBuilder
-    private func timelineView(for room: ObservableRoom) -> some View {
+    private func timelineView(for room: RelayRoom) -> some View {
         if let timelineViewModel, timelineViewModel.roomId == room.roomId.value {
             TimelineView(
                 roomId: room.roomId.value,
@@ -418,7 +421,7 @@ struct MainView: View {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: room.roomId.value) {
-                    timelineViewModel = await client.makeTimelineViewModel(
+                    timelineViewModel = client.makeTimelineViewModel(
                         roomId: room.roomId.value)
                 }
         }
@@ -478,7 +481,7 @@ struct MainView: View {
         }
     }
 
-    private func inviteToolbarCapsule(for room: ObservableRoom) -> some View {
+    private func inviteToolbarCapsule(for room: RelayRoom) -> some View {
         HStack(spacing: 0) {
             AvatarView(
                 name: room.displayName,
@@ -554,7 +557,7 @@ struct MainView: View {
 }
 
 private struct ToolbarRoomLabel: View {
-    let room: ObservableRoom?
+    let room: RelayRoom?
     let showingInspector: Bool
 
     @Environment(\.controlSize) private var controlSize

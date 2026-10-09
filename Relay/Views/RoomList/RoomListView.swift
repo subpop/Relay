@@ -387,9 +387,14 @@ extension RoomListView {
             .filter { $0.membership == .join }
             .map { RoomRowData.from(room: $0, isMuted: client.isMuted(roomId: $0.roomId.value), client: client) }
 
-        // Apply space filter.
+        // Apply space filter: rooms anywhere in the selected space's
+        // hierarchy (direct children, subspaces, and deeper), not just
+        // direct children — a space's own children are usually
+        // subspaces, so a direct match renders empty.
         if let selectedSpaceId {
-            rooms = rooms.filter { $0.parentSpaceIds.contains(selectedSpaceId) }
+            let contained = client.descendantRoomIds(
+                of: RoomId(unchecked: selectedSpaceId))
+            rooms = rooms.filter { contained.contains($0.roomId) }
         }
 
         // Spaces never render as rows: they live in the rail (when

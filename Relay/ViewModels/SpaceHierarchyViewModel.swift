@@ -131,7 +131,7 @@ final class SpaceHierarchyViewModel {
         directChildIds = []
         directChildrenEdges = []
         seedHeaderFromStore()
-        let cached = await client.cachedSpaceHierarchy(spaceId: spaceId)
+        let cached = client.cachedSpaceHierarchy(spaceId: spaceId)
         if renderPersistedHierarchy(cached) || renderPersistedChildren() {
             hasLoaded = true
             Task { await refreshFromNetwork() }
@@ -201,12 +201,12 @@ final class SpaceHierarchyViewModel {
     private func renderPersistedChildren() -> Bool {
         let space = RoomId(unchecked: spaceId)
         var direct: [SpaceChild] = []
-        for room in client.rooms where room.spaceParents.contains(space) {
+        for room in client.rooms where room.parentSpaceIds.contains(space) {
             direct.append(SpaceChild(
                 roomId: room.roomId,
                 name: room.displayName,
                 avatarURL: room.avatarURL,
-                memberCount: room.members.count,
+                memberCount: room.memberCount,
                 roomType: room.isSpace ? .space : .room,
                 isJoined: room.membership == .join))
         }
