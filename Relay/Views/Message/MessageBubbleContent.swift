@@ -37,6 +37,15 @@ struct MessageBubbleContent: View {
     var onPresentReactionPicker: (() -> Void)?
 
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+
+    /// Mirrors ``MessageTextScale``'s persisted value purely so this view
+    /// re-evaluates on a text-zoom step. ``TimelineRowView`` is `Equatable`
+    /// and its `==` doesn't consider the scale, so without reading it here
+    /// directly a zoom step would never re-render the bubble body — the same
+    /// reason ``scaledChromeFont`` reads the scale via `@AppStorage` rather
+    /// than through ``MessageTextScale/scale`` itself.
+    @AppStorage(MessageTextScale.userDefaultsKey) private var textScale = Double(MessageTextScale.defaultScale)
+
     @Environment(\.timelineActions) private var actions
 
     var body: some View {
@@ -282,12 +291,12 @@ struct MessageBubbleContent: View {
     /// (HTML) when available, falling back to inline Markdown parsing of `body`.
     private var parsedBody: NSAttributedString {
         if let html = message.formattedBody {
-            let cached = Self.htmlCache.value(forKey: html) {
+            let cached = Self.htmlCache.value(forKey: Self.scaledCacheKey(html)) {
                 NSAttributedString(matrixHTML: html)
             }
             if let result = cached { return result }
         }
-        return Self.markdownCache.value(forKey: message.body) {
+        return Self.markdownCache.value(forKey: Self.scaledCacheKey(message.body)) {
             NSAttributedString(matrixMarkdown: message.body)
         }
     }
@@ -296,7 +305,7 @@ struct MessageBubbleContent: View {
     /// display name. Prefers `formatted_body` (HTML) when available.
     private var emoteParsedBody: NSAttributedString {
         if let html = message.formattedBody {
-            let cacheKey = "\(message.displayName)\0\(html)"
+            let cacheKey = Self.scaledCacheKey("\(message.displayName)\0\(html)")
             let cached = Self.emoteHtmlCache.value(forKey: cacheKey) {
                 guard let parsed = NSAttributedString(matrixHTML: html) else { return nil }
                 let emoteResult = NSMutableAttributedString()

@@ -106,4 +106,27 @@ struct MessageTextScaleTests {
         let mid = (MessageTextScale.minScale + MessageTextScale.maxScale) / 2
         #expect(MessageTextScale.clamp(mid) == mid)
     }
+
+    @Test func scaledCacheKeyChangesWithScale() {
+        MessageTextScale.reset()
+        let unscaledKey = MessageBubbleContent.scaledCacheKey("hello")
+
+        MessageTextScale.increase()
+        let scaledKey = MessageBubbleContent.scaledCacheKey("hello")
+
+        #expect(unscaledKey != scaledKey, "A zoom step must change the cache key so parsed text isn't served from the old scale.")
+    }
+
+    @Test func parsedMarkdownFontTracksScale() {
+        MessageTextScale.reset()
+        let unscaledSize = NSAttributedString(matrixMarkdown: "hello")
+            .attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+
+        MessageTextScale.increase()
+        let scaledSize = NSAttributedString(matrixMarkdown: "hello")
+            .attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+
+        #expect(scaledSize?.pointSize == MessageTextScale.baseFontSize)
+        #expect(scaledSize?.pointSize != unscaledSize?.pointSize, "Parsed message text must be rebuilt at the new base font size after a zoom step.")
+    }
 }

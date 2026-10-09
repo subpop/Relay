@@ -27,23 +27,16 @@ extension MessageBubbleContent {
     /// LRU cache for parsed emote HTML bodies. Shared across all `MessageBubbleContent` instances.
     static let emoteHtmlCache = ParseCache<String, NSAttributedString?>(capacity: 64)
 
-    /// Drops every message parse cache.
+    /// Prefixes a parse-cache key with the current text-zoom scale.
     ///
-    /// Call when a global change must force every row to re-render from
-    /// scratch — a text-zoom step, where the cached attributed strings were
-    /// built at the old font size. A window resize does *not* need this: the
-    /// text container's stale-width problem is handled separately, by
-    /// ``MessageTextView``'s size-cache generation counter. Because the
-    /// caches key by content, the returned attributed string is a *new*
-    /// instance, which makes ``MessageTextView``'s `updateNSView` re-resolve
-    /// and re-sync its container to the current width instead of
-    /// early-returning on an unchanged instance.
+    /// The cached attributed strings embed ``MessageTextScale/baseFont``, so a
+    /// key built from message content alone would keep returning a stale
+    /// font after a zoom step. Folding the scale into the key instead makes a
+    /// zoom step a cache miss — old-scale entries simply age out of the LRU
+    /// rather than needing to be dropped up front.
     @MainActor
-    static func invalidateParseCaches() {
-        htmlCache.removeAll()
-        markdownCache.removeAll()
-        emoteHtmlCache.removeAll()
-        ReplyPreviewBubble.replyTextCache.removeAll()
+    static func scaledCacheKey(_ content: String) -> String {
+        "\(MessageTextScale.scale)\0\(content)"
     }
 }
 
