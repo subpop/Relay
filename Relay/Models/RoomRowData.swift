@@ -116,6 +116,7 @@ struct InviteRowData: Identifiable, Hashable, Sendable {
     var topic: String? = nil
     var avatarURL: String? = nil
     var inviterName: String? = nil
+    var inviterUserId: String? = nil
     var inviterAvatarURL: String? = nil
     var isSpace: Bool = false
 
@@ -126,6 +127,7 @@ struct InviteRowData: Identifiable, Hashable, Sendable {
             topic: room.topic,
             avatarURL: room.presentingAvatarURL?.value,
             inviterName: room.inviterName,
+            inviterUserId: room.inviterId?.value,
             inviterAvatarURL: room.inviterAvatarURL?.value,
             isSpace: room.isSpace)
     }

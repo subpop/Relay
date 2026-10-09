@@ -371,16 +371,25 @@ struct MainView: View {
         return VStack(spacing: 24) {
             Spacer()
             AvatarView(name: invite.name, mxcURL: invite.avatarURL, size: 80)
-            VStack(spacing: 8) {
-                Text(invite.name)
-                    .font(.title)
-                    .bold()
-                // Skip the inviter line when it repeats the title (DM invites,
-                // where the peer is the inviter).
-                if let inviterName = invite.inviterName, inviterName != invite.name {
-                    Text("Invited by \(inviterName)")
+            VStack(spacing: 4) {
+                if let inviterUserId = invite.inviterUserId, inviterUserId == invite.name {
+                    // DM invite: the room name is just the peer, so show the
+                    // peer's name and Matrix ID instead of an "Invited by" line.
+                    Text(invite.inviterName ?? invite.name)
+                        .font(.title)
+                        .bold()
+                    Text(inviterUserId)
                         .font(.subheadline)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(invite.name)
+                        .font(.title)
+                        .bold()
+                    if let inviterName = invite.inviterName {
+                        Text("Invited by \(inviterName)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             HStack(spacing: 12) {
