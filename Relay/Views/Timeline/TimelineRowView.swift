@@ -212,6 +212,9 @@ struct TimelineRowView: View, Equatable {
     @ViewBuilder
     private func contextMenuEntry(_ entry: TimelineMessageContextMenuEntry) -> some View {
         switch entry {
+        case .quickReactions:
+            quickReactionsGrid
+            Divider()
         case .reply:
             Button {
                 actions.contextAction(.reply(message))
@@ -256,6 +259,26 @@ struct TimelineRowView: View, Equatable {
             } label: {
                 Label("Delete Message", systemImage: "trash")
             }
+        }
+    }
+
+    /// A grid of the user's top emoji reactions, iMessage-style, for
+    /// one-tap reacting without opening the full picker. Stacked palette
+    /// rows render as a horizontally-aligned grid within the context menu.
+    @ViewBuilder
+    private var quickReactionsGrid: some View {
+        ForEach(QuickReactions.top(), id: \.self) { row in
+            ControlGroup {
+                ForEach(row, id: \.self) { emoji in
+                    Button {
+                        actions.contextAction(.react(eventId: message.eventId.value, key: emoji))
+                    } label: {
+                        Image(nsImage: QuickReactions.image(for: emoji))
+                    }
+                    .accessibilityLabel(emoji)
+                }
+            }
+            .controlGroupStyle(.palette)
         }
     }
 

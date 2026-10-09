@@ -16,6 +16,7 @@ import MatrixKit
 
 /// Ordered contextual-menu sections for a timeline bubble (SwiftUI + NSTextView).
 enum TimelineMessageContextMenuEntry: Equatable {
+    case quickReactions
     case reply
     case copyMessage
     case saveMedia
@@ -46,6 +47,7 @@ enum TimelineMessageContextMenu {
         }
         if canSend {
             result.insert(.reply, at: 0)
+            result.insert(.quickReactions, at: 0)
             result.append(.addReaction)
         }
         if (permissions?.canPin ?? false) && message.eventId.value.hasPrefix("$") {
@@ -68,6 +70,7 @@ enum TimelineRowContextAction {
     case reply(ObservableTimelineEvent)
     case copy(String)
     case saveMedia(ObservableTimelineEvent)
+    case react(eventId: String, key: String)
     case togglePin(String)
     case edit(ObservableTimelineEvent)
     case delete(ObservableTimelineEvent)

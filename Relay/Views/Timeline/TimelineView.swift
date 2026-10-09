@@ -536,6 +536,9 @@ struct TimelineView: View {
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        case .react(let eventId, let key):
+            QuickReactions.record(key)
+            Task { await viewModel.toggleReaction(messageId: eventId, key: key) }
         case .togglePin(let eventId):
             Task {
                 if viewModel.isPinned(eventId: eventId) {

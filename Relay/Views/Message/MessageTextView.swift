@@ -467,6 +467,11 @@ final class MessageTextContent: NSTextView {
         var insertIndex = 0
         for entry in entries {
             switch entry {
+            case .quickReactions:
+                for row in QuickReactions.top() {
+                    baseMenu.insertItem(quickReactionRowItem(for: row), at: insertIndex)
+                    insertIndex += 1
+                }
             case .reply:
                 baseMenu.insertItem(
                     menuItem(title: "Reply", symbol: "arrowshape.turn.up.left", action: #selector(contextReply)),
@@ -534,6 +539,24 @@ final class MessageTextContent: NSTextView {
         return item
     }
 
+    /// Wraps one row of ``QuickReactions/top()`` as a horizontally-aligned
+    /// palette submenu item, iMessage-style, so it renders inline in the
+    /// context menu rather than as a nested submenu.
+    private func quickReactionRowItem(for row: [String]) -> NSMenuItem {
+        let palette = NSMenu()
+        palette.presentationStyle = .palette
+        for emoji in row {
+            let item = NSMenuItem(title: emoji, action: #selector(contextQuickReaction(_:)), keyEquivalent: "")
+            item.target = self
+            item.image = QuickReactions.image(for: emoji)
+            item.representedObject = emoji
+            palette.addItem(item)
+        }
+        let wrapper = NSMenuItem()
+        wrapper.submenu = palette
+        return wrapper
+    }
+
     @objc private func contextReply() {
         guard let message = contextMessage else { return }
         onMessageContextAction?(.reply(message))
@@ -551,6 +574,11 @@ final class MessageTextContent: NSTextView {
 
     @objc private func contextAddReaction() {
         onPresentReactionPicker?()
+    }
+
+    @objc private func contextQuickReaction(_ sender: NSMenuItem) {
+        guard let message = contextMessage, let emoji = sender.representedObject as? String else { return }
+        onMessageContextAction?(.react(eventId: message.eventId.value, key: emoji))
     }
 
     @objc private func contextTogglePin() {
