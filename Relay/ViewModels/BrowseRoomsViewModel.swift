@@ -120,9 +120,9 @@ final class BrowseRoomsViewModel {
             let result = try await client.publicRooms(
                 filter: currentFilter, since: nextBatch,
                 server: page.isHome ? nil : page.serverName)
-            pages[index].rooms += result.rooms
-            pages[index].nextBatch = result.nextBatch
-            pages[index].isAtEnd = result.nextBatch == nil
+            Self.applyPage(
+                rooms: result.rooms, nextBatch: result.nextBatch,
+                sentBatch: nextBatch, to: &pages[index])
         } catch {
             pages[index].errorMessage = error.localizedDescription
         }
@@ -155,6 +155,26 @@ final class BrowseRoomsViewModel {
         } else {
             await loadMore(serverName: serverName)
         }
+    }
+
+    /// Merge a fetched directory page into existing page state.
+    ///
+    /// Only rooms not already present are appended, and the page is
+    /// marked ended when the server returns no continuation token, an
+    /// empty chunk, no unseen rooms, or the same token that was sent
+    /// (servers sometimes echo the cursor or restart it instead of
+    /// terminating pagination).
+    static func applyPage(
+        rooms: [PublicRoomEntry], nextBatch: String?, sentBatch: String,
+        to page: inout ServerPage
+    ) {
+        let seen = Set(page.rooms.map(\.roomId.value))
+        let fresh = rooms.filter { !seen.contains($0.roomId.value) }
+        page.rooms += fresh
+        page.nextBatch = nextBatch
+        page.isAtEnd =
+            nextBatch == nil || rooms.isEmpty || fresh.isEmpty
+            || nextBatch == sentBatch
     }
 
     private static func makePages(homeServer: String?, remotes: [String]) -> [ServerPage] {
