@@ -628,7 +628,7 @@ final class RelayClient {
         syncState = .syncing
         do {
             try await initialSyncRoundTrip()
-            scheduleRoomCacheRebuild()
+            await scheduleRoomCacheRebuild().value
             syncState = .running
             await refreshNotificationModes()
             didFinishStartupSync = true
@@ -2301,7 +2301,7 @@ final class RelayClient {
             relayClientLogger.debug("Starting initial sync")
             try await initialSyncRoundTrip()
             relayClientLogger.debug("Initial sync request done")
-            scheduleRoomCacheRebuild()
+            await scheduleRoomCacheRebuild().value
             // Heal rooms whose avatar update sync missed (e.g. delivered
             // only inside a timeline window): one cheap state-event fetch
             // each. DMs are skipped since they present a member avatar.
@@ -2987,17 +2987,20 @@ final class RelayClient {
     /// assigned on the main actor, driving `@Observable` invalidation
     /// for every room-list reader. Bursts coalesce: at most one rebuild
     /// runs at a time, and requests landing mid-rebuild run once more.
-    private func scheduleRoomCacheRebuild() {
+    /// Returns the in-flight task so callers that need `rooms` to be
+    /// current (e.g. before computing notification modes) can await it.
+    @discardableResult
+    private func scheduleRoomCacheRebuild() -> Task<Void, Never> {
         guard roomIndex != nil else {
             cachedRooms = []
             cachedInvitedRooms = []
-            return
+            return Task {}
         }
-        guard roomRebuildTask == nil else {
+        if let roomRebuildTask {
             roomRebuildRequested = true
-            return
+            return roomRebuildTask
         }
-        roomRebuildTask = Task {
+        let task = Task {
             repeat {
                 roomRebuildRequested = false
                 if let index = roomIndex {
@@ -3015,6 +3018,8 @@ final class RelayClient {
             } while roomRebuildRequested && !Task.isCancelled
             roomRebuildTask = nil
         }
+        roomRebuildTask = task
+        return task
     }
 
     /// All room/space IDs contained in a space, transitively. Feeds
