@@ -272,7 +272,7 @@ struct RoomListView: View {
 
             Section {
                 Toggle(isOn: $showUnreadOnly.animation()) {
-                    Label("Unread Only", systemImage: "")
+                    Label("Unread Only", systemImage: "circlebadge")
                 }
             }
 
