@@ -29,6 +29,7 @@ struct RoomListView: View {
     @AppStorage("roomSortDirection") private var sortDirection: RoomSortDirection = .descending
     @AppStorage("roomTypeFilter") private var typeFilter: RoomTypeFilter = .all
     @AppStorage("showArchivedRooms") private var showArchivedRooms = false
+    @AppStorage("showUnreadRoomsOnly") private var showUnreadOnly = false
     @State private var roomToLeave: RoomRowData?
     @State private var showLeaveConfirmation = false
     @State private var inviteToDecline: InviteRowData?
@@ -270,6 +271,12 @@ struct RoomListView: View {
             }
 
             Section {
+                Toggle(isOn: $showUnreadOnly.animation()) {
+                    Label("Unread Only", systemImage: "")
+                }
+            }
+
+            Section {
                 Toggle(isOn: $showArchivedRooms.animation()) {
                     Label("Archived Rooms", systemImage: "archivebox")
                 }
@@ -409,6 +416,13 @@ extension RoomListView {
             rooms = rooms.filter { !$0.isDirect }
         case .directMessages:
             rooms = rooms.filter { $0.isDirect }
+        }
+
+        // Limit to rooms with unread messages. The selected room always stays
+        // visible: opening it clears its unread count, and it shouldn't vanish
+        // from under the user.
+        if showUnreadOnly {
+            rooms = rooms.filter { $0.notificationCount > 0 || $0.id == selectedRoomId }
         }
 
         // Exclude tombstoned (upgraded) rooms unless the user has opted
