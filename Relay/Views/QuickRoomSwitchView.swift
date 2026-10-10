@@ -29,11 +29,30 @@ struct QuickRoomSwitchView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     private var filteredRooms: [RoomRowData] {
-        let rooms = rooms.filter { !$0.isSpace }
+        let rooms = rooms
+            .filter { !$0.isSpace }
+            .sorted(by: Self.mostRecentFirst)
         if filterText.isEmpty {
             return rooms
         }
         return rooms.filter { $0.name.localizedStandardContains(filterText) }
+    }
+
+    /// Orders rooms by latest message, newest first. Rooms with no
+    /// message sink to the bottom; ties (including both having no
+    /// message) fall back to name so the order stays stable.
+    private static func mostRecentFirst(_ a: RoomRowData, _ b: RoomRowData) -> Bool {
+        switch (a.lastMessageTimestamp, b.lastMessageTimestamp) {
+        case let (lhs?, rhs?):
+            if lhs != rhs { return lhs > rhs }
+        case (nil, nil):
+            break
+        case (nil, _):
+            return false
+        case (_, nil):
+            return true
+        }
+        return a.name.localizedStandardCompare(b.name) == .orderedAscending
     }
 
     var body: some View {
