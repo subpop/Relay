@@ -26,6 +26,10 @@ struct VideoMessageView: View {
     @Environment(\.errorReporter) private var errorReporter
     let message: ObservableTimelineEvent
 
+    /// Upload progress (0 to 1) when this video is still being sent, or nil
+    /// once uploaded. Drawn as a thin bar over the bottom of the placeholder.
+    var uploadProgress: Double? = nil
+
     @State private var thumbnail: NSImage?
     @State private var isLoading = true
     @State private var isHovering = false
@@ -137,6 +141,15 @@ struct VideoMessageView: View {
         .onTapGesture {
             if shouldShow {
                 Task { await openQuickLook() }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let uploadProgress {
+                ProgressView(value: uploadProgress)
+                    .progressViewStyle(.linear)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+                    .accessibilityLabel("Uploading attachment")
             }
         }
         .overlay {

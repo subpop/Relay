@@ -33,6 +33,10 @@ struct MessageBubbleContent: View {
     /// Whether to show URL previews for text messages that contain a link.
     var showURLPreviews: Bool = false
 
+    /// Upload progress (0 to 1) when this message is a locally-staged
+    /// attachment still uploading, or nil otherwise.
+    var uploadProgress: Double? = nil
+
     /// Called to present the emoji reaction picker from within rich text context menus.
     var onPresentReactionPicker: (() -> Void)?
 
@@ -144,7 +148,7 @@ struct MessageBubbleContent: View {
 
     private var imageContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            ImageMessageView(message: message)
+            ImageMessageView(message: message, uploadProgress: uploadProgress)
                 .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {
@@ -157,7 +161,7 @@ struct MessageBubbleContent: View {
 
     private var videoContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            VideoMessageView(message: message)
+            VideoMessageView(message: message, uploadProgress: uploadProgress)
                 .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {

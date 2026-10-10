@@ -131,7 +131,8 @@ final class TimelineViewModel {
     private var refreshGeneration = 0
 
     /// In-flight attachment upload fractions by upload ID. Powers the
-    /// thin progress bar above the compose bar; empty when idle.
+    /// thin progress bar overlaid on the sending attachment's bubble;
+    /// empty when idle.
     private var uploadFractions: [UUID: Double] = [:]
 
     /// Overall upload fraction across in-flight attachments (the
@@ -649,15 +650,29 @@ final class TimelineViewModel {
                 uploadFractions[uploadId] = fraction
             }
         }
+        // `stageEcho` is a local-only store mutation with no sync delta to
+        // announce it, so the timeline won't otherwise learn the pending
+        // bubble exists until the real event lands after the upload
+        // finishes. Bump the revision as soon as it's staged so the
+        // placeholder (and its progress bar) appears immediately.
+        let (echoStaged, echoStagedContinuation) = AsyncStream<Void>.makeStream()
+        let echoStagedConsumer = Task { @MainActor in
+            for await _ in echoStaged {
+                client.bumpRevision(roomID)
+            }
+        }
         await client.messageSender?.sendAttachment(
             roomID,
             data: data, filename: filename, mimeType: mimeType,
             caption: caption, width: width, height: height, duration: duration,
             thumbnailData: thumbnailData, thumbnailMimeType: "image/jpeg",
             inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
+            onEchoStaged: { echoStagedContinuation.yield() },
             onProgress: { continuation.yield($0) })
         continuation.finish()
+        echoStagedContinuation.finish()
         await consumer.value
+        await echoStagedConsumer.value
     }
 
     /// Toggle an emoji reaction (removes the user's own reaction if present).

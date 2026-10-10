@@ -34,6 +34,10 @@ struct ImageMessageView: View {
     }
     let message: ObservableTimelineEvent
 
+    /// Upload progress (0 to 1) when this image is still being sent, or nil
+    /// once uploaded. Drawn as a thin bar over the bottom of the placeholder.
+    var uploadProgress: Double? = nil
+
     @State private var image: NSImage?
     @State private var imageData: Data?
     @State private var isLoading = true
@@ -150,6 +154,15 @@ struct ImageMessageView: View {
         .onTapGesture {
             if shouldShow {
                 Task { await openQuickLook() }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let uploadProgress {
+                ProgressView(value: uploadProgress)
+                    .progressViewStyle(.linear)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+                    .accessibilityLabel("Uploading attachment")
             }
         }
         .overlay {

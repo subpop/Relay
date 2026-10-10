@@ -39,6 +39,10 @@ struct MessageView: View {
     /// Whether to show URL previews for text messages that contain a link.
     var showURLPreviews: Bool = false
 
+    /// Upload progress (0 to 1) when this message is a locally-staged
+    /// attachment still uploading, or nil otherwise.
+    var uploadProgress: Double? = nil
+
     /// Reports the bubble's global frame as it changes, so the enclosing row
     /// can anchor the reaction picker to the precise bubble (not the whole
     /// row, which would include the avatar gutter).
@@ -139,6 +143,7 @@ struct MessageView: View {
             message: message,
             isOutgoing: isOutgoing,
             showURLPreviews: showURLPreviews,
+            uploadProgress: uploadProgress,
             onPresentReactionPicker: {
                 presentReactionPickerForBubble()
             }

@@ -53,45 +53,33 @@ struct TimelineBottomBar: View {
     // MARK: - Compose Bar
 
     private var composeBarSection: some View {
-        VStack(spacing: 0) {
-            if let progress = viewModel.uploadProgress {
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .frame(height: 3)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-                    .accessibilityLabel("Uploading attachment")
-            }
-            ComposeBar(
-                compose: compose,
-                onSend: {
-                    compose.send(
-                        using: viewModel,
-                        client: client,
-                        sendTypingNotifications: sendTypingNotifications
-                    ) {
-                        onSendWillScroll()
-                    }
-                },
-                onAttach: { urls in
-                    compose.stageAttachments(urls, errorReporter: errorReporter)
-                },
-                onGIFSelected: { gif in
-                    compose.sendGIF(
-                        gif,
-                        using: viewModel,
-                        gifSearchService: gifSearchService,
-                        errorReporter: errorReporter
-                    ) {
-                        onSendWillScroll()
-                    }
+        ComposeBar(
+            compose: compose,
+            onSend: {
+                compose.send(
+                    using: viewModel,
+                    client: client,
+                    sendTypingNotifications: sendTypingNotifications
+                ) {
+                    onSendWillScroll()
                 }
-            )
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-        }
-        .animation(.easeOut(duration: 0.2), value: viewModel.uploadProgress == nil)
+            },
+            onAttach: { urls in
+                compose.stageAttachments(urls, errorReporter: errorReporter)
+            },
+            onGIFSelected: { gif in
+                compose.sendGIF(
+                    gif,
+                    using: viewModel,
+                    gifSearchService: gifSearchService,
+                    errorReporter: errorReporter
+                ) {
+                    onSendWillScroll()
+                }
+            }
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Room Upgraded Banner

@@ -329,7 +329,8 @@ struct TimelineView: View {
                 showURLPreviews: showURLPreviews,
                 hasReachedBottom: viewModel.hasReachedEnd,
                 isLive: viewModel.timelineFocus == .live,
-                isLoadingMore: viewModel.isLoadingMore
+                isLoadingMore: viewModel.isLoadingMore,
+                uploadProgress: viewModel.uploadProgress
             ),
             bottomInset: bottomContentMargin,
             actions: timelineActionsRef,

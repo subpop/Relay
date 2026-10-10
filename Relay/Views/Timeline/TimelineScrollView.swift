@@ -64,7 +64,9 @@ struct TimelineScrollView: View {
                         showURLPreviews: config.showURLPreviews,
                         onAppear: { _ in },
                         swipeOffset: swipeState.swipingMessageId == row.id ? swipeState.offset : 0,
-                        swipeIsLocked: swipeState.swipingMessageId == row.id && swipeState.isLocked
+                        swipeIsLocked: swipeState.swipingMessageId == row.id && swipeState.isLocked,
+                        uploadProgress: row.message.sendState == .pending && row.message.mediaDownload == nil
+                            ? config.uploadProgress : nil
                     )
                     .id(row.id)
                     .onContinuousHover { phase in
@@ -264,5 +266,6 @@ struct TimelineScrollView: View {
         var hasReachedBottom: Bool
         var isLive: Bool
         var isLoadingMore: Bool
+        var uploadProgress: Double?
     }
 }

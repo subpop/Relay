@@ -68,6 +68,12 @@ struct TimelineRowView: View, Equatable {
     /// Whether the swipe action bar on this row is locked open.
     var swipeIsLocked: Bool = false
 
+    /// Upload progress (0 to 1) for this row's in-flight attachment, or nil
+    /// when this row isn't the attachment currently uploading. Resolved by
+    /// the parent renderer from ``TimelineViewModel/uploadProgress`` against
+    /// this specific row so unrelated rows don't re-render on every tick.
+    var uploadProgress: Double? = nil
+
     /// Explicitly provided actions (used by the NSTableView renderer where
     /// environment injection isn't possible on the concrete type).
     var injectedActions: TimelineActions?
@@ -92,6 +98,7 @@ struct TimelineRowView: View, Equatable {
             && lhs.row.message.ownReactions == rhs.row.message.ownReactions
             && lhs.swipeOffset == rhs.swipeOffset
             && lhs.swipeIsLocked == rhs.swipeIsLocked
+            && lhs.uploadProgress == rhs.uploadProgress
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.isUnreadDivider == rhs.isUnreadDivider
             && lhs.showURLPreviews == rhs.showURLPreviews
@@ -177,6 +184,7 @@ struct TimelineRowView: View, Equatable {
                 showSenderName: info.showSenderName,
                 replyIsAdjacentAbove: info.replyIsAdjacentAbove,
                 showURLPreviews: showURLPreviews,
+                uploadProgress: uploadProgress,
                 // Track the precise bubble frame (MessageView is the single
                 // source — capturing here would report the whole row including
                 // the avatar gutter and fight the bubble's own updates).
