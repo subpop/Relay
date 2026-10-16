@@ -581,6 +581,7 @@ private struct InspectorAliasSection: View {
     @State private var isAddingAlias = false
     @State private var newAliasLocalPart = ""
     @State private var aliasError: String?
+    @State private var aliasToRemove: String?
     @State private var isProcessing = false
 
     private var details: RoomDetails? { viewModel.details }
@@ -620,6 +621,14 @@ private struct InspectorAliasSection: View {
                     }
                     addAliasField
                 }
+
+                if let aliasError {
+                    Label(aliasError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 6)
+                }
             }
             .padding(.vertical, 2)
         } label: {
@@ -647,6 +656,21 @@ private struct InspectorAliasSection: View {
         }
         .disabled(isProcessing)
         .padding(.horizontal)
+        .confirmationDialog(
+            "Remove Room Alias?",
+            isPresented: Binding(
+                get: { aliasToRemove != nil },
+                set: { if !$0 { aliasToRemove = nil } }
+            ),
+            presenting: aliasToRemove
+        ) { alias in
+            Button("Remove \(alias)", role: .destructive) {
+                removeAlias(alias)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { alias in
+            Text("Remove \(alias) from the room directory and this room?")
+        }
     }
 
     // MARK: - Alias Row
@@ -657,11 +681,18 @@ private struct InspectorAliasSection: View {
                 Image(systemName: "star.fill")
                     .font(.caption2)
                     .foregroundStyle(.yellow)
-                    .help("Primary alias")
+                    .accessibilityLabel("Primary alias")
             } else {
-                Image(systemName: "star.fill")
-                    .font(.caption2)
-                    .hidden()
+                Button {
+                    setAsPrimary(alias)
+                } label: {
+                    Image(systemName: "star")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Set \(alias) as Primary")
+                .help("Set as Primary")
             }
 
             Text(alias)
@@ -671,16 +702,18 @@ private struct InspectorAliasSection: View {
                 .textSelection(.enabled)
 
             Spacer()
-        }
-        .contextMenu {
-            if alias != canonicalAlias {
-                Button("Set as Primary", systemImage: "star") {
-                    setAsPrimary(alias)
-                }
+
+            Button {
+                aliasError = nil
+                aliasToRemove = alias
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
             }
-            Button("Remove", systemImage: "trash", role: .destructive) {
-                removeAlias(alias)
-            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            .accessibilityLabel("Remove \(alias)")
+            .help("Remove Alias")
         }
     }
 
@@ -725,11 +758,6 @@ private struct InspectorAliasSection: View {
                 .disabled(newAliasLocalPart.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
-            if let error = aliasError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
         }
     }
 
@@ -758,7 +786,10 @@ private struct InspectorAliasSection: View {
                 }
 
                 // Publish the alias in the room directory.
-                try await viewModel.publishRoomAlias(fullAlias)
+                guard try await viewModel.publishRoomAlias(fullAlias) else {
+                    aliasError = "Unable to publish alias."
+                    return
+                }
 
                 // Add to the canonical alias state event.
                 if canonicalAlias == nil {
@@ -781,6 +812,7 @@ private struct InspectorAliasSection: View {
 
     private func setAsPrimary(_ alias: String) {
         isProcessing = true
+        aliasError = nil
         Task {
             defer { isProcessing = false }
             // Build the new alt aliases list: old canonical (if any) + remaining alts,
@@ -789,27 +821,39 @@ private struct InspectorAliasSection: View {
             if let oldCanonical = canonicalAlias {
                 newAlt.insert(oldCanonical, at: 0)
             }
-            try? await viewModel.updateCanonicalAlias(alias, altAliases: newAlt)
+            do {
+                try await viewModel.updateCanonicalAlias(alias, altAliases: newAlt)
+            } catch {
+                aliasError = error.localizedDescription
+            }
         }
     }
 
     private func removeAlias(_ alias: String) {
         isProcessing = true
+        aliasError = nil
         Task {
             defer { isProcessing = false }
-            // Unpublish from the room directory.
-            _ = try? await viewModel.removeRoomAlias(alias)
+            do {
+                // Unpublish from the room directory before updating the room state.
+                guard try await viewModel.removeRoomAlias(alias) else {
+                    aliasError = "Unable to remove alias from the room directory."
+                    return
+                }
 
-            // Update the canonical alias state event.
-            if alias == canonicalAlias {
-                // Removing the canonical -- promote the first alt, or clear.
-                let newCanonical = altAliases.first
-                let newAlt = Array(altAliases.dropFirst())
-                try? await viewModel.updateCanonicalAlias(newCanonical, altAliases: newAlt)
-            } else {
-                // Removing an alternative alias.
-                let newAlt = altAliases.filter { $0 != alias }
-                try? await viewModel.updateCanonicalAlias(canonicalAlias, altAliases: newAlt)
+                // Update the canonical alias state event.
+                if alias == canonicalAlias {
+                    // Removing the canonical -- promote the first alt, or clear.
+                    let newCanonical = altAliases.first
+                    let newAlt = Array(altAliases.dropFirst())
+                    try await viewModel.updateCanonicalAlias(newCanonical, altAliases: newAlt)
+                } else {
+                    // Removing an alternative alias.
+                    let newAlt = altAliases.filter { $0 != alias }
+                    try await viewModel.updateCanonicalAlias(canonicalAlias, altAliases: newAlt)
+                }
+            } catch {
+                aliasError = error.localizedDescription
             }
         }
     }
