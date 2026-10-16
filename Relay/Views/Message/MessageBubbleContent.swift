@@ -37,6 +37,9 @@ struct MessageBubbleContent: View {
     /// attachment still uploading, or nil otherwise.
     var uploadProgress: Double? = nil
 
+    /// Diagnostic information when this encrypted event cannot be decrypted.
+    var decryptionFailure: RoomCrypto.DecryptionFailure? = nil
+
     /// Called to present the emoji reaction picker from within rich text context menus.
     var onPresentReactionPicker: (() -> Void)?
 
@@ -274,12 +277,19 @@ struct MessageBubbleContent: View {
     private var specialContent: some View {
         let specialStyle = BubbleStyle.special(kind: message.kind)
         return VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            Label {
-                Text(message.body)
-                    .font(.callout)
-            } icon: {
-                Image(systemName: iconForKind)
-                    .font(.callout)
+            VStack(alignment: .leading, spacing: 4) {
+                Label {
+                    Text(message.body)
+                        .font(.callout)
+                } icon: {
+                    Image(systemName: iconForKind)
+                        .font(.callout)
+                }
+                if case .unableToDecrypt = message.kind,
+                   let decryptionFailure
+                {
+                    DecryptionFailureDetails(failure: decryptionFailure)
+                }
             }
             .foregroundStyle(specialStyle.foregroundStyle)
             .padding(.horizontal, BubbleStyle.horizontalPadding)

@@ -91,6 +91,7 @@ struct TimelineRowView: View, Equatable {
         lhs.row.message.eventId == rhs.row.message.eventId
             && lhs.row.info == rhs.row.info
             && lhs.row.isPaginationTrigger == rhs.row.isPaginationTrigger
+            && lhs.row.decryptionFailure == rhs.row.decryptionFailure
             && lhs.row.message.kind == rhs.row.message.kind
             && lhs.row.message.isEdited == rhs.row.message.isEdited
             && lhs.row.message.sendState == rhs.row.message.sendState
@@ -185,6 +186,7 @@ struct TimelineRowView: View, Equatable {
                 replyIsAdjacentAbove: info.replyIsAdjacentAbove,
                 showURLPreviews: showURLPreviews,
                 uploadProgress: uploadProgress,
+                decryptionFailure: row.decryptionFailure,
                 // Track the precise bubble frame (MessageView is the single
                 // source — capturing here would report the whole row including
                 // the avatar gutter and fight the bubble's own updates).

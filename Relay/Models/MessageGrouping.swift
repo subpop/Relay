@@ -40,6 +40,7 @@ struct MessageRow: Identifiable, Equatable {
     let message: ObservableTimelineEvent
     let info: MessageGroupInfo
     let isPaginationTrigger: Bool
+    let decryptionFailure: RoomCrypto.DecryptionFailure?
 
     /// When non-nil, this row represents a collapsed group of consecutive
     /// system events. The ``message`` field holds the first event in the
@@ -50,12 +51,14 @@ struct MessageRow: Identifiable, Equatable {
         message: ObservableTimelineEvent,
         info: MessageGroupInfo,
         isPaginationTrigger: Bool,
-        collapsedSystemEvents: [ObservableTimelineEvent]? = nil
+        collapsedSystemEvents: [ObservableTimelineEvent]? = nil,
+        decryptionFailure: RoomCrypto.DecryptionFailure? = nil
     ) {
         self.message = message
         self.info = info
         self.isPaginationTrigger = isPaginationTrigger
         self.collapsedSystemEvents = collapsedSystemEvents
+        self.decryptionFailure = decryptionFailure
     }
 
     var id: String { message.eventId.value }
@@ -66,6 +69,7 @@ struct MessageRow: Identifiable, Equatable {
             && lhs.isPaginationTrigger == rhs.isPaginationTrigger
             && lhs.collapsedSystemEvents?.map(\.eventId)
                 == rhs.collapsedSystemEvents?.map(\.eventId)
+            && lhs.decryptionFailure == rhs.decryptionFailure
     }
 }
 
@@ -88,7 +92,8 @@ enum MessageRowBuilder {
     static func buildRows(
         for messages: [ObservableTimelineEvent],
         localUserId: UserId?,
-        hasReachedStart: Bool
+        hasReachedStart: Bool,
+        decryptionFailures: [EventId: RoomCrypto.DecryptionFailure] = [:]
     ) -> [MessageRow] {
         guard !messages.isEmpty else { return [] }
         let calendar = Calendar.current
@@ -166,7 +171,8 @@ enum MessageRowBuilder {
             result.append(MessageRow(
                 message: message,
                 info: info,
-                isPaginationTrigger: false
+                isPaginationTrigger: false,
+                decryptionFailure: decryptionFailures[message.eventId]
             ))
         }
 
@@ -205,7 +211,8 @@ enum MessageRowBuilder {
                     message: firstRow.message,
                     info: firstRow.info,
                     isPaginationTrigger: firstRow.isPaginationTrigger,
-                    collapsedSystemEvents: events
+                    collapsedSystemEvents: events,
+                    decryptionFailure: firstRow.decryptionFailure
                 ))
             } else {
                 collapsed.append(contentsOf: rows[i..<runEnd])

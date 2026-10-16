@@ -2295,6 +2295,14 @@ final class RelayClient {
         return await client.roomCrypto.decryptRoomEvent(event, in: roomId)
     }
 
+    /// Failure details for one encrypted timeline event, when available.
+    func decryptionFailure(
+        roomId: RoomId, eventId: EventId
+    ) async -> RoomCrypto.DecryptionFailure? {
+        guard let client else { return nil }
+        return await client.decryptionFailure(roomId: roomId, eventId: eventId)
+    }
+
     /// Power-level content for a room, if fetchable. Thin facade
     /// routing over the namespace client (no domain logic).
     func roomPowerLevels(roomId: RoomId) async -> [String: AnyCodable]? {

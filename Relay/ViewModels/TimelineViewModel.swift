@@ -34,7 +34,7 @@ enum TimelineFocus: Hashable, Sendable {
 
 /// Which window the timeline shows. Mirrors the detached focus/thread
 /// actors, which cannot be read synchronously from view bodies.
-private enum TimelineWindow {
+private enum TimelineWindow: Equatable {
     /// Live messages anchored at the newest edge.
     case live
     /// Context window around one event.
@@ -86,6 +86,8 @@ final class TimelineViewModel {
 
     /// Rendered events, oldest first.
     private var renderedEvents: [ObservableTimelineEvent] = []
+    /// Failure details for undecryptable events in the rendered window.
+    private var decryptionFailures: [EventId: RoomCrypto.DecryptionFailure] = [:]
 
     /// Raw snapshot behind ``renderedEvents`` (for thread roots).
     private var snapshot: [MessageEvent] = []
@@ -215,7 +217,8 @@ final class TimelineViewModel {
         MessageRowBuilder.buildRows(
             for: filteredEvents,
             localUserId: client.localUserId,
-            hasReachedStart: hasReachedStart)
+            hasReachedStart: hasReachedStart,
+            decryptionFailures: decryptionFailures)
     }
 
     /// Whether older messages are being fetched.
@@ -313,15 +316,23 @@ final class TimelineViewModel {
         let payload = await client.timelinePayload(roomId: roomID, limit: windowSize)
         guard generation == refreshGeneration, !Task.isCancelled else { return }
         guard case .live = window else { return }
-        snapshot = payload.snapshot
-        members = client.roomMembersMap(roomId: roomID)
-        sendStates = payload.sendStates
-        renderedEvents = ObservableTimelineEvent.render(
-            snapshot,
-            members: members,
+        let nextSnapshot = payload.snapshot
+        let nextMembers = client.roomMembersMap(roomId: roomID)
+        let nextRenderedEvents = ObservableTimelineEvent.render(
+            nextSnapshot,
+            members: nextMembers,
             localUser: client.localUserId,
             highlightKeywords: highlights,
-            sendStates: sendStates)
+            sendStates: payload.sendStates)
+        let nextDecryptionFailures = await decryptionFailureMap(
+            for: nextRenderedEvents)
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
+        guard case .live = window else { return }
+        snapshot = nextSnapshot
+        members = nextMembers
+        sendStates = payload.sendStates
+        renderedEvents = nextRenderedEvents
+        decryptionFailures = nextDecryptionFailures
         firstUnreadMessageId = Self.windowAnchor(
             snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
         historyCursor = payload.prevBatch.map { BatchToken($0) }
@@ -592,17 +603,41 @@ final class TimelineViewModel {
     /// Render a detached (focus/thread) window. Marker columns come
     /// from a single indexed row fetch; members resolve from memory.
     private func renderDetached(events snapshot: [MessageEvent]) async {
-        members = client.roomMembersMap(roomId: roomID)
+        let renderingWindow = window
+        let nextMembers = client.roomMembersMap(roomId: roomID)
         let marker = await client.markerSummary(roomId: roomID)
-        sendStates = sendStatesById(in: snapshot)
-        renderedEvents = ObservableTimelineEvent.render(
+        guard !Task.isCancelled, window == renderingWindow else { return }
+        let nextSendStates = sendStatesById(in: snapshot)
+        let nextRenderedEvents = ObservableTimelineEvent.render(
             snapshot,
-            members: members,
+            members: nextMembers,
             localUser: client.localUserId,
             highlightKeywords: highlights,
-            sendStates: sendStates)
+            sendStates: nextSendStates)
+        let nextDecryptionFailures = await decryptionFailureMap(
+            for: nextRenderedEvents)
+        guard !Task.isCancelled, window == renderingWindow else { return }
+        members = nextMembers
+        sendStates = nextSendStates
+        renderedEvents = nextRenderedEvents
+        decryptionFailures = nextDecryptionFailures
         firstUnreadMessageId = Self.windowAnchor(
             snapshot: snapshot, storedAnchor: marker.firstUnreadEventId)
+    }
+
+    private func decryptionFailureMap(
+        for events: [ObservableTimelineEvent]
+    ) async -> [EventId: RoomCrypto.DecryptionFailure] {
+        var failures: [EventId: RoomCrypto.DecryptionFailure] = [:]
+        for event in events where event.kind == .unableToDecrypt {
+            guard !Task.isCancelled else { return failures }
+            if let failure = await client.decryptionFailure(
+                roomId: roomID, eventId: event.eventId)
+            {
+                failures[event.eventId] = failure
+            }
+        }
+        return failures
     }
 
     /// Delivery states for exactly the given events. Detached windows

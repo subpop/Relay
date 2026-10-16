@@ -43,6 +43,9 @@ struct MessageView: View {
     /// attachment still uploading, or nil otherwise.
     var uploadProgress: Double? = nil
 
+    /// Diagnostic information when this encrypted event cannot be decrypted.
+    var decryptionFailure: RoomCrypto.DecryptionFailure? = nil
+
     /// Reports the bubble's global frame as it changes, so the enclosing row
     /// can anchor the reaction picker to the precise bubble (not the whole
     /// row, which would include the avatar gutter).
@@ -144,6 +147,7 @@ struct MessageView: View {
             isOutgoing: isOutgoing,
             showURLPreviews: showURLPreviews,
             uploadProgress: uploadProgress,
+            decryptionFailure: decryptionFailure,
             onPresentReactionPicker: {
                 presentReactionPickerForBubble()
             }
