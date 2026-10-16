@@ -103,6 +103,7 @@ struct SpaceRail: View {
         }
         .scrollIndicators(.hidden)
         .frame(width: Self.width)
+        .background(.ultraThinMaterial)
         .accessibilityLabel("Spaces")
     }
 
