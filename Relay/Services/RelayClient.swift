@@ -2401,6 +2401,19 @@ final class RelayClient {
             startSecretsMonitor()
             startNotificationMonitor()
             await refreshVerificationState()
+            Task { @MainActor [weak self, client] in
+                let count = await client.retryTimelineDecryption()
+                guard let self, let currentClient = self.client,
+                      currentClient === client, count > 0
+                else { return }
+                for room in self.rooms {
+                    self.bumpRevision(room.roomId)
+                }
+                self.scheduleRoomCacheRebuild()
+                relayClientLogger.info(
+                    "Startup retry decrypted \(count, privacy: .public) stored events")
+                self.recordActivity("Retried decryption for stored messages")
+            }
         } catch is CancellationError {
             // The caller went away mid-sync (e.g. a torn-down view task),
             // not a sync failure: leave state alone, the live loop starting
