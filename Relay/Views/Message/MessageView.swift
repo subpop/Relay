@@ -165,6 +165,8 @@ struct MessageView: View {
                     reactions: message.reactionGroups,
                     isOutgoing: isOutgoing,
                     coloredBubbles: coloredBubbles,
+                    canSendReactions: actions.permissions?.canSendReactions ?? true,
+                    canSendRedactions: actions.permissions?.canSendRedactions ?? true,
                     onToggle: { key in actions.toggleReaction(message.eventId.value, key) }
                 )
             }
@@ -191,6 +193,7 @@ struct MessageView: View {
 
     /// Presents the reaction picker overlay for this message's bubble.
     private func presentReactionPickerForBubble() {
+        guard actions.permissions?.canSendReactions ?? true else { return }
         actions.presentReactionPicker(message.eventId.value, bubbleFrame, isOutgoing)
     }
 
@@ -199,19 +202,22 @@ struct MessageView: View {
     /// Reply button revealed behind the bubble during a swipe-to-reply gesture.
     /// Placed as an overlay on `MessageBubbleContent` so the arrow aligns with
     /// the bubble's actual leading edge regardless of message width.
+    @ViewBuilder
     private var swipeActionBar: some View {
-        let longSwipeProgress = max(0, min((swipeOffset - 100) / 20, 1.0))
-        let replyScale = 1.0 + longSwipeProgress * 0.8
+        if actions.permissions?.canSendMessages ?? true {
+            let longSwipeProgress = max(0, min((swipeOffset - 100) / 20, 1.0))
+            let replyScale = 1.0 + longSwipeProgress * 0.8
 
-        return Button("Reply", systemImage: "arrowshape.turn.up.left.fill") {
-            actions.reply(message)
+            Button("Reply", systemImage: "arrowshape.turn.up.left.fill") {
+                actions.reply(message)
+            }
+            .labelStyle(.iconOnly)
+            .scaleEffect(replyScale)
+            .font(.title3)
+            .foregroundStyle(longSwipeProgress > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .buttonStyle(.plain)
+            .allowsHitTesting(swipeIsLocked)
         }
-        .labelStyle(.iconOnly)
-        .scaleEffect(replyScale)
-        .font(.title3)
-        .foregroundStyle(longSwipeProgress > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        .buttonStyle(.plain)
-        .allowsHitTesting(swipeIsLocked)
     }
 }
 

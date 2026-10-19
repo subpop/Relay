@@ -286,6 +286,9 @@ struct TimelineRowView: View, Equatable {
                         Image(nsImage: QuickReactions.image(for: emoji))
                     }
                     .accessibilityLabel(emoji)
+                    .disabled(!TimelineMessageContextMenu.canToggleReaction(
+                        key: emoji, ownReactions: message.ownReactions,
+                        permissions: actions.permissions))
                 }
             }
             .controlGroupStyle(.palette)

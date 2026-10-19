@@ -39,21 +39,24 @@ enum TimelineMessageContextMenu {
         isOutgoing: Bool,
         permissions: RoomPermissions? = nil
     ) -> [TimelineMessageContextMenuEntry] {
-        let canSend = permissions?.canSendMessages ?? true
+        let canSendMessages = permissions?.canSendMessages ?? true
+        let canSendReactions = permissions?.canSendReactions ?? true
 
         var result: [TimelineMessageContextMenuEntry] = [.copyMessage]
         if message.mediaDownload != nil {
             result.append(.saveMedia)
         }
-        if canSend {
+        if canSendMessages {
             result.insert(.reply, at: 0)
+        }
+        if canSendReactions {
             result.insert(.quickReactions, at: 0)
             result.append(.addReaction)
         }
         if (permissions?.canPin ?? false) && message.eventId.value.hasPrefix("$") {
             result.append(.togglePin)
         }
-        if isOutgoing, canSend, case .text = message.kind {
+        if isOutgoing, canSendMessages, case .text = message.kind {
             result.append(.edit)
         }
         if (isOutgoing || (permissions?.canRedactOther ?? false))
@@ -62,6 +65,16 @@ enum TimelineMessageContextMenu {
             result.append(.delete)
         }
         return result
+    }
+
+    /// Whether toggling a reaction uses an allowed send or own-event redaction.
+    static func canToggleReaction(
+        key: String, ownReactions: Set<String>, permissions: RoomPermissions?
+    ) -> Bool {
+        if ownReactions.contains(key) {
+            return permissions?.canSendRedactions ?? true
+        }
+        return permissions?.canSendReactions ?? true
     }
 }
 

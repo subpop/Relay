@@ -58,6 +58,12 @@ struct MessageReactionBadges: View {
     /// Whether colored bubbles are enabled (determines badge fill color).
     let coloredBubbles: Bool
 
+    /// Whether the current user may add a reaction.
+    let canSendReactions: Bool
+
+    /// Whether the current user may withdraw their own reaction.
+    let canSendRedactions: Bool
+
     /// Called with the emoji key when the user taps a reaction badge.
     let onToggle: (String) -> Void
 
@@ -113,6 +119,8 @@ struct MessageReactionBadges: View {
                 ReactionBadge(
                     reaction: reaction,
                     coloredBubbles: coloredBubbles,
+                    canToggle: reaction.highlightedByCurrentUser
+                        ? canSendRedactions : canSendReactions,
                     onToggle: { onToggle(reaction.key) }
                 )
                 .transition(expandTransition)
@@ -177,6 +185,7 @@ struct MessageReactionBadges: View {
 private struct ReactionBadge: View {
     let reaction: ReactionGroup
     let coloredBubbles: Bool
+    let canToggle: Bool
     let onToggle: () -> Void
     @State private var isHovering = false
 
@@ -196,6 +205,8 @@ private struct ReactionBadge: View {
                     .font(.system(size: 13))
             }
             .buttonStyle(.plain)
+            .disabled(!canToggle)
+            .opacity(canToggle ? 1 : 0.55)
             Text("\(reaction.count)")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(reaction.highlightedByCurrentUser ? .white : .secondary)
@@ -273,6 +284,8 @@ private let sampleReactions: [ReactionGroup] = [
                     reactions: sampleReactions,
                     isOutgoing: true,
                     coloredBubbles: false,
+                    canSendReactions: true,
+                    canSendRedactions: true,
                     onToggle: { _ in }
                 )
             }
@@ -293,6 +306,8 @@ private let sampleReactions: [ReactionGroup] = [
                     reactions: sampleReactions,
                     isOutgoing: false,
                     coloredBubbles: false,
+                    canSendReactions: true,
+                    canSendRedactions: true,
                     onToggle: { _ in }
                 )
             }
@@ -317,6 +332,8 @@ private let sampleReactions: [ReactionGroup] = [
                     ],
                     isOutgoing: false,
                     coloredBubbles: false,
+                    canSendReactions: true,
+                    canSendRedactions: true,
                     onToggle: { _ in }
                 )
             }
