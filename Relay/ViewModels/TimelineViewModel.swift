@@ -199,12 +199,9 @@ final class TimelineViewModel {
         }.sorted { $0.resolvedName < $1.resolvedName }
     }
 
-    /// The local user's power-level-derived permissions.
+    /// The local user's room permissions.
     func roomPermissions() async -> RoomPermissions? {
-        guard let localUser = client.localUserId,
-              let powerLevels = await client.roomPowerLevels(roomId: roomID)
-        else { return nil }
-        return RoomPermissions.evaluate(powerLevels: powerLevels, userId: localUser)
+        await client.roomPermissions(roomId: roomID)
     }
 
     /// Send (or stop) a typing notification.

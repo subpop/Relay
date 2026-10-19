@@ -2303,6 +2303,12 @@ final class RelayClient {
         return await client.decryptionFailure(roomId: roomId, eventId: eventId)
     }
 
+    /// Current user's room permissions, including creator privileges.
+    func roomPermissions(roomId: RoomId) async -> RoomPermissions? {
+        guard let client, let localUser = client.userId else { return nil }
+        return try? await client.rooms.roomPermissions(roomId, localUser: localUser)
+    }
+
     /// Power-level content for a room, if fetchable. Thin facade
     /// routing over the namespace client (no domain logic).
     func roomPowerLevels(roomId: RoomId) async -> [String: AnyCodable]? {
