@@ -14,23 +14,33 @@
 
 import Foundation
 
-/// A hidden, `UserDefaults`-backed list of domains to never show link
-/// previews for. There's no Settings UI for this; see the README's
-/// "Advanced Configuration" section for how to set it via `defaults write`.
+/// A `UserDefaults`-backed list of domains whose link previews omit thumbnails.
 enum LinkPreviewSkipList {
     static let storageKey = "linkPreview.skippedDomains"
+    static let revisionKey = "linkPreview.skippedDomainsRevision"
 
     private static let defaults = UserDefaults.standard
 
-    /// Normalized (trimmed, lowercased, non-empty) skipped domains.
+    /// Normalized (trimmed, lowercased, non-empty, unique) excluded domains.
     static func domains() -> [String] {
-        (defaults.array(forKey: storageKey) as? [String] ?? [])
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
+        normalizedDomains(defaults.array(forKey: storageKey) as? [String] ?? [])
     }
 
-    /// Whether `url`'s host matches a skipped domain or one of its subdomains.
-    static func isSkipped(_ url: URL) -> Bool {
+    /// Saves the excluded domains and invalidates views that depend on them.
+    static func setDomains(_ domains: [String]) {
+        defaults.set(normalizedDomains(domains), forKey: storageKey)
+        defaults.set(defaults.integer(forKey: revisionKey) + 1, forKey: revisionKey)
+    }
+
+    private static func normalizedDomains(_ domains: [String]) -> [String] {
+        var seen = Set<String>()
+        return domains
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Whether `url`'s host matches an excluded domain or one of its subdomains.
+    static func excludesThumbnail(for url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
         return domains().contains { host == $0 || host.hasSuffix(".\($0)") }
     }

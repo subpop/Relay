@@ -21,6 +21,9 @@ struct SettingsBehaviorTab: View {
     @AppStorage("safety.sendTypingNotifications") private var sendTypingNotifications = true
     @AppStorage("safety.mediaPreviewMode") private var mediaPreviewMode = MediaPreviewMode.privateOnly
     @AppStorage("behavior.showURLPreviews") private var showURLPreviews = true
+    @AppStorage("behavior.includeURLPreviewThumbnails") private var includeURLPreviewThumbnails = true
+    @State private var excludedDomains = LinkPreviewSkipList.domains()
+    @State private var newExcludedDomain = ""
     @AppStorage("behavior.animateGIFs") private var animateGIFs = GIFAnimationMode.onHover
     @AppStorage("behavior.alwaysLoadNewest") private var alwaysLoadNewest = true
     @AppStorage("behavior.showMembershipEvents") private var showMembershipEvents = true
@@ -58,8 +61,50 @@ struct SettingsBehaviorTab: View {
             }
 
             Section {
-                Toggle("Show URL Previews", isOn: $showURLPreviews)
+                Toggle(isOn: $showURLPreviews) {
+                    Text("Show URL Previews")
+                    Text("Show a preview card for links in messages.")
+                }
+                Toggle(isOn: $includeURLPreviewThumbnails) {
+                    Text("Include Thumbnail Image")
+                    Text("When enabled, include a preview of the web page.")
+                }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Always Hide Thumbnails for These Domains")
+                        .font(.headline)
+                    Text("Thumbnails are always hidden for these domains and their subdomains, even when Include Thumbnail Image is enabled.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        TextField("Add domain (e.g. youtube.com)", text: $newExcludedDomain)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(addExcludedDomain)
+
+                        Button("Add", action: addExcludedDomain)
+                            .disabled(newExcludedDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    ForEach(excludedDomains, id: \.self) { domain in
+                        HStack {
+                            Text(domain)
+                            Spacer()
+                            Button("Remove \(domain)", systemImage: "xmark") {
+                                removeExcludedDomain(domain)
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Link Previews")
+                Text("Choose whether to show link preview cards and their thumbnail images.")
+            }
+
+            Section {
                 Picker("Animate GIFs", selection: $animateGIFs) {
                     ForEach(GIFAnimationMode.allCases, id: \.self) { mode in
                         Text(mode.label).tag(mode)
@@ -78,6 +123,19 @@ struct SettingsBehaviorTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func addExcludedDomain() {
+        let domain = newExcludedDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !domain.isEmpty, !excludedDomains.contains(domain) else { return }
+        excludedDomains.append(domain)
+        LinkPreviewSkipList.setDomains(excludedDomains)
+        newExcludedDomain = ""
+    }
+
+    private func removeExcludedDomain(_ domain: String) {
+        excludedDomains.removeAll { $0 == domain }
+        LinkPreviewSkipList.setDomains(excludedDomains)
     }
 }
 

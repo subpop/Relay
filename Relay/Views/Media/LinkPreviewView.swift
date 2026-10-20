@@ -75,20 +75,21 @@ enum LinkPreviewCard: Sendable, Equatable {
     case banner(aspect: CGFloat)
     /// A compact card (favicon or globe fallback) with a fixed image height.
     case compact
+    /// A title and host without a thumbnail.
+    case textOnly
 }
 
 // MARK: - LinkPreviewView
 
-/// Displays a link preview card sized to its Open-Graph image's aspect ratio.
+/// Displays a link preview card with an optional Open-Graph image.
 ///
-/// The card width is fixed; the image height follows the loaded image's aspect
-/// ratio (clamped to a sane range), so wide banners are shown edge-to-edge
-/// without cropping. Links without a banner image fall back to a compact card
-/// showing the site's favicon. Because the height is variable, the card triggers
-/// a one-time row re-measure (via ``TimelineActions/remeasureRow``) when its
-/// presentation resolves. Both the live cell and the timeline's detached
-/// height-measurement host read the resolved card from ``cardCache`` so
-/// measured and rendered heights match.
+/// When shown, the card width is fixed and the image height follows its aspect
+/// ratio (clamped to a sane range). Compact cards use the site's favicon, while
+/// text-only cards retain the page title and host without an image. Because the
+/// height is variable, the card triggers a one-time row re-measure (via
+/// ``TimelineActions/remeasureRow``) when its presentation resolves. Both the
+/// live cell and the timeline's detached height-measurement host read the
+/// resolved card from ``cardCache`` so measured and rendered heights match.
 struct LinkPreviewView: View {
     let url: URL
     let isOutgoing: Bool
@@ -98,6 +99,8 @@ struct LinkPreviewView: View {
     let messageID: String
 
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+    @AppStorage("behavior.includeURLPreviewThumbnails") private var includeThumbnails = true
+    @AppStorage(LinkPreviewSkipList.revisionKey) private var excludedDomainsRevision = 0
     @Environment(\.timelineActions) private var actions
 
     @State private var title: String?
@@ -146,6 +149,11 @@ struct LinkPreviewView: View {
     /// Whether the link has no usable preview and the card should be hidden.
     private var isHidden: Bool { resolvedCard == .unavailable }
 
+    /// Whether thumbnails are allowed for this URL.
+    private var showsThumbnail: Bool {
+        includeThumbnails && !LinkPreviewSkipList.excludesThumbnail(for: url)
+    }
+
     /// Whether this is a compact (favicon/globe) card rather than a banner.
     private var isCompact: Bool { resolvedCard == .compact }
 
@@ -156,6 +164,8 @@ struct LinkPreviewView: View {
             return min(max(Self.cardWidth / aspect, Self.minImageHeight), Self.maxImageHeight)
         case .compact:
             return Self.iconImageHeight
+        case .textOnly:
+            return 0
         default:
             return Self.placeholderImageHeight
         }
@@ -169,7 +179,7 @@ struct LinkPreviewView: View {
                 cardBody
             }
         }
-        .task(id: url) {
+        .task(id: "\(url.absoluteString)|\(includeThumbnails)|\(excludedDomainsRevision)") {
             // Seed from the cache so recycled/measurement instances size
             // correctly immediately, then (re)load for display.
             card = Self.cardCache.peek(url)
@@ -179,9 +189,11 @@ struct LinkPreviewView: View {
 
     private var cardBody: some View {
         VStack(spacing: 0) {
-            imageArea
-                .frame(width: Self.cardWidth, height: imageHeight)
-                .clipped()
+            if showsThumbnail {
+                imageArea
+                    .frame(width: Self.cardWidth, height: imageHeight)
+                    .clipped()
+            }
 
             textArea
         }
@@ -261,6 +273,12 @@ struct LinkPreviewView: View {
         }
 
         title = metadata.title
+
+        guard showsThumbnail else {
+            image = nil
+            resolve(.textOnly)
+            return
+        }
 
         // A real Open-Graph image drives a full-bleed banner card. Otherwise fall
         // back to a compact card showing the favicon (or a globe if none). Only
