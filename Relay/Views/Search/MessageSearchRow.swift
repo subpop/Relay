@@ -21,42 +21,76 @@ import SwiftUI
 /// and the timestamp of the matching event. Styled to match the density
 /// and typography of ``RoomListRow``.
 struct MessageSearchRow: View {
+    @Environment(RelayClient.self) private var client
+    @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+
     let result: MessageSearchResult
     let onSelect: () -> Void
 
+    private var isOutgoing: Bool {
+        guard case .loggedIn(let userId) = client.authState else { return false }
+        return result.sender.value == userId
+    }
+
+    private var bubbleStyle: BubbleStyle {
+        .message(
+            isOutgoing: isOutgoing,
+            senderID: result.sender.value,
+            coloredBubbles: coloredBubbles)
+    }
+
     var body: some View {
+        let senderName = result.senderDisplayName ?? result.sender.value
+        let roomName = result.roomName ?? result.roomId.value
+        let timestamp = result.timestamp.formatted(date: .abbreviated, time: .shortened)
+
         Button(action: onSelect) {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .bottom, spacing: 8) {
                 AvatarView(
-                    name: result.senderDisplayName ?? result.sender.value,
+                    name: senderName,
                     mxcURL: result.senderAvatarURL?.value,
-                    size: 36,
+                    size: 32,
                     colorID: result.sender.value
                 )
+                .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(result.senderDisplayName ?? result.sender.value)
-                            .font(.headline)
-                            .lineLimit(1)
+                Text(highlightedBody)
+                    .font(.body)
+                    .foregroundStyle(bubbleStyle.foregroundStyle)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, BubbleStyle.horizontalPadding)
+                    .padding(.vertical, BubbleStyle.verticalPadding)
+                    .background(bubbleStyle.backgroundColor, in: BubbleStyle.shape)
 
-                        Spacer()
-
-                        Text(result.timestamp, format: .relative(presentation: .named))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Text(highlightedBody)
-                        .font(.body)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(roomName)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(3)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary, in: Capsule())
+                        .help(roomName)
+
+                    Text(result.timestamp, format: .relative(presentation: .named))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
+                .frame(maxWidth: 140, alignment: .trailing)
+                .layoutPriority(1)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            Text("\(senderName): \(result.body), \(roomName), \(timestamp)"))
     }
 
     private var highlightedBody: AttributedString {
@@ -67,7 +101,7 @@ struct MessageSearchRow: View {
                 of: highlight,
                 options: [.caseInsensitive, .diacriticInsensitive]
             ) {
-                attributed[range].foregroundColor = .primary
+                attributed[range].foregroundColor = bubbleStyle.usesWhiteText ? .white : .primary
                 attributed[range].font = .body.bold()
                 searchRange = range.upperBound..<attributed.endIndex
             }

@@ -1910,6 +1910,16 @@ final class RelayClient {
         return try? await client.rooms.preview(RoomId(unchecked: roomId))
     }
 
+    /// Search plaintext message bodies in the normalized local store.
+    func searchStoredMessages(
+        term: String, roomId: RoomId? = nil
+    ) async throws -> [MessageSearchResult] {
+        guard let reader = storeReader else { return [] }
+        return try await Task.detached(priority: .userInitiated) {
+            try reader.searchMessages(term: term, roomId: roomId)
+        }.value
+    }
+
     /// Server-side message search.
     func searchMessages(
         term: String, filter: MessageSearchFilter? = nil, from: String? = nil
@@ -1917,7 +1927,18 @@ final class RelayClient {
         guard let client else { return ([], nil) }
         let (results, nextBatch, _) = try await client.search.search(
             term: term, filter: filter, from: from)
-        return (results, nextBatch)
+        let roomNames = Dictionary(
+            uniqueKeysWithValues: (rooms + invitedRooms).map {
+                ($0.roomId.value, $0.displayName)
+            })
+        let enrichedResults = results.map { result in
+            var result = result
+            if let roomName = roomNames[result.roomId.value] {
+                result.roomName = roomName
+            }
+            return result
+        }
+        return (enrichedResults, nextBatch)
     }
 
     // MARK: - Rooms & Spaces

@@ -15,123 +15,125 @@
 import MatrixKit
 import SwiftUI
 
-/// Inline search results displayed in the sidebar, replacing the room list.
-///
-/// Shows two sections: matching rooms (client-side filtered) and matching
-/// messages (server-side searched). Each section previews a few results
-/// with a "Show More" button to expand.
+/// Search results shown in the detail pane in place of the selected timeline.
 struct SearchResultsList: View {
-    let rooms: [RoomRowData]
     @Bindable var searchModel: SearchViewModel
-    @Binding var selectedRoomId: String?
+    let roomName: String?
     let onMessageSelected: (_ roomId: String, _ eventId: String) -> Void
-
-    private let previewLimit = 3
-
-    @State private var showAllRooms = false
-    @State private var showAllMessages = false
+    let onSearchMore: () -> Void
 
     var body: some View {
-        List(selection: $selectedRoomId) {
-            roomsSection
-            messagesSection
-        }
-    }
-
-    // MARK: - Rooms Section
-
-    @ViewBuilder
-    private var roomsSection: some View {
-        if !rooms.isEmpty {
-            Section {
-                let visible = showAllRooms ? rooms : Array(rooms.prefix(previewLimit))
-                ForEach(visible) { room in
-                    RoomListRow(room: room)
-                        .tag(room.id)
-                }
-                if rooms.count > previewLimit {
-                    Button {
-                        withAnimation { showAllRooms.toggle() }
-                    } label: {
-                        Text(showAllRooms
-                             ? "Show Less"
-                             : "Show \(rooms.count - previewLimit) More")
-                            .font(.callout)
-                            .foregroundStyle(.tint)
-                    }
-                    .buttonStyle(.plain)
-                }
-            } header: {
-                Label("Rooms", systemImage: "bubble.left.and.bubble.right")
-            }
-        }
-    }
-
-    // MARK: - Messages Section
-
-    @ViewBuilder
-    private var messagesSection: some View {
-        Section {
-            if searchModel.isSearchingMessages {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Searching\u{2026}")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            }
-
-            if !searchModel.messageResults.isEmpty {
-                let visible = showAllMessages
-                    ? searchModel.messageResults
-                    : Array(searchModel.messageResults.prefix(previewLimit))
-                ForEach(visible) { result in
-                    MessageSearchRow(result: result) {
-                        onMessageSelected(result.roomId.value, result.eventId.value)
-                    }
-                }
-                if searchModel.messageResults.count > previewLimit {
-                    Button {
-                        withAnimation { showAllMessages.toggle() }
-                    } label: {
-                        Text(showAllMessages
-                             ? "Show Less"
-                             : "Show \(searchModel.messageResults.count - previewLimit) More")
-                            .font(.callout)
-                            .foregroundStyle(.tint)
-                    }
-                    .buttonStyle(.plain)
-                }
-            } else if !searchModel.isSearchingMessages {
-                Text("No messages found.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            Label("Messages", systemImage: "text.magnifyingglass")
-        } footer: {
-            if !searchModel.messageResults.isEmpty || searchModel.isSearchingMessages {
-                Text("Encrypted rooms are not included.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+        List {
+            LocalSearchResultsSection(
+                searchModel: searchModel,
+                roomName: roomName,
+                onMessageSelected: onMessageSelected)
+            if !searchModel.visibleServerResults.isEmpty
+                || searchModel.isSearchingServer
+                || searchModel.hasCompletedServerSearch
+                || searchModel.serverSearchError != nil
+                || searchModel.canSearchMoreOnServer
+            {
+                ServerSearchResultsSection(
+                    searchModel: searchModel,
+                    roomName: roomName,
+                    onMessageSelected: onMessageSelected,
+                    onSearchMore: onSearchMore)
             }
         }
     }
 }
 
-// MARK: - Previews
+private struct LocalSearchResultsSection: View {
+    @Bindable var searchModel: SearchViewModel
+    let roomName: String?
+    let onMessageSelected: (_ roomId: String, _ eventId: String) -> Void
 
-private func previewSearchModel(
-    text: String, results: [MessageSearchResult], searching: Bool = false
-) -> SearchViewModel {
-    let model = SearchViewModel()
-    model.searchText = text
-    model.messageResults = results
-    model.isSearchingMessages = searching
-    return model
+    private var header: String {
+        let scopeLabel = searchModel.scope == .allRooms
+            ? "All Rooms"
+            : (roomName ?? "This Room")
+        return "On This Mac — \(scopeLabel)"
+    }
+
+    var body: some View {
+        Section {
+            if searchModel.isSearchingLocal && searchModel.localResults.isEmpty {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Searching on This Mac…")
+                        .foregroundStyle(.secondary)
+                }
+            } else if let error = searchModel.localSearchError {
+                Text("Local search failed: \(error)")
+                    .foregroundStyle(.secondary)
+            } else if searchModel.localResults.isEmpty {
+                Text("No matching messages found on this Mac.")
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(searchModel.localResults) { result in
+                MessageSearchRow(result: result) {
+                    onMessageSelected(result.roomId.value, result.eventId.value)
+                }
+            }
+        } header: {
+            Label(header, systemImage: "text.magnifyingglass")
+        }
+    }
+}
+
+private struct ServerSearchResultsSection: View {
+    @Environment(RelayClient.self) private var client
+    @Bindable var searchModel: SearchViewModel
+    let roomName: String?
+    let onMessageSelected: (_ roomId: String, _ eventId: String) -> Void
+    let onSearchMore: () -> Void
+
+    private var header: String {
+        let scopeLabel = searchModel.scope == .allRooms
+            ? "All Rooms"
+            : (roomName ?? "This Room")
+        return "On \(client.homeServerName() ?? "Server") — \(scopeLabel)"
+    }
+
+    var body: some View {
+        Section {
+            ForEach(searchModel.visibleServerResults) { result in
+                MessageSearchRow(result: result) {
+                    onMessageSelected(result.roomId.value, result.eventId.value)
+                }
+            }
+
+            if searchModel.isSearchingServer {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Searching the server…")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = searchModel.serverSearchError {
+                Text("Server search failed: \(error)")
+                    .foregroundStyle(.secondary)
+            } else if searchModel.hasCompletedServerSearch
+                && searchModel.serverResults.isEmpty
+            {
+                Text("No matching messages found on the server.")
+                    .foregroundStyle(.secondary)
+            }
+
+            if searchModel.canSearchMoreOnServer {
+                Button(action: onSearchMore) {
+                    Label(searchModel.serverSearchButtonTitle, systemImage: "magnifyingglass")
+                }
+            }
+        } header: {
+            Label(header, systemImage: "globe")
+        }
+    }
 }
 
 private let previewResults: [MessageSearchResult] = [
@@ -143,8 +145,7 @@ private let previewResults: [MessageSearchResult] = [
         senderDisplayName: "Alice",
         body: "Has anyone tried the new concurrency features in Swift 6?",
         timestamp: Date(timeIntervalSinceNow: -3600),
-        highlights: ["concurrency", "Swift"]
-    ),
+        highlights: ["concurrency", "Swift"]),
     MessageSearchResult(
         eventId: EventId(unchecked: "$evt2"),
         roomId: RoomId(unchecked: "!room:matrix.org"),
@@ -152,46 +153,43 @@ private let previewResults: [MessageSearchResult] = [
         sender: UserId(unchecked: "@bob:matrix.org"),
         body: "The borrow checker can be tricky at first.",
         timestamp: Date(timeIntervalSinceNow: -86400),
-        highlights: ["borrow checker"]
-    ),
+        highlights: ["borrow checker"]),
 ]
 
-#Preview("With Results") {
-    @Previewable @State var selected: String?
-
-    SearchResultsList(
-        rooms: Array(PreviewFixtures.rooms.prefix(5)),
-        searchModel: previewSearchModel(text: "test", results: previewResults),
-        selectedRoomId: $selected,
-        onMessageSelected: { _, _ in }
-    )
-    .environment(PreviewFixtures.previewClient())
-    .frame(width: 300, height: 500)
+private func previewSearchModel(
+    scope: SearchViewModel.Scope = .room,
+    includesServerResults: Bool = false
+) -> SearchViewModel {
+    let model = SearchViewModel()
+    model.searchText = "swift"
+    model.scope = scope
+    model.localResults = previewResults
+    if includesServerResults {
+        model.serverResults = previewResults
+        model.hasCompletedServerSearch = true
+    }
+    return model
 }
 
-#Preview("Searching") {
-    @Previewable @State var selected: String?
-
+#Preview("Room Results") {
+    @Previewable @State var model = previewSearchModel()
     SearchResultsList(
-        rooms: Array(PreviewFixtures.rooms.prefix(2)),
-        searchModel: previewSearchModel(
-            text: "test", results: [], searching: true),
-        selectedRoomId: $selected,
-        onMessageSelected: { _, _ in }
-    )
+        searchModel: model,
+        roomName: "Swift Developers",
+        onMessageSelected: { _, _ in },
+        onSearchMore: {})
     .environment(PreviewFixtures.previewClient())
-    .frame(width: 300, height: 500)
+    .frame(width: 520, height: 500)
 }
 
-#Preview("No Results") {
-    @Previewable @State var selected: String?
-
+#Preview("All Rooms Results") {
+    @Previewable @State var model = previewSearchModel(
+        scope: .allRooms, includesServerResults: true)
     SearchResultsList(
-        rooms: [],
-        searchModel: previewSearchModel(text: "zzzzz", results: []),
-        selectedRoomId: $selected,
-        onMessageSelected: { _, _ in }
-    )
+        searchModel: model,
+        roomName: nil,
+        onMessageSelected: { _, _ in },
+        onSearchMore: {})
     .environment(PreviewFixtures.previewClient())
-    .frame(width: 300, height: 500)
+    .frame(width: 520, height: 500)
 }

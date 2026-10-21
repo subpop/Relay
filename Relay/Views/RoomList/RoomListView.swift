@@ -25,6 +25,12 @@ struct RoomListView: View {
     @Environment(AppActions.self) private var appActions
     @Binding var selectedRoomId: String?
     @Binding var selectedSpaceId: String?
+    let showsAllRoomsSearch: Bool
+    let isAllRoomsSearch: Bool
+    let onAllRoomsSearch: () -> Void
+    let onSelectedRoomReselected: () -> Void
+
+    private static let allRoomsSelectionID = "\u{0}allRoomsSearch"
     @AppStorage("roomSortOrder") private var sortOrder: RoomSortOrder = .lastMessage
     @AppStorage("roomSortDirection") private var sortDirection: RoomSortDirection = .descending
     @AppStorage("roomTypeFilter") private var typeFilter: RoomTypeFilter = .all
@@ -39,6 +45,24 @@ struct RoomListView: View {
     @State private var isListScrolling = false
     @State private var hasMeasuredWidthOnce = false
 
+    private var listSelection: Binding<String?> {
+        Binding(
+            get: {
+                isAllRoomsSearch ? Self.allRoomsSelectionID : selectedRoomId
+            },
+            set: { selection in
+                if isAllRoomsSearch, selection == nil { return }
+                guard selection == Self.allRoomsSelectionID else {
+                    if isAllRoomsSearch, selection == selectedRoomId {
+                        onSelectedRoomReselected()
+                    }
+                    selectedRoomId = selection
+                    return
+                }
+                onAllRoomsSearch()
+            })
+    }
+
     var body: some View {
         // Compute filtered results once per body evaluation to avoid
         // redundant filter + O(n log n) sort passes. Previously each
@@ -49,7 +73,12 @@ struct RoomListView: View {
         let muted = filtered.filter { !$0.isFavourite && $0.isMuted }
         let roomsAndDMs = filtered.filter { !$0.isFavourite && !$0.isMuted }
 
-        List(selection: $selectedRoomId) {
+        List(selection: listSelection) {
+            if showsAllRoomsSearch {
+                AllRoomsSearchRow()
+                    .tag(Self.allRoomsSelectionID)
+            }
+
             if !invites.isEmpty {
                 Section {
                     ForEach(invites) { invite in
@@ -288,6 +317,26 @@ struct RoomListView: View {
     }
 }
 
+private struct AllRoomsSearchRow: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(width: 48, height: 48)
+                .background(.quaternary, in: Circle())
+
+            Text("All Rooms")
+                .font(.headline)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8)
+        .contentShape(.rect)
+    }
+}
+
 // MARK: - Actions
 
 extension RoomListView {
@@ -485,7 +534,11 @@ extension RoomListView {
     @Previewable @State var space: String?
     RoomListView(
         selectedRoomId: $sel,
-        selectedSpaceId: $space
+        selectedSpaceId: $space,
+        showsAllRoomsSearch: false,
+        isAllRoomsSearch: false,
+        onAllRoomsSearch: {},
+        onSelectedRoomReselected: {}
     )
     .environment(PreviewFixtures.previewClient())
     .environment(AppActions())
@@ -495,7 +548,28 @@ extension RoomListView {
 #Preview("Empty State") {
     RoomListView(
         selectedRoomId: .constant(nil),
-        selectedSpaceId: .constant(nil)
+        selectedSpaceId: .constant(nil),
+        showsAllRoomsSearch: false,
+        isAllRoomsSearch: false,
+        onAllRoomsSearch: {},
+        onSelectedRoomReselected: {}
+    )
+    .environment(PreviewFixtures.previewClient())
+    .environment(AppActions())
+    .frame(width: 300, height: 400)
+}
+
+#Preview("All Rooms Search") {
+    @Previewable @State var selectedRoomId: String?
+    @Previewable @State var selectedSpaceId: String?
+
+    RoomListView(
+        selectedRoomId: $selectedRoomId,
+        selectedSpaceId: $selectedSpaceId,
+        showsAllRoomsSearch: true,
+        isAllRoomsSearch: true,
+        onAllRoomsSearch: {},
+        onSelectedRoomReselected: {}
     )
     .environment(PreviewFixtures.previewClient())
     .environment(AppActions())

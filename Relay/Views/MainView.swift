@@ -95,48 +95,45 @@ struct MainView: View {
     }
 
     private var navigationContent: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebarColumn
-                .navigationSplitViewColumnWidth(
-                    min: 110 + spaceRailInset,
-                    ideal: 250 + spaceRailInset,
-                    max: 310 + spaceRailInset
-                )
-        } detail: {
-            detailContent
-                .navigationSplitViewColumnWidth(min: 440, ideal: 540)
-                .frame(minHeight: 340)
-        }
-        .navigationTitle("")
-        .toolbar { windowToolbarContent }
-        .searchable(text: $searchModel.searchText, placement: .sidebar, prompt: "Search…")
-        .searchFocused($isSearchFocused)
-        .onSubmit(of: .search) {
-            searchModel.errorReporter = errorReporter
-            searchModel.searchMessages(client: client)
-        }
-        .onChange(of: searchModel.searchText) {
-            if searchModel.isActive {
-                searchModel.errorReporter = errorReporter
-                searchModel.searchMessages(client: client)
-            } else {
-                searchModel.messageResults = []
+        HStack(spacing: 0) {
+            if showsSpaceRail {
+                spaceRailView
             }
+
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebarColumn
+                    .navigationSplitViewColumnWidth(
+                        min: 110,
+                        ideal: 250,
+                        max: 310)
+            } detail: {
+                detailContent
+                    .navigationSplitViewColumnWidth(min: 440, ideal: 540)
+                    .frame(minHeight: 340)
+            }
+            .navigationTitle("")
+            .toolbar { windowToolbarContent }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: searchModel.searchText) { _, _ in
+            searchModel.errorReporter = errorReporter
+            searchModel.updateSearch(client: client, roomId: selectedRoomId)
         }
         .onChange(of: searchModel.isActive) { _, active in
-            if active {
-                // Capture the current selection so we can restore it on dismiss.
-                if searchModel.previousSelectedRoomId == nil {
-                    searchModel.previousSelectedRoomId = selectedRoomId
-                }
-            } else if let previousId = searchModel.previousSelectedRoomId {
-                selectedRoomId = previousId
-                searchModel.previousSelectedRoomId = nil
-            }
+            guard !active else { return }
+            searchModel.scope = .room
+            searchModel.updateSearch(client: client, roomId: selectedRoomId)
+        }
+        .onChange(of: selectedRoomId) { _, roomId in
+            guard searchModel.isActive else { return }
+            searchModel.errorReporter = errorReporter
+            searchModel.selectedRoomChanged(client: client, roomId: roomId)
         }
         .onChange(of: appActions.focusSearch) { _, shouldFocus in
             if shouldFocus {
                 appActions.focusSearch = false
+                columnVisibility = .all
                 isSearchFocused = true
             }
         }
@@ -209,9 +206,8 @@ struct MainView: View {
 
     // MARK: - Space Rail
 
-    /// Extra width the sidebar column needs when the space rail is visible.
-    private var spaceRailInset: CGFloat {
-        client.spaces.isEmpty ? 0 : SpaceRail.width
+    private var showsSpaceRail: Bool {
+        !client.spaces.isEmpty && columnVisibility != .detailOnly
     }
 
     private var spaceRailView: some View {
@@ -239,41 +235,27 @@ struct MainView: View {
 
     // MARK: - Sidebar
 
-    @ViewBuilder
     private var sidebarColumn: some View {
-        Group {
-            if searchModel.isActive {
-                SearchResultsList(
-                    rooms: searchModel.filteredRooms(
-                        from: roomRows, spaceId: selectedSpaceId,
-                        in: selectedSpaceId.map {
-                            client.descendantRoomIds(of: RoomId(unchecked: $0))
-                        } ?? []),
-                    searchModel: searchModel,
-                    selectedRoomId: $selectedRoomId,
-                    onMessageSelected: { roomId, eventId in
-                        searchModel.dismiss()
-                        isSearchFocused = false
-                        selectedRoomId = roomId
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(300))
-                            focusedMessageId = eventId
-                        }
-                    }
-                )
-            } else {
-                RoomListView(
-                    selectedRoomId: $selectedRoomId,
-                    selectedSpaceId: $selectedSpaceId
-                )
+        RoomListView(
+            selectedRoomId: $selectedRoomId,
+            selectedSpaceId: $selectedSpaceId,
+            showsAllRoomsSearch: searchModel.isActive,
+            isAllRoomsSearch: searchModel.scope == .allRooms,
+            onAllRoomsSearch: {
+                searchModel.errorReporter = errorReporter
+                searchModel.selectAllRooms(client: client, roomId: selectedRoomId)
+            },
+            onSelectedRoomReselected: {
+                searchModel.errorReporter = errorReporter
+                searchModel.selectedRoomChanged(client: client, roomId: selectedRoomId)
             }
-        }
-        .environment(\.hasSpaceRail, !client.spaces.isEmpty)
-        .safeAreaInset(edge: .leading, spacing: 0) {
-            if !client.spaces.isEmpty {
-                spaceRailView
-            }
-        }
+        )
+        .searchable(
+            text: $searchModel.searchText,
+            placement: .sidebar,
+            prompt: "Search messages…")
+        .searchFocused($isSearchFocused)
+        .environment(\.hasSpaceRail, showsSpaceRail)
     }
 
     // MARK: - Detail
@@ -287,7 +269,32 @@ struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let room = currentRoom, room.membership == .invite {
+        if searchModel.isActive {
+            if searchModel.scope == .room, selectedRoomId == nil {
+                ContentUnavailableView(
+                    "Choose a Search Scope",
+                    systemImage: "text.magnifyingglass",
+                    description: Text("Select a room or choose All Rooms in the sidebar."))
+            } else {
+                SearchResultsList(
+                    searchModel: searchModel,
+                    roomName: currentRoom?.displayName,
+                    onMessageSelected: { roomId, eventId in
+                        searchModel.dismiss()
+                        isSearchFocused = false
+                        selectedRoomId = roomId
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(300))
+                            focusedMessageId = eventId
+                        }
+                    },
+                    onSearchMore: {
+                        searchModel.errorReporter = errorReporter
+                        searchModel.searchMoreOnServer(
+                            client: client, roomId: selectedRoomId)
+                    })
+            }
+        } else if let room = currentRoom, room.membership == .invite {
             inviteCard(for: room)
         } else if let room = currentRoom {
             timelineView(for: room)
