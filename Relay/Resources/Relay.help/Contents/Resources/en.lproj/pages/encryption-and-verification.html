@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark">
-    <meta name="description" content="Learn about end-to-end encryption and how to verify your session in Relay.">
-    <meta name="keywords" content="encryption, E2EE, verification, recovery key, session, security, emoji verification">
+    <meta name="description" content="Learn about end-to-end encryption, how to verify your session, back up your message keys, and what to do when a message cannot be decrypted in Relay.">
+    <meta name="keywords" content="encryption, E2EE, verification, recovery key, session, security, emoji verification, key backup, backup, restore, cannot decrypt, unable to decrypt">
     <meta name="robots" content="anchors">
     <title>Encryption and session verification</title>
     <link rel="stylesheet" href="../../Shared/relay-help.css">
@@ -39,6 +39,37 @@
         <li>Enter your security/recovery key.</li>
         <li>Your session is verified and encrypted history becomes accessible.</li>
     </ol>
+
+    <p>Only your own verified sessions can receive your encryption keys from another session. If a session you have not verified asks for them, your other sessions do not answer.</p>
+
+    <h2>Key backup</h2>
+    <p>Relay can back up the keys that decrypt your messages to your homeserver. The backup is encrypted so that only you can read it. If you sign in on a new device, or lose one, the backup lets you read your message history again.</p>
+    <p>Go to <strong>Settings</strong> &gt; <strong>Encryption</strong> to see the state of your key backup:</p>
+    <ul>
+        <li><strong>Key Backup Active</strong>: Relay is adding message keys to your backup. It shows how many keys are backed up and how many are waiting to upload.</li>
+        <li><strong>Key Backup Not in Use</strong>: your account has a backup, but Relay is not adding keys to it. Verify this session first. If it is already verified, the backup was not signed by a device or key you trust.</li>
+        <li><strong>Key Backup Not Active</strong>: your account has no backup.</li>
+        <li><strong>Key Backup Unavailable</strong>: Relay could not check. Check your connection and try again.</li>
+    </ul>
+
+    <h3>Back up now</h3>
+    <p>Relay uploads new message keys shortly after they arrive. To upload the keys that are waiting right away, click <strong>Back Up Now</strong>. The button appears when keys are waiting.</p>
+
+    <h3>Set up a key backup</h3>
+    <p>If your account has no backup, click <strong>Set Up Key Backup</strong>. Relay creates the backup and shows your recovery key once. Copy it and keep it somewhere safe, then confirm that you saved it. If your account had no secret storage, Relay creates it too, so the same recovery key also unlocks your message keys and identity in other apps, such as Element.</p>
+    <p>Keys already on this device join the backup as Relay reads your message history, so older messages may not be covered at first. If your account already has a backup, Relay never replaces it.</p>
+
+    <h3>Restore from a key backup</h3>
+    <p>Click <strong>Restore Key Backup</strong> to restore your message history. Relay uses the backup key stored on this device. If there is none, it asks your other sessions to share it. To restore with your recovery key instead, verify your session with it.</p>
+
+    <h2>Messages that cannot be decrypted</h2>
+    <p>A message that cannot be read shows <strong>Unable to decrypt</strong> with a reason:</p>
+    <ul>
+        <li><strong>Missing room key</strong> or <strong>Key does not cover this message</strong>: this session does not have the key for the message. Click <strong>Restore from Key Backup</strong> on the message. Relay also asks the sender's devices for the key automatically, and the message appears once a key arrives.</li>
+        <li><strong>Duplicate encrypted message</strong>: the same encrypted message appeared again in a different event. Relay does not show it.</li>
+        <li><strong>Megolm decryption failed</strong>, <strong>Malformed encrypted message</strong>, or <strong>Invalid decrypted content</strong>: the message was damaged, or it did not come from the device that created its key. Restoring a backup does not fix these.</li>
+    </ul>
+    <p>Click <strong>Copy Session ID</strong> when you report a problem, so the developers can look up the key.</p>
 
     <h2>Encryption status</h2>
     <p>The <strong>Security</strong> tab in the room inspector shows whether encryption is enabled for a room. Once enabled, encryption cannot be turned off.</p>
