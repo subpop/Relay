@@ -18,8 +18,18 @@ import SwiftUI
 
 /// Shows why an encrypted event could not be decrypted and allows copying its
 /// Megolm session ID without displaying the full identifier in the bubble.
+/// Failures a key backup can fix also offer to restore from it.
 struct DecryptionFailureDetails: View {
+    @Environment(RelayClient.self) private var client
     let failure: RoomCrypto.DecryptionFailure
+
+    /// A backup may hold a key that covers this message.
+    private var isRecoverableFromBackup: Bool {
+        switch failure.reason {
+        case .unknownSession, .sessionTooOld: true
+        case .replay, .cryptoFailure, .malformedEnvelope, .nonJSONPlaintext: false
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -56,8 +66,32 @@ struct DecryptionFailureDetails: View {
                     .controlSize(.small)
                 }
             }
+
+            if isRecoverableFromBackup {
+                Button("Restore from Key Backup", systemImage: "arrow.triangle.2.circlepath") {
+                    client.startBackupRestore()
+                }
+                .controlSize(.small)
+                .disabled(client.keyFetch.isRestoring)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(.secondary)
     }
+}
+
+#Preview("Key does not cover this message") {
+    DecryptionFailureDetails(
+        failure: RoomCrypto.DecryptionFailure(
+            reason: .sessionTooOld, sessionId: "jK5Q5GgDdD02aBcDeFgHiJkLmNoPqRsT"))
+        .environment(PreviewFixtures.previewClient())
+        .frame(width: 320)
+}
+
+#Preview("Duplicate message") {
+    DecryptionFailureDetails(
+        failure: RoomCrypto.DecryptionFailure(
+            reason: .replay, sessionId: "a8rugKUvAX0CaBcDeFgHiJkLmNoPqRsT"))
+        .environment(PreviewFixtures.previewClient())
+        .frame(width: 320)
 }
