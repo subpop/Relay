@@ -23,6 +23,7 @@ import SwiftUI
 struct MessageSearchRow: View {
     @Environment(RelayClient.self) private var client
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+    @AppStorage(OutgoingBubbleColor.userDefaultsKey) private var outgoingBubbleColor = OutgoingBubbleColor.accent
 
     let result: MessageSearchResult
     let onSelect: () -> Void
@@ -36,7 +37,8 @@ struct MessageSearchRow: View {
         .message(
             isOutgoing: isOutgoing,
             senderID: result.sender.value,
-            coloredBubbles: coloredBubbles)
+            coloredBubbles: coloredBubbles,
+            outgoingColor: outgoingBubbleColor)
     }
 
     var body: some View {
@@ -101,7 +103,7 @@ struct MessageSearchRow: View {
                 of: highlight,
                 options: [.caseInsensitive, .diacriticInsensitive]
             ) {
-                attributed[range].foregroundColor = bubbleStyle.usesWhiteText ? .white : .primary
+                attributed[range].foregroundColor = bubbleStyle.usesWhiteText ? .white : (isOutgoing ? outgoingBubbleColor.foregroundColor : .primary)
                 attributed[range].font = .body.bold()
                 searchRange = range.upperBound..<attributed.endIndex
             }

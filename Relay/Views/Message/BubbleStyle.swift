@@ -55,14 +55,22 @@ struct BubbleStyle {
     static func message(
         isOutgoing: Bool,
         senderID: String,
-        coloredBubbles: Bool
+        coloredBubbles: Bool,
+        outgoingColor: OutgoingBubbleColor = .accent
     ) -> BubbleStyle {
-        let usesWhite = isOutgoing || coloredBubbles
+        let foreground: AnyShapeStyle = if coloredBubbles {
+            AnyShapeStyle(.white)
+        } else if isOutgoing {
+            AnyShapeStyle(outgoingColor.foregroundColor)
+        } else {
+            AnyShapeStyle(.primary)
+        }
+        let usesWhite = coloredBubbles || (isOutgoing && outgoingColor.foregroundColor == .white)
         let background: Color
         if isOutgoing {
             background = coloredBubbles
                 ? Color(stableColorFor: senderID)
-                : .accentColor
+                : outgoingColor.color
         } else if coloredBubbles {
             background = Color(stableColorFor: senderID)
         } else {
@@ -70,7 +78,7 @@ struct BubbleStyle {
         }
         return BubbleStyle(
             backgroundColor: background,
-            foregroundStyle: AnyShapeStyle(usesWhite ? .white : .primary),
+            foregroundStyle: foreground,
             _usesWhiteText: usesWhite
         )
     }

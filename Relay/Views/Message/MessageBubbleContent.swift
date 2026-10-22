@@ -44,6 +44,7 @@ struct MessageBubbleContent: View {
     var onPresentReactionPicker: (() -> Void)?
 
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+    @AppStorage(OutgoingBubbleColor.userDefaultsKey) private var outgoingBubbleColor = OutgoingBubbleColor.accent
 
     /// Mirrors ``MessageTextScale``'s persisted value purely so this view
     /// re-evaluates on a text-zoom step. ``TimelineRowView`` is `Equatable`
@@ -54,9 +55,17 @@ struct MessageBubbleContent: View {
     @AppStorage(MessageTextScale.userDefaultsKey) private var textScale = Double(MessageTextScale.defaultScale)
 
     @Environment(\.timelineActions) private var actions
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         content
+    }
+
+    /// Outgoing bubbles with a light background color (yellow, cyan) render
+    /// their content in the light appearance so dynamic text colors resolve
+    /// to black, even when the system is in dark appearance.
+    private var bubbleColorScheme: ColorScheme {
+        isOutgoing && !style.usesWhiteText ? .light : colorScheme
     }
 
     // MARK: - Content Dispatch
@@ -69,8 +78,10 @@ struct MessageBubbleContent: View {
             videoContent
         } else if case .audio = message.kind {
             audioContent
+                .environment(\.colorScheme, bubbleColorScheme)
         } else if case .file = message.kind {
             fileContent
+                .environment(\.colorScheme, bubbleColorScheme)
         } else if case .emote = message.kind {
             emoteContent
         } else if case .sticker = message.kind, message.mediaDownload != nil {
@@ -79,12 +90,14 @@ struct MessageBubbleContent: View {
             imageContent
         } else if case .poll(let poll) = message.kind {
             pollContent(poll)
+                .environment(\.colorScheme, bubbleColorScheme)
         } else if message.kind.isSpecialType {
             specialContent
         } else if isEmojiOnly {
             emojiOnlyContent
         } else {
             textContent
+                .environment(\.colorScheme, bubbleColorScheme)
         }
     }
 
@@ -94,7 +107,8 @@ struct MessageBubbleContent: View {
         .message(
             isOutgoing: isOutgoing,
             senderID: message.sender.value,
-            coloredBubbles: coloredBubbles)
+            coloredBubbles: coloredBubbles,
+            outgoingColor: outgoingBubbleColor)
     }
 
     private var textContent: some View {

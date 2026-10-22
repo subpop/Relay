@@ -36,6 +36,7 @@ struct PollMessageView: View {
     let onEndPoll: () -> Void
 
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+    @AppStorage(OutgoingBubbleColor.userDefaultsKey) private var outgoingBubbleColor = OutgoingBubbleColor.accent
 
     @Environment(\.timelineActions) private var actions
 
@@ -43,7 +44,8 @@ struct PollMessageView: View {
         .message(
             isOutgoing: isOutgoing,
             senderID: senderID,
-            coloredBubbles: coloredBubbles)
+            coloredBubbles: coloredBubbles,
+            outgoingColor: outgoingBubbleColor)
     }
 
     private var canVote: Bool {

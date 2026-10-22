@@ -20,6 +20,7 @@ import SwiftUI
 struct SettingsAppearanceTab: View {
     @AppStorage("appearance.mode") private var appearanceMode: AppAppearance = .system
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
+    @AppStorage(OutgoingBubbleColor.userDefaultsKey) private var outgoingBubbleColor = OutgoingBubbleColor.accent
     @AppStorage("appearance.showUnreadCounts") private var showUnreadCounts = true
 
     var body: some View {
@@ -55,15 +56,15 @@ struct SettingsAppearanceTab: View {
                 HStack(spacing: 16) {
                     Spacer()
                     BubbleStyleOption(
-                        title: "Grey",
+                        title: "Manual",
                         isSelected: !coloredBubbles,
-                        content: { GreyBubblePreview() }
+                        content: { GreyBubblePreview(outgoingColor: outgoingBubbleColor) }
                     ) {
                         coloredBubbles = false
                     }
 
                     BubbleStyleOption(
-                        title: "Colored",
+                        title: "Automatic",
                         isSelected: coloredBubbles,
                         content: { ColoredBubblePreview() }
                     ) {
@@ -72,10 +73,17 @@ struct SettingsAppearanceTab: View {
                     Spacer()
                 }
                 .padding(.vertical, 4)
+
+                if !coloredBubbles {
+                    LabeledContent("Color") {
+                        OutgoingColorSwatches(selection: $outgoingBubbleColor)
+                    }
+                }
             } header: {
                 Text("Message Bubbles")
-                Text("Choose how incoming messages appear in the timeline.")
+                Text("Choose how messages appear in the timeline.")
             }
+            .animation(.default, value: coloredBubbles)
         }
         .formStyle(.grouped)
     }
@@ -250,16 +258,75 @@ private struct BubbleStyleOption<Content: View>: View {
     }
 }
 
+// MARK: - Outgoing Color Swatches
+
+/// A row of color swatches for choosing the outgoing bubble color, styled
+/// after the accent color row in System Settings. The selected swatch is
+/// outlined with a ring, and hovering a swatch shows its color name directly
+/// beneath it.
+private struct OutgoingColorSwatches: View {
+    @Binding var selection: OutgoingBubbleColor
+    @State private var hovered: OutgoingBubbleColor?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(OutgoingBubbleColor.allCases) { option in
+                Button {
+                    selection = option
+                } label: {
+                    Circle()
+                        .fill(option.color)
+                        .frame(width: 24, height: 24)
+                        .padding(3)
+                        .overlay {
+                            if option == selection {
+                                Circle()
+                                    .strokeBorder(.primary.opacity(0.6), lineWidth: 2)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .overlay(alignment: .bottom) {
+                    if hovered == option {
+                        Text(option.label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .offset(y: 16)
+                    }
+                }
+                .onHover { isHovering in
+                    if isHovering {
+                        hovered = option
+                    } else if hovered == option {
+                        hovered = nil
+                    }
+                }
+                .accessibilityLabel(Text(option.label))
+                .accessibilityAddTraits(option == selection ? .isSelected : [])
+            }
+        }
+        // Reserves room for the name shown beneath a hovered swatch.
+        .padding(.bottom, 16)
+    }
+}
+
 // MARK: - Bubble Previews
 
 /// Miniature chat preview showing grey (default) incoming bubbles.
 private struct GreyBubblePreview: View {
+    let outgoingColor: OutgoingBubbleColor
+
     var body: some View {
         ZStack {
             Color(.windowBackgroundColor)
 
             VStack(alignment: .leading, spacing: 3) {
-                MiniOutgoingBubble(text: "How's it going?")
+                MiniOutgoingBubble(
+                    text: "How's it going?",
+                    color: outgoingColor.color,
+                    foregroundColor: outgoingColor.foregroundColor
+                )
                 MiniIncomingBubble(
                     text: "Pretty good!",
                     color: Color(.systemGray).opacity(0.25),
@@ -270,7 +337,11 @@ private struct GreyBubblePreview: View {
                     color: Color(.systemGray).opacity(0.25),
                     whiteText: false
                 )
-                MiniOutgoingBubble(text: "Great!")
+                MiniOutgoingBubble(
+                    text: "Great!",
+                    color: outgoingColor.color,
+                    foregroundColor: outgoingColor.foregroundColor
+                )
             }
             .padding(8)
         }
@@ -310,13 +381,14 @@ private struct ColoredBubblePreview: View {
 private struct MiniOutgoingBubble: View {
     let text: String
     var color: Color = .accentColor
+    var foregroundColor: Color = .white
 
     var body: some View {
         HStack {
             Spacer()
             Text(text)
                 .font(.system(size: 8))
-                .foregroundStyle(.white)
+                .foregroundStyle(foregroundColor)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(color, in: Capsule())
