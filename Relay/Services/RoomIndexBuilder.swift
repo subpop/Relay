@@ -15,8 +15,11 @@
 import Foundation
 import MatrixKit
 import MatrixKitSwiftData
+import OSLog
 import SwiftData
 
+private nonisolated let roomIndexSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "RoomIndex")
 /// Snapshot payload for one room's live timeline window. Sendable value,
 /// produced off the main actor.
 struct TimelinePayload: Sendable {
@@ -55,6 +58,8 @@ actor RoomIndexBuilder {
         joined: [RelayRoom], invited: [RelayRoom],
         spaceChildren: [RoomId: Set<RoomId>]
     ) {
+        let state = roomIndexSignposter.beginInterval(
+            "rebuildRoomIndex", id: roomIndexSignposter.makeSignpostID())
         let rooms = (try? context.fetch(FetchDescriptor<SDRoom>())) ?? []
         let allMembers = (try? context.fetch(FetchDescriptor<SDRoomMember>())) ?? []
         let membersByRoom = Dictionary(grouping: allMembers, by: \.roomId)
@@ -79,7 +84,86 @@ actor RoomIndexBuilder {
                 joined.append(room)
             }
         }
+        roomIndexSignposter.endInterval(
+            "rebuildRoomIndex", state,
+            "rooms \(rooms.count), members \(allMembers.count), edges \(allEdges.count)")
         return (joined, invited, spaceChildren)
+    }
+
+    /// Member details for compose and the inspector, built from the store
+    /// without moving profile processing onto the main actor.
+    func memberDetails(roomId: String) -> [RoomMemberDetails] {
+        let state = roomIndexSignposter.beginInterval(
+            "memberDetailsFromStore", id: roomIndexSignposter.makeSignpostID())
+        let id = roomId
+        guard let room = (try? context.fetch(
+            FetchDescriptor<SDRoom>(predicate: #Predicate { $0.roomId == id })
+        ))?.first else {
+            roomIndexSignposter.endInterval("memberDetailsFromStore", state, "no room")
+            return []
+        }
+
+        let rows = (try? context.fetch(SDRoomMember.membersDescriptor(roomId: id))) ?? []
+        let decoder = JSONDecoder()
+        let powerLevels = room.powerLevelsContent.flatMap {
+            try? decoder.decode([String: AnyCodable].self, from: $0)
+        }
+        let createContent = room.createEventContent.flatMap {
+            try? decoder.decode([String: AnyCodable].self, from: $0)
+        }
+        let creatorState: (creators: Set<UserId>, infinite: Bool)
+        if let sender = room.createEventSender, let createContent {
+            creatorState = RoomMemberDetails.creators(
+                sender: UserId(unchecked: sender), createContent: createContent)
+        } else {
+            creatorState = ([], false)
+        }
+
+        let members = rows.compactMap { row -> RoomMemberDetails? in
+            guard row.membership == Membership.join.rawValue
+                    || row.membership == Membership.invite.rawValue
+            else { return nil }
+
+            let userId = UserId(unchecked: row.userId)
+            let isCreator = creatorState.creators.contains(userId)
+            let level: Int
+            if creatorState.infinite && isCreator {
+                level = .max
+            } else if let powerLevels {
+                level = RoomPermissions.powerLevel(of: userId, in: powerLevels)
+            } else {
+                level = 0
+            }
+            return RoomMemberDetails(
+                userId: userId,
+                displayName: row.displayname,
+                avatarURL: row.avatarUrl.flatMap { try? MXCURI($0) },
+                role: .of(level),
+                powerLevel: level,
+                isCreator: isCreator)
+        }.sorted {
+            ($0.displayName ?? $0.userId.value)
+                < ($1.displayName ?? $1.userId.value)
+        }
+
+        roomIndexSignposter.endInterval(
+            "memberDetailsFromStore", state, "members \(members.count)")
+        return members
+    }
+
+    /// Stored membership/profile map for timeline rendering fallbacks.
+    func memberMap(roomId: String) -> [UserId: MemberContent] {
+        let id = roomId
+        let rows = (try? context.fetch(SDRoomMember.membersDescriptor(roomId: id))) ?? []
+        return Dictionary(uniqueKeysWithValues: rows.map { row in
+            (
+                UserId(unchecked: row.userId),
+                MemberContent(
+                    membership: Membership(rawValue: row.membership) ?? .join,
+                    displayname: row.displayname,
+                    avatarUrl: row.avatarUrl)
+            )
+        })
     }
 
     /// Parent-to-children map for space filtering: synced state edges
@@ -118,6 +202,9 @@ actor RoomIndexBuilder {
     /// (oldest first), delivery states read off the same rows (no extra
     /// query), and the room's marker/cursor columns.
     func timelinePayload(roomId: String, limit: Int) -> TimelinePayload {
+        let state = roomIndexSignposter.beginInterval(
+            "fetchTimelinePayload", id: roomIndexSignposter.makeSignpostID(),
+            "limit \(limit)")
         let rows = windowRows(roomId: roomId, limit: limit)
         let decoder = JSONDecoder()
         var snapshot: [MessageEvent] = []
@@ -138,12 +225,15 @@ actor RoomIndexBuilder {
             }
         }
         let marker = markerSummary(roomId: roomId)
-        return TimelinePayload(
+        let payload = TimelinePayload(
             snapshot: snapshot,
             sendStates: sendStates,
             firstUnreadEventId: marker.firstUnreadEventId,
             prevBatch: marker.prevBatch,
             historyGapEventId: marker.historyGapEventId)
+        roomIndexSignposter.endInterval(
+            "fetchTimelinePayload", state, "stored rows \(rows.count)")
+        return payload
     }
 
     /// Marker and pagination-cursor columns for one room (single indexed

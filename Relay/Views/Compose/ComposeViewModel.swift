@@ -18,6 +18,8 @@ import OSLog
 import UniformTypeIdentifiers
 
 private nonisolated let logger = Logger(subsystem: "app.subpop.Relay", category: "ComposeViewModel")
+private nonisolated let composeSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "MessageSend")
 
 /// Owns all state and logic for the message compose bar.
 ///
@@ -218,13 +220,20 @@ final class ComposeViewModel {
         attachments = []
         onScrollToBottom?()
         Task {
-            if sendTypingNotifications {
-                await viewModel.setTyping(false)
-            }
+            let sendState = composeSignposter.beginInterval(
+                "composeSend", id: composeSignposter.makeSignpostID(),
+                "attachments \(pendingAttachments.count)")
+            defer { composeSignposter.endInterval("composeSend", sendState) }
+
+            async let typingStop = stopTypingNotification(
+                ifEnabled: sendTypingNotifications, using: viewModel)
             if !messageText.isEmpty {
+                let messageState = composeSignposter.beginInterval(
+                    "sendTextFromTimeline", id: composeSignposter.makeSignpostID())
                 await viewModel.send(
                     text: messageText, inReplyTo: replyEventId, mentionedUserIds: mentionedUserIds
                 )
+                composeSignposter.endInterval("sendTextFromTimeline", messageState)
             }
             for attachment in pendingAttachments {
                 let caption = attachment.caption.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -233,8 +242,19 @@ final class ComposeViewModel {
                     inReplyTo: replyEventId
                 )
             }
+            await typingStop
             client.donateOutgoingInteraction(roomId: viewModel.roomId)
         }
+    }
+
+    private func stopTypingNotification(
+        ifEnabled enabled: Bool, using viewModel: TimelineViewModel
+    ) async {
+        guard enabled else { return }
+        let state = composeSignposter.beginInterval(
+            "stopTypingNotification", id: composeSignposter.makeSignpostID())
+        defer { composeSignposter.endInterval("stopTypingNotification", state) }
+        await viewModel.setTyping(false)
     }
 
     // MARK: - Attachments

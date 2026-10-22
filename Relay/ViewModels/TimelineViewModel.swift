@@ -21,6 +21,9 @@ import MatrixKitSwiftData
 import OSLog
 import UniformTypeIdentifiers
 
+private nonisolated let timelineSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "Timeline")
+
 /// Whether the timeline shows live messages, a focused event window,
 /// or a thread.
 enum TimelineFocus: Hashable, Sendable {
@@ -170,33 +173,17 @@ final class TimelineViewModel {
     }
 
     /// Members with role details, for mentions and profile taps.
-    /// Starts from the cached store map, then overlays a throttled full
-    /// `/members` refresh: the store only learns members from sync state
-    /// deltas (the initial sync lazy-loads members), so inactive users are
-    /// otherwise missing from `@` autocomplete. Only joined/invited users
-    /// are returned; roles need one small power-levels fetch (cached per
-    /// call site by the view's debounce).
+    /// Reads the current store snapshot off the main actor. The full
+    /// `/members` refresh runs separately and updates this snapshot later.
     func roomMembers() async -> [RoomMemberDetails] {
-        var members = client.roomMembersMap(roomId: roomID)
-        if let full = await client.refreshRoomMembers(roomId: roomID) {
-            for (userId, content) in full {
-                members[userId] = content
-            }
-        }
-        let powerLevels = await client.roomPowerLevels(roomId: roomID)
-        return members.filter {
-            $0.value.membership == .join || $0.value.membership == .invite
-        }.map { userId, content in
-            let level = powerLevels.map {
-                RoomPermissions.powerLevel(of: userId, in: $0)
-            } ?? 0
-            return RoomMemberDetails(
-                userId: userId,
-                displayName: content.displayname,
-                avatarURL: content.avatarUrl.flatMap { try? MXCURI($0) },
-                role: .of(level),
-                powerLevel: level)
-        }.sorted { $0.resolvedName < $1.resolvedName }
+        await client.roomMemberDetails(roomId: roomID)
+    }
+
+    /// Refresh the full roster off the main actor, then read its updated
+    /// store snapshot for autocomplete and the inspector.
+    func refreshRoomMembers() async -> [RoomMemberDetails] {
+        await client.refreshRoomMembers(roomId: roomID)
+        return await client.roomMemberDetails(roomId: roomID)
     }
 
     /// The local user's room permissions.
@@ -248,7 +235,7 @@ final class TimelineViewModel {
         guard !Task.isCancelled else { return }
         let typing = await client.typingTrackerUsers(in: roomID)
         guard !Task.isCancelled else { return }
-        let members = client.roomMembersMap(roomId: roomID)
+        let members = await client.roomMembersMap(roomId: roomID)
         typingUsersList = typing.map { userId in
             let details = members[userId]
             return TypingUser(
@@ -308,21 +295,35 @@ final class TimelineViewModel {
     /// window is active (those render their detached actors).
     private func refreshLiveNow() async {
         guard case .live = window else { return }
+        let refreshState = timelineSignposter.beginInterval(
+            "refreshLiveTimeline", id: timelineSignposter.makeSignpostID(),
+            "window limit \(self.windowSize)")
+        defer { timelineSignposter.endInterval("refreshLiveTimeline", refreshState) }
         refreshGeneration += 1
         let generation = refreshGeneration
+        let fetchState = timelineSignposter.beginInterval(
+            "fetchTimelinePayload", id: timelineSignposter.makeSignpostID())
         let payload = await client.timelinePayload(roomId: roomID, limit: windowSize)
+        timelineSignposter.endInterval("fetchTimelinePayload", fetchState)
         guard generation == refreshGeneration, !Task.isCancelled else { return }
         guard case .live = window else { return }
         let nextSnapshot = payload.snapshot
-        let nextMembers = client.roomMembersMap(roomId: roomID)
+        let nextMembers = await client.roomMembersMap(roomId: roomID)
+        let renderState = timelineSignposter.beginInterval(
+            "renderTimelineEvents", id: timelineSignposter.makeSignpostID(),
+            "events \(nextSnapshot.count)")
         let nextRenderedEvents = ObservableTimelineEvent.render(
             nextSnapshot,
             members: nextMembers,
             localUser: client.localUserId,
             highlightKeywords: highlights,
             sendStates: payload.sendStates)
+        timelineSignposter.endInterval("renderTimelineEvents", renderState)
+        let decryptState = timelineSignposter.beginInterval(
+            "resolveTimelineDecryptionFailures", id: timelineSignposter.makeSignpostID())
         let nextDecryptionFailures = await decryptionFailureMap(
             for: nextRenderedEvents)
+        timelineSignposter.endInterval("resolveTimelineDecryptionFailures", decryptState)
         guard generation == refreshGeneration, !Task.isCancelled else { return }
         guard case .live = window else { return }
         snapshot = nextSnapshot
@@ -340,12 +341,22 @@ final class TimelineViewModel {
         }
     }
 
+    /// Render a staged local echo immediately instead of waiting for the
+    /// ordinary revision debounce or the homeserver's sync echo.
+    private func refreshForLocalEcho() async {
+        refreshTask?.cancel()
+        await refreshLiveNow()
+    }
+
     /// Request a live refresh, coalescing bursts: rapid revision bumps
     /// (sync storms, typing) collapse into one fetch ~120ms later.
     private func requestRefresh() {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor [weak self] in
+            let state = timelineSignposter.beginInterval(
+                "timelineRefreshDebounce", id: timelineSignposter.makeSignpostID())
             try? await Task.sleep(for: .milliseconds(120))
+            timelineSignposter.endInterval("timelineRefreshDebounce", state)
             guard let self, !Task.isCancelled else { return }
             await self.refreshLiveNow()
         }
@@ -601,7 +612,7 @@ final class TimelineViewModel {
     /// from a single indexed row fetch; members resolve from memory.
     private func renderDetached(events snapshot: [MessageEvent]) async {
         let renderingWindow = window
-        let nextMembers = client.roomMembersMap(roomId: roomID)
+        let nextMembers = await client.roomMembersMap(roomId: roomID)
         let marker = await client.markerSummary(roomId: roomID)
         guard !Task.isCancelled, window == renderingWindow else { return }
         let nextSendStates = sendStatesById(in: snapshot)
@@ -691,7 +702,17 @@ final class TimelineViewModel {
             }
             return
         }
-        await client.messageSender?.sendText(roomID, text, mentions: mentions)
+        let (echoStaged, continuation) = AsyncStream<Void>.makeStream()
+        let echoRefreshTask = Task { @MainActor in
+            for await _ in echoStaged {
+                await refreshForLocalEcho()
+            }
+        }
+        await client.messageSender?.sendText(
+            roomID, text, mentions: mentions,
+            onEchoStaged: { continuation.yield() })
+        continuation.finish()
+        await echoRefreshTask.value
     }
 
     /// Send a file attachment with probed metadata.

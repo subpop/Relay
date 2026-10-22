@@ -18,6 +18,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "app.subpop.Relay", category: "Timeline")
+private nonisolated let timelineViewSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "RoomSwitch")
 
 /// A stable indirection point for the timeline's edit-last-message action.
 ///
@@ -60,8 +62,10 @@ struct TimelineView: View {
     @State private var timelineInitialLoadComplete = false
     @State private var isDirectRoom = false
     @State private var roomPermissions: RoomPermissions?
+    @State private var roomPermissionsRoomId: String?
     @State private var highlightedMessageId: String?
     @State private var memberRefreshTask: Task<Void, Never>?
+    @State private var memberSnapshotTask: Task<Void, Never>?
     @State private var isTimelineDropTargeted = false
     @State private var timelineActionsRef = TimelineActions()
     @State private var successorRoomId: String?
@@ -85,6 +89,21 @@ struct TimelineView: View {
 
     private var roomOverrides: RoomBehaviorOverrides {
         RoomBehaviorStore.shared.overrides(for: roomId)
+    }
+
+    private var currentRoomPermissions: RoomPermissions? {
+        guard roomPermissionsRoomId == roomId else {
+            return RoomPermissions(
+                canSendMessages: false,
+                canSendReactions: false,
+                canSendRedactions: false)
+        }
+        return roomPermissions
+    }
+
+    private var canShowComposeBar: Bool {
+        guard roomPermissionsRoomId == roomId else { return true }
+        return roomPermissions?.canSendMessages ?? true
     }
 
     private var showURLPreviews: Bool {
@@ -162,7 +181,8 @@ struct TimelineView: View {
                 )
             }
             .overlay(alignment: .bottom) {
-                if successorRoomId != nil || (!readOnly && (roomPermissions?.canSendMessages ?? true)) {
+                if successorRoomId != nil
+                    || (!readOnly && canShowComposeBar) {
                     TimelineBottomBar(
                         compose: compose,
                         viewModel: viewModel,
@@ -203,6 +223,8 @@ struct TimelineView: View {
                 DropTargetOverlay(readOnly: readOnly, isTargeted: isTimelineDropTargeted)
             }
             .task {
+                let initialLoadState = timelineViewSignposter.beginInterval(
+                    "roomTimelineInitialLoad", id: timelineViewSignposter.makeSignpostID())
                 if !readOnly {
                     compose = composeDraftStore.draft(for: roomId)
                 }
@@ -210,7 +232,7 @@ struct TimelineView: View {
                 timelineActionsRef.configure(
                     viewModel: viewModel,
                     compose: compose,
-                    roomPermissions: roomPermissions,
+                    roomPermissions: currentRoomPermissions,
                     currentUserID: viewModel.currentUserId,
                     onUserTap: onUserTap,
                     onRoomTap: onRoomTap,
@@ -236,10 +258,12 @@ struct TimelineView: View {
                 isDirectRoom = viewModel.isDirectRoom
                 successorRoomId = viewModel.successorRoomId
 
-                roomPermissions = await viewModel.roomPermissions()
-                timelineActionsRef.permissions = roomPermissions
+                async let loadedRoomPermissions = fetchRoomPermissions()
 
+                let loadTimelineState = timelineViewSignposter.beginInterval(
+                    "loadStoredTimeline", id: timelineViewSignposter.makeSignpostID())
                 await viewModel.loadTimeline()
+                timelineViewSignposter.endInterval("loadStoredTimeline", loadTimelineState)
 
                 if !readOnly, !alwaysLoadNewest,
                    let focusEventId = viewModel.firstUnreadMessageId {
@@ -249,17 +273,42 @@ struct TimelineView: View {
 
                 timelineInitialLoadComplete = true
                 scroller.didCompleteInitialLoad()
+                timelineViewSignposter.endInterval("roomTimelineInitialLoad", initialLoadState)
+
+                if !readOnly {
+                    markAsReadIfNeeded()
+                    refreshEditLastMessageTarget()
+                }
+
+                roomPermissions = await loadedRoomPermissions
+                roomPermissionsRoomId = roomId
+                timelineActionsRef.permissions = currentRoomPermissions
 
                 guard !readOnly else { return }
-                markAsReadIfNeeded()
-                refreshEditLastMessageTarget()
+                let membersState = timelineViewSignposter.beginInterval(
+                    "refreshRoomMembersAfterLoad", id: timelineViewSignposter.makeSignpostID())
                 compose.members = await viewModel.roomMembers()
+                timelineViewSignposter.endInterval("refreshRoomMembersAfterLoad", membersState)
+                memberRefreshTask?.cancel()
+                memberRefreshTask = Task { @MainActor in
+                    let refreshState = timelineViewSignposter.beginInterval(
+                        "refreshRoomMembersInBackground",
+                        id: timelineViewSignposter.makeSignpostID())
+                    defer {
+                        timelineViewSignposter.endInterval(
+                            "refreshRoomMembersInBackground", refreshState)
+                    }
+                    let members = await viewModel.refreshRoomMembers()
+                    guard !Task.isCancelled else { return }
+                    compose.members = members
+                }
             }
             .onDisappear {
                 if !readOnly, sendTypingNotifications {
                     Task { await viewModel.setTyping(false) }
                 }
                 memberRefreshTask?.cancel()
+                memberSnapshotTask?.cancel()
                 clearEditLastMessageTarget()
             }
             .onChange(of: viewModel.successorRoomId) { _, newValue in
@@ -267,8 +316,8 @@ struct TimelineView: View {
             }
             .onChange(of: viewModel.events.count) {
                 guard !readOnly else { return }
-                memberRefreshTask?.cancel()
-                memberRefreshTask = Task {
+                memberSnapshotTask?.cancel()
+                memberSnapshotTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(500))
                     guard !Task.isCancelled else { return }
                     compose.members = await viewModel.roomMembers()
@@ -425,6 +474,15 @@ struct TimelineView: View {
                 advanceFullyReadMarker(to: row.message.eventId.value)
             }
         }
+    }
+
+    // MARK: - Initial Load
+
+    private func fetchRoomPermissions() async -> RoomPermissions? {
+        let state = timelineViewSignposter.beginInterval(
+            "fetchRoomPermissions", id: timelineViewSignposter.makeSignpostID())
+        defer { timelineViewSignposter.endInterval("fetchRoomPermissions", state) }
+        return await viewModel.roomPermissions()
     }
 
     // MARK: - Scroll Management

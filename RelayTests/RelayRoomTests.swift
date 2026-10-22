@@ -403,6 +403,44 @@ struct RelayRoomTests {
         #expect(built.memberDetails[UserId(unchecked: "@alice:example.com")]?.displayname == "Alice")
     }
 
+    @Test func memberDetailsBuildsFromStoredRows() async throws {
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let room = SDRoom(roomId: "!test:example.com", membership: "join")
+        let encoder = JSONEncoder()
+        room.powerLevelsContent = try encoder.encode([
+            "users_default": AnyCodable.int(0),
+            "users": AnyCodable.object(["@alice:example.com": .int(50)]),
+        ])
+        room.createEventSender = "@creator:example.com"
+        room.createEventContent = try encoder.encode([
+            "room_version": AnyCodable.string("12"),
+        ])
+        context.insert(room)
+        for (userId, membership, displayName) in [
+            ("@creator:example.com", "join", "Creator"),
+            ("@alice:example.com", "join", "Alice"),
+            ("@invite:example.com", "invite", "Invite"),
+            ("@left:example.com", "leave", "Left"),
+        ] {
+            let member = SDRoomMember(
+                roomId: room.roomId,
+                userId: userId,
+                membership: membership,
+                displayname: displayName)
+            member.room = room
+            context.insert(member)
+        }
+        try context.save()
+
+        let builder = RoomIndexBuilder(container: container, localUser: nil)
+        let members = await builder.memberDetails(roomId: room.roomId)
+        #expect(members.map(\.displayName) == ["Alice", "Creator", "Invite"])
+        #expect(members.first { $0.userId.value == "@creator:example.com" }?.isCreator == true)
+        #expect(members.first { $0.userId.value == "@creator:example.com" }?.powerLevel == .max)
+        #expect(members.first { $0.userId.value == "@alice:example.com" }?.powerLevel == 50)
+    }
+
     @Test func builderPayloadCarriesWindowSendStatesAndMarkers() async throws {
         let container = try MatrixStore.makeInMemory()
         let context = ModelContext(container)

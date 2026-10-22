@@ -27,6 +27,8 @@ import UserNotifications
 
 private nonisolated let relayClientLogger = Logger(
     subsystem: "app.subpop.Relay", category: "RelayClient")
+private nonisolated let syncSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "SyncStore")
 
 /// The central client coordinator, replacing `MatrixService`.
 ///
@@ -410,9 +412,6 @@ final class RelayClient {
     /// Last full `/members` refresh per room, throttling mention-list
     /// refetches so timeline event bursts don't hammer the server.
     private var fullMembersRefreshAt: [String: Date] = [:]
-    /// Last full member map per room, so throttled callers still overlay
-    /// the complete list while the background cache rebuild catches up.
-    private var fullMembersCache: [String: [UserId: MemberContent]] = [:]
     private let avatarCache = NSCache<NSString, NSImage>()
     private let intentDonation = IntentDonationService()
     private var monitor: NWPathMonitor?
@@ -1684,13 +1683,9 @@ final class RelayClient {
 
     // MARK: - Room Administration
 
-    /// Full room details (members, permissions, power levels).
-    ///
-    /// Assembled live by the SDK; Relay overlays the DM display
-    /// heuristic. Falls back to the locally cached store rows when the
-    /// server fetch fails, so inspector UI never stalls on a spinner.
-    /// The fallback omits permissions, power levels, and roles, which
-    /// require full state. Failures are logged for diagnosis.
+    /// Full room details (members, permissions, power levels), assembled
+    /// live by the SDK. Inspector views show `cachedRoomDetails` first and
+    /// use this result to refresh fields not represented in the store.
     func roomDetails(roomId: String) async -> RoomDetails? {
         guard let client else { return nil }
         let matrixRoomId = RoomId(unchecked: roomId)
@@ -1699,6 +1694,7 @@ final class RelayClient {
                 matrixRoomId,
                 localUser: client.userId,
                 isDirect: storedRoom(matrixRoomId)?.isDirect ?? false)
+            await scheduleRoomCacheRebuild().value
             let storedIsSpace = storedRoom(matrixRoomId)?.isSpace ?? false
             details.isDirect = RoomPresentation.presentsAsDirect(
                 isDirect: details.isDirect,
@@ -1709,13 +1705,15 @@ final class RelayClient {
         } catch {
             relayClientLogger.warning(
                 "Full room details failed, using cached store rows: \(error.localizedDescription, privacy: .public)")
-            return cachedRoomDetails(roomId: matrixRoomId)
+            return await cachedRoomDetails(roomId: roomId)
         }
     }
 
-    /// Best-effort room details from locally cached state (no network).
-    private func cachedRoomDetails(roomId: RoomId) -> RoomDetails? {
-        guard let room = storedRoom(roomId) else { return nil }
+    /// Best-effort room details and member roles from the local store.
+    func cachedRoomDetails(roomId: String) async -> RoomDetails? {
+        let matrixRoomId = RoomId(unchecked: roomId)
+        guard let room = storedRoom(matrixRoomId) else { return nil }
+        let members = await roomMemberDetails(roomId: matrixRoomId)
         return RoomDetails(
             id: room.roomId,
             name: room.name,
@@ -1727,12 +1725,7 @@ final class RelayClient {
             canonicalAlias: room.canonicalAlias,
             alternativeAliases: room.altAliases,
             memberCount: room.memberCount,
-            members: room.memberDetails.map { userId, content in
-                RoomMemberDetails(
-                    userId: userId,
-                    displayName: content.displayname,
-                    avatarURL: content.avatarUrl.flatMap { try? MXCURI($0) })
-            }.sorted { $0.resolvedName < $1.resolvedName },
+            members: members,
             pinnedEventIds: room.pinnedEventIds,
             joinRule: nil,
             historyVisibility: nil,
@@ -2824,6 +2817,10 @@ final class RelayClient {
     }
 
     private func handleSyncDelta(_ delta: SyncDelta) async {
+        let state = syncSignposter.beginInterval(
+            "handleSyncDelta", id: syncSignposter.makeSignpostID(),
+            "joined rooms \(delta.joined.count)")
+        defer { syncSignposter.endInterval("handleSyncDelta", state) }
         syncStats.record(delta: delta)
         // The writer persisted this delta before fanning it out, so the
         // cache rebuild below observes it. Revision bumps wake timelines.
@@ -3252,55 +3249,41 @@ final class RelayClient {
             ?? cachedInvitedRooms.first(where: { $0.roomId == roomId })
     }
 
-    /// Member map for a room, preferring the cache, falling back to a
-    /// direct store read.
-    func roomMembersMap(roomId: RoomId) -> [UserId: MemberContent] {
+    /// Member map for a room, preferring the rebuilt cache and falling back
+    /// to a store query on the room-index actor.
+    func roomMembersMap(roomId: RoomId) async -> [UserId: MemberContent] {
         if let cached = storedRoom(roomId) {
             return cached.memberDetails
         }
-        guard let members = try? storeReader?.members(roomId) else { return [:] }
-        return Dictionary(
-            uniqueKeysWithValues: members.map {
-                ($0.userId, MemberContent(
-                    membership: $0.membership,
-                    displayname: $0.displayname,
-                    avatarUrl: $0.avatarUrl))
-            })
+        guard let roomIndex else { return [:] }
+        return await roomIndex.memberMap(roomId: roomId.value)
     }
 
-    /// Full member map fetched from the server (`GET /rooms/{roomId}/members`).
+    /// Member details and roles from the normalized store, built by the
+    /// room-index actor rather than on the main actor.
+    func roomMemberDetails(roomId: RoomId) async -> [RoomMemberDetails] {
+        guard let roomIndex else { return [] }
+        return await roomIndex.memberDetails(roomId: roomId.value)
+    }
+
+    /// Refresh the full member list into the normalized store
+    /// (`GET /rooms/{roomId}/members`).
     ///
     /// The store only learns members from sync state deltas, and the initial
     /// sync uses a lean filter with lazy-loaded members (only members in the
-    /// timeline). Inactive members are therefore absent from
-    /// ``roomMembersMap(roomId:)``, which breaks `@` mention autocomplete.
-    /// This fetches the complete list, merges profiles into the store for
-    /// future offline reads, and returns the full map. Results are throttled
-    /// to one fetch per room every 5 minutes unless `force` is set; throttled
-    /// calls and failures return the last fetched map (nil when never
-    /// fetched) so callers fall back to the cached map.
-    func refreshRoomMembers(roomId: RoomId, force: Bool = false) async -> [UserId: MemberContent]? {
+    /// timeline). This fetch fills in the remaining profiles in the store.
+    /// Results are throttled to one fetch per room every 5 minutes unless
+    /// `force` is set.
+    func refreshRoomMembers(roomId: RoomId, force: Bool = false) async {
         if !force, let last = fullMembersRefreshAt[roomId.value],
            Date().timeIntervalSince(last) < 300 {
-            return fullMembersCache[roomId.value]
+            return
         }
-        guard let client else { return fullMembersCache[roomId.value] }
-        guard let infos = try? await client.rooms.members(roomId) else {
-            return fullMembersCache[roomId.value]
-        }
+        guard let client,
+              (try? await client.rooms.members(roomId)) != nil
+        else { return }
         fullMembersRefreshAt[roomId.value] = Date()
-        var full: [UserId: MemberContent] = [:]
-        full.reserveCapacity(infos.count)
-        for info in infos {
-            let userId = UserId(unchecked: info.stateKey)
-            full[userId] = info.content
-        }
-        fullMembersCache[roomId.value] = full
-        if let writer = storeWriter {
-            try? await writer.mergeMemberProfiles(full, roomId: roomId)
-            scheduleRoomCacheRebuild()
-        }
-        return full
+        await scheduleRoomCacheRebuild().value
     }
 
     /// Live-window payload for a room, fetched off the main actor (see

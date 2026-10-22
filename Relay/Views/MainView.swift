@@ -13,8 +13,11 @@
 // limitations under the License.
 
 import MatrixKit
+import OSLog
 import SwiftUI
 
+private nonisolated let mainViewSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "RoomSwitch")
 /// The primary navigation view shown after login, with a room list sidebar and detail area.
 struct MainView: View {
     @Environment(RelayClient.self) private var client
@@ -126,6 +129,7 @@ struct MainView: View {
             searchModel.updateSearch(client: client, roomId: selectedRoomId)
         }
         .onChange(of: selectedRoomId) { _, roomId in
+            mainViewSignposter.emitEvent("roomSelectionChanged")
             guard searchModel.isActive else { return }
             searchModel.errorReporter = errorReporter
             searchModel.selectedRoomChanged(client: client, roomId: roomId)

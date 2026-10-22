@@ -61,8 +61,15 @@ final class TimelineInspectorViewModel {
         self.client = client
         isLoading = true
         loadError = nil
-        details = await client.roomDetails(roomId: roomId)
-        allMembers = details?.members ?? []
+        if let cached = await client.cachedRoomDetails(roomId: roomId) {
+            details = cached
+            allMembers = cached.members
+            isLoading = false
+        }
+        if let fetched = await client.roomDetails(roomId: roomId) {
+            details = fetched
+            allMembers = fetched.members
+        }
         if details == nil {
             loadError = "Couldn't load room details."
         }
@@ -78,6 +85,10 @@ final class TimelineInspectorViewModel {
     func loadAllMembers() async {
         guard let client, !isLoadingMembers else { return }
         isLoadingMembers = true
+        if let cached = await client.cachedRoomDetails(roomId: roomId) {
+            allMembers = cached.members
+            details = cached
+        }
         if let fetched = await client.roomDetails(roomId: roomId) {
             allMembers = fetched.members
             details = fetched
