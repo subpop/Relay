@@ -14,6 +14,7 @@
 
 import AppKit
 import Foundation
+import MatrixKit
 
 // MARK: - KeyBackupSetupViewModel
 
@@ -27,7 +28,9 @@ final class KeyBackupSetupViewModel: Identifiable {
         case intro
         case creating
         /// The backup exists; this is the only time its recovery key is shown.
-        case created(recoveryKey: String)
+        /// `usableElsewhere` is true when the key also unlocks the account's
+        /// message keys and identity in other apps.
+        case created(recoveryKey: String, usableElsewhere: Bool)
         case failed(String)
     }
 
@@ -39,15 +42,15 @@ final class KeyBackupSetupViewModel: Identifiable {
 
     private(set) var didCopyRecoveryKey = false
 
-    private let create: () async throws -> String
+    private let create: () async throws -> NewKeyBackup
     private let copy: @MainActor (String) -> Void
 
     /// - Parameters:
-    ///   - create: Creates the backup and returns its recovery key.
+    ///   - create: Creates the backup and returns it with its recovery key.
     ///   - copy: Puts the recovery key on the pasteboard. The default
     ///     marks it concealed so clipboard managers skip it.
     init(
-        create: @escaping () async throws -> String,
+        create: @escaping () async throws -> NewKeyBackup,
         copy: @escaping @MainActor (String) -> Void = KeyBackupSetupViewModel.copyConcealed
     ) {
         self.create = create
@@ -56,7 +59,7 @@ final class KeyBackupSetupViewModel: Identifiable {
 
     /// The recovery key, once created.
     var recoveryKey: String? {
-        if case .created(let key) = state { return key }
+        if case .created(let key, _) = state { return key }
         return nil
     }
 
@@ -76,7 +79,10 @@ final class KeyBackupSetupViewModel: Identifiable {
         }
         state = .creating
         do {
-            state = .created(recoveryKey: try await create())
+            let backup = try await create()
+            state = .created(
+                recoveryKey: backup.recoveryKey,
+                usableElsewhere: backup.storedInSecretStorage)
         } catch {
             state = .failed(error.localizedDescription)
         }

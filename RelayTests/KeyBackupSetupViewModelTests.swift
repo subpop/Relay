@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import MatrixKit
 import Testing
 
 @testable import Relay
@@ -22,20 +23,32 @@ import Testing
 @MainActor
 struct KeyBackupSetupViewModelTests {
 
+    private static func backup(elsewhere: Bool = false) -> NewKeyBackup {
+        NewKeyBackup(
+            version: "1", recoveryKey: "EsTa 1b2c", storedInSecretStorage: elsewhere)
+    }
+
     private struct SetupFailure: LocalizedError {
         var errorDescription: String? { "Server said no" }
     }
 
     @Test func creatingShowsTheRecoveryKey() async {
-        let model = KeyBackupSetupViewModel(create: { "EsTa 1b2c" }, copy: { _ in })
+        let model = KeyBackupSetupViewModel(create: { Self.backup() }, copy: { _ in })
         #expect(model.state == .intro)
         await model.createBackup()
-        #expect(model.state == .created(recoveryKey: "EsTa 1b2c"))
+        #expect(model.state == .created(recoveryKey: "EsTa 1b2c", usableElsewhere: false))
         #expect(model.recoveryKey == "EsTa 1b2c")
     }
 
+    @Test func secretStorageMakesTheKeyUsableElsewhere() async {
+        let model = KeyBackupSetupViewModel(
+            create: { Self.backup(elsewhere: true) }, copy: { _ in })
+        await model.createBackup()
+        #expect(model.state == .created(recoveryKey: "EsTa 1b2c", usableElsewhere: true))
+    }
+
     @Test func theSheetCannotCloseUntilTheKeyIsSaved() async {
-        let model = KeyBackupSetupViewModel(create: { "EsTa 1b2c" }, copy: { _ in })
+        let model = KeyBackupSetupViewModel(create: { Self.backup() }, copy: { _ in })
         #expect(model.canFinish)
         await model.createBackup()
         #expect(!model.canFinish)
@@ -49,7 +62,7 @@ struct KeyBackupSetupViewModelTests {
             create: {
                 attempts += 1
                 if attempts == 1 { throw SetupFailure() }
-                return "EsTa 1b2c"
+                return Self.backup()
             },
             copy: { _ in })
         await model.createBackup()
@@ -65,7 +78,7 @@ struct KeyBackupSetupViewModelTests {
         let model = KeyBackupSetupViewModel(
             create: {
                 attempts += 1
-                return "EsTa 1b2c"
+                return Self.backup()
             },
             copy: { _ in })
         await model.createBackup()
@@ -77,7 +90,7 @@ struct KeyBackupSetupViewModelTests {
     @Test func copyingNeedsAKey() async {
         var copied: [String] = []
         let model = KeyBackupSetupViewModel(
-            create: { "EsTa 1b2c" }, copy: { copied.append($0) })
+            create: { Self.backup() }, copy: { copied.append($0) })
         model.copyRecoveryKey()
         #expect(copied.isEmpty)
         #expect(!model.didCopyRecoveryKey)

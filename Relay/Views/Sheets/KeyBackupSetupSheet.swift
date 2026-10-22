@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import SwiftUI
 
 // MARK: - Key Backup Setup Sheet
@@ -29,8 +30,8 @@ struct KeyBackupSetupSheet: View {
                 introView
             case .creating:
                 creatingView
-            case .created(let recoveryKey):
-                createdView(recoveryKey: recoveryKey)
+            case .created(let recoveryKey, let usableElsewhere):
+                createdView(recoveryKey: recoveryKey, usableElsewhere: usableElsewhere)
             case .failed(let message):
                 failedView(message: message)
             }
@@ -53,7 +54,7 @@ struct KeyBackupSetupSheet: View {
                 .bold()
             Text("Relay will back up the keys that decrypt your messages to your homeserver, encrypted so that only you can read them.")
                 .multilineTextAlignment(.center)
-            Text("You will get a recovery key. Keep it somewhere safe: it restores your message history on a new device when none of your other devices can share the key.")
+            Text("You will get a recovery key. Keep it somewhere safe: it restores your message history on a new device when none of your other devices can share the keys.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -91,7 +92,7 @@ struct KeyBackupSetupSheet: View {
 
     // MARK: - Created
 
-    private func createdView(recoveryKey: String) -> some View {
+    private func createdView(recoveryKey: String, usableElsewhere: Bool) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.largeTitle)
@@ -102,6 +103,12 @@ struct KeyBackupSetupSheet: View {
                 .bold()
             Text("Save this key now. It will not be shown again.")
                 .multilineTextAlignment(.center)
+            if usableElsewhere {
+                Text("It also unlocks your message keys and identity in other apps, such as Element.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
 
             Text(recoveryKey)
                 .font(.body.monospaced())
@@ -161,12 +168,16 @@ struct KeyBackupSetupSheet: View {
 }
 
 #Preview("Intro") {
-    KeyBackupSetupSheet(viewModel: KeyBackupSetupViewModel(create: { "Es00 0000" }))
+    KeyBackupSetupSheet(viewModel: KeyBackupSetupViewModel(
+        create: { NewKeyBackup(version: "1", recoveryKey: "Es00 0000") }))
 }
 
 #Preview("Created") {
     let model = KeyBackupSetupViewModel(create: {
-        "EsTa 1b2c 3d4e 5f6a 7b8c 9d0e 1f2a 3b4c 5d6e 7f8a"
+        NewKeyBackup(
+            version: "1",
+            recoveryKey: "EsTa 1b2c 3d4e 5f6a 7b8c 9d0e 1f2a 3b4c 5d6e 7f8a",
+            storedInSecretStorage: true)
     })
     return KeyBackupSetupSheet(viewModel: model)
         .task { await model.createBackup() }
