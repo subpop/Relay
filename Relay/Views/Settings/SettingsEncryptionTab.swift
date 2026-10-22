@@ -52,7 +52,7 @@ struct SettingsEncryptionTab: View {
                 )
                 if isBackupEnabled, !client.keyFetch.isRestoring {
                     Button("Restore Key Backup") {
-                        client.startBackupRestoreFromPeers()
+                        client.startBackupRestore()
                     }
                 }
             } header: {

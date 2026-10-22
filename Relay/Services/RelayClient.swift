@@ -1398,16 +1398,33 @@ final class RelayClient {
             from: userId, deviceId: deviceId)
     }
 
-    /// Ask every peer device for the key-backup key and restore it in
-    /// the background via ``keyFetch``. Used by Settings; the
-    /// verification sheet hands keys it already holds to the
-    /// coordinator directly.
-    func startBackupRestoreFromPeers() {
+    /// The key-backup key held on this device, when it belongs to the
+    /// account's current backup. A key left over from a backup that was
+    /// since replaced decrypts nothing, so it reads as absent.
+    func storedBackupKey() async -> Data? {
+        guard
+            let client, let key = await client.secrets.backupKey(),
+            let info = try? await client.backup.backupInfo(),
+            info.accepts(privateKey: key)
+        else { return nil }
+        return key
+    }
+
+    /// Restore the key backup in the background via ``keyFetch``, with
+    /// the key held on this device or, failing that, one asked of every
+    /// peer device. Used by Settings; the verification sheet hands keys
+    /// it already holds to the coordinator directly.
+    func startBackupRestore() {
         guard !keyFetch.isRestoring else { return }
         Task {
             guard await encryptionStatus().backupEnabled else {
                 errorReporter.report(.keyBackupRestoreFailed(
                     "Key backup is not enabled for this account."))
+                return
+            }
+            if let key = await storedBackupKey() {
+                keyFetch.startBackupRestore(
+                    title: "Restoring message history", backupKey: key)
                 return
             }
             guard (try? await requestBackupKey(from: nil)) != nil else {
@@ -2333,8 +2350,9 @@ final class RelayClient {
     /// Start a poll (MSC3381 m.poll.start) in a room, with no local echo.
     ///
     /// Mirrors the plaintext/encrypted branching in MessageSender (which
-    /// has no poll-start API yet): encrypted rooms share the Megolm
-    /// session before sending ciphertext, plaintext rooms send directly.
+    /// has no poll-start API yet): encrypted rooms prepare the Megolm
+    /// session against the room's current members before sending
+    /// ciphertext, plaintext rooms send directly.
     /// Move this into MessageSender once the SDK gains poll creation.
     func startPoll(
         roomId: RoomId, question: String, options: [String],
@@ -2348,12 +2366,7 @@ final class RelayClient {
             question: question, kind: kind,
             maxSelections: max(1, maxSelections), answers: answers)
         if rooms.first(where: { $0.roomId == roomId })?.isEncrypted == true {
-            let joined = rooms.first(where: { $0.roomId == roomId })?.memberDetails
-                .filter { $0.value.membership == .join }.keys.map { $0 } ?? []
-            try await client.roomCrypto.ensureShared(
-                roomId: roomId, users: joined, excludingDevice: client.deviceId)
-            try await client.roomCrypto.sendEncryptedContent(
-                roomId, content, deviceId: client.deviceId)
+            try await client.sendEncryptedContent(roomId, content)
         } else {
             try await client.messages.sendEvent(
                 roomId, eventType: EventType.pollStart.rawValue, content: content)
