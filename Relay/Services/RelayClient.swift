@@ -1405,6 +1405,13 @@ final class RelayClient {
         return try? await client.keyBackupStatus()
     }
 
+    /// Create the account's first key backup and return the recovery key
+    /// to show the user. Throws when the account already has a backup.
+    func setUpKeyBackup() async throws -> String {
+        guard let client else { throw RelayError.notLoggedIn }
+        return try await client.setUpKeyBackup().recoveryKey
+    }
+
     /// Upload every pending message key to the key backup now. Reports a
     /// failure to the user and returns nil; otherwise returns the
     /// resulting status.

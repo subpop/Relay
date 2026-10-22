@@ -38,6 +38,9 @@ struct KeyBackupPresentation: Equatable {
     /// A backup exists to restore message history from.
     let canRestore: Bool
 
+    /// The account has no backup, so this device can create one.
+    let canSetUp: Bool
+
     private static let activeIcon = "arrow.triangle.2.circlepath"
     private static let warningIcon = "exclamationmark.arrow.triangle.2.circlepath"
 
@@ -56,7 +59,7 @@ struct KeyBackupPresentation: Equatable {
                 detail: String(
                     localized: "Relay could not check the key backup. Check your connection and try again.",
                     comment: "Settings: explains why the key backup status is unavailable"),
-                canBackUpNow: false, canRestore: false)
+                canBackUpNow: false, canRestore: false, canSetUp: false)
             return
         }
         guard status.exists else {
@@ -68,7 +71,7 @@ struct KeyBackupPresentation: Equatable {
                 detail: String(
                     localized: "Message keys are not being backed up. You may lose access to encrypted history.",
                     comment: "Settings: warns that encrypted history is not backed up"),
-                canBackUpNow: false, canRestore: false)
+                canBackUpNow: false, canRestore: false, canSetUp: true)
             return
         }
         guard status.isTrusted else {
@@ -84,7 +87,7 @@ struct KeyBackupPresentation: Equatable {
                     : String(
                         localized: "Verify this session to back up message keys.",
                         comment: "Settings: a key backup is not used until this session is verified"),
-                canBackUpNow: false, canRestore: true)
+                canBackUpNow: false, canRestore: true, canSetUp: false)
             return
         }
         var detail = String(
@@ -101,12 +104,12 @@ struct KeyBackupPresentation: Equatable {
                 localized: "Key Backup Active",
                 comment: "Settings: this device is adding message keys to the key backup"),
             detail: detail,
-            canBackUpNow: status.pendingSessions > 0, canRestore: true)
+            canBackUpNow: status.pendingSessions > 0, canRestore: true, canSetUp: false)
     }
 
     private init(
         icon: String, tone: Tone, title: String, detail: String,
-        canBackUpNow: Bool, canRestore: Bool
+        canBackUpNow: Bool, canRestore: Bool, canSetUp: Bool
     ) {
         self.icon = icon
         self.tone = tone
@@ -114,5 +117,6 @@ struct KeyBackupPresentation: Equatable {
         self.detail = detail
         self.canBackUpNow = canBackUpNow
         self.canRestore = canRestore
+        self.canSetUp = canSetUp
     }
 }

@@ -23,6 +23,7 @@ struct SettingsEncryptionTab: View {
     @State private var isRecoveryEnabled = false
     @State private var backupStatus: KeyBackupStatus?
     @State private var isBackingUp = false
+    @State private var setupModel: KeyBackupSetupViewModel?
 
     private var backup: KeyBackupPresentation {
         KeyBackupPresentation(status: backupStatus, isSessionVerified: isSessionVerified)
@@ -64,6 +65,12 @@ struct SettingsEncryptionTab: View {
                         }
                     }
                 }
+                if backup.canSetUp {
+                    Button("Set Up Key Backup…") {
+                        setupModel = KeyBackupSetupViewModel(
+                            create: { try await client.setUpKeyBackup() })
+                    }
+                }
                 if backup.canRestore, !client.keyFetch.isRestoring {
                     Button("Restore Key Backup") {
                         client.startBackupRestore()
@@ -90,6 +97,11 @@ struct SettingsEncryptionTab: View {
         }
         .formStyle(.grouped)
         .task { await loadState() }
+        .sheet(item: $setupModel, onDismiss: {
+            Task { backupStatus = await client.keyBackupStatus() }
+        }, content: { model in
+            KeyBackupSetupSheet(viewModel: model)
+        })
         .onChange(of: client.keyFetch.isRestoring) {
             Task { backupStatus = await client.keyBackupStatus() }
         }

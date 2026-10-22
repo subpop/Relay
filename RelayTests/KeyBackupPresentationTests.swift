@@ -35,11 +35,18 @@ struct KeyBackupPresentationTests {
         #expect(!presentation.canRestore)
     }
 
-    @Test func missingBackupWarnsAndOffersNothing() {
+    @Test func missingBackupWarnsAndOffersSetUp() {
         let presentation = present(KeyBackupStatus())
         #expect(presentation.tone == .warning)
+        #expect(presentation.canSetUp)
         #expect(!presentation.canBackUpNow)
         #expect(!presentation.canRestore)
+    }
+
+    @Test func onlyAMissingBackupCanBeSetUp() {
+        #expect(!present(nil).canSetUp)
+        #expect(!present(KeyBackupStatus(exists: true, isTrusted: false)).canSetUp)
+        #expect(!present(KeyBackupStatus(exists: true, isTrusted: true)).canSetUp)
     }
 
     @Test func untrustedBackupCanBeRestoredButNotUploadedTo() {
