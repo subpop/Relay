@@ -21,7 +21,12 @@ struct SettingsEncryptionTab: View {
     @Environment(RelayClient.self) private var client
     @State private var isSessionVerified = false
     @State private var isRecoveryEnabled = false
-    @State private var isBackupEnabled = false
+    @State private var backupStatus: KeyBackupStatus?
+    @State private var isBackingUp = false
+
+    private var backup: KeyBackupPresentation {
+        KeyBackupPresentation(status: backupStatus, isSessionVerified: isSessionVerified)
+    }
 
     var body: some View {
         Form {
@@ -42,15 +47,24 @@ struct SettingsEncryptionTab: View {
 
             Section {
                 SecurityStatusRow(
-                    // swiftlint:disable:next line_length
-                    icon: isBackupEnabled ? "arrow.triangle.2.circlepath" : "exclamationmark.arrow.triangle.2.circlepath",
-                    color: isBackupEnabled ? .green : .orange,
-                    title: isBackupEnabled ? "Key Backup Enabled" : "Key Backup Not Active",
-                    detail: isBackupEnabled
-                        ? "Message keys are being backed up to the server."
-                        : "Message keys are not being backed up. You may lose access to encrypted history."
+                    icon: backup.icon,
+                    color: backup.tone == .good ? .green : .orange,
+                    title: backup.title,
+                    detail: backup.detail
                 )
-                if isBackupEnabled, !client.keyFetch.isRestoring {
+                if backup.canBackUpNow {
+                    HStack {
+                        Button("Back Up Now") {
+                            Task { await backUpNow() }
+                        }
+                        .disabled(isBackingUp)
+                        if isBackingUp {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                if backup.canRestore, !client.keyFetch.isRestoring {
                     Button("Restore Key Backup") {
                         client.startBackupRestore()
                     }
@@ -76,14 +90,25 @@ struct SettingsEncryptionTab: View {
         }
         .formStyle(.grouped)
         .task { await loadState() }
+        .onChange(of: client.keyFetch.isRestoring) {
+            Task { backupStatus = await client.keyBackupStatus() }
+        }
     }
 
     private func loadState() async {
         await client.refreshVerificationState()
         isSessionVerified = client.isSessionVerified
         let encryption = await client.encryptionStatus()
-        isBackupEnabled = encryption.backupEnabled
         isRecoveryEnabled = encryption.recoveryEnabled
+        backupStatus = await client.keyBackupStatus()
+    }
+
+    private func backUpNow() async {
+        isBackingUp = true
+        defer { isBackingUp = false }
+        if let status = await client.backUpKeysNow() {
+            backupStatus = status
+        }
     }
 
 }

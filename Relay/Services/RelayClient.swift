@@ -1398,6 +1398,26 @@ final class RelayClient {
             from: userId, deviceId: deviceId)
     }
 
+    /// This device's standing with the account's key backup, or nil when
+    /// logged out or the server cannot be reached.
+    func keyBackupStatus() async -> KeyBackupStatus? {
+        guard let client else { return nil }
+        return try? await client.keyBackupStatus()
+    }
+
+    /// Upload every pending message key to the key backup now. Reports a
+    /// failure to the user and returns nil; otherwise returns the
+    /// resulting status.
+    func backUpKeysNow() async -> KeyBackupStatus? {
+        guard let client else { return nil }
+        do {
+            return try await client.backUpKeysNow()
+        } catch {
+            errorReporter.report(.keyBackupUploadFailed(error.localizedDescription))
+            return nil
+        }
+    }
+
     /// The key-backup key held on this device, when it belongs to the
     /// account's current backup. A key left over from a backup that was
     /// since replaced decrypts nothing, so it reads as absent.

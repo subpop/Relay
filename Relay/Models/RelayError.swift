@@ -115,6 +115,9 @@ enum RelayError: LocalizedError, Sendable {
     /// A background key-backup restore failed.
     case keyBackupRestoreFailed(String)
 
+    /// Uploading message keys to the key backup failed.
+    case keyBackupUploadFailed(String)
+
     // MARK: Settings & Profile
 
     /// Notification settings could not be loaded or updated.
@@ -196,6 +199,8 @@ enum RelayError: LocalizedError, Sendable {
             String(localized: "Verification Failed", comment: "Error alert title: device/session cross-signing verification failed")
         case .keyBackupRestoreFailed:
             String(localized: "Could Not Restore Backup", comment: "Error alert title: restoring encryption keys from backup failed")
+        case .keyBackupUploadFailed:
+            String(localized: "Could Not Back Up Keys", comment: "Error alert title: uploading encryption keys to the key backup failed")
         case .notificationSettingsFailed:
             String(localized: "Notification Settings Error", comment: "Error alert title: loading or updating notification settings failed")
         case .sessionsFailed:
@@ -267,6 +272,8 @@ enum RelayError: LocalizedError, Sendable {
         case .verificationFailed(let reason):
             reason
         case .keyBackupRestoreFailed(let reason):
+            reason
+        case .keyBackupUploadFailed(let reason):
             reason
         case .notificationSettingsFailed(let reason):
             reason
