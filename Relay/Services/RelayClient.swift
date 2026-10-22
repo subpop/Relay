@@ -2366,7 +2366,8 @@ final class RelayClient {
             question: question, kind: kind,
             maxSelections: max(1, maxSelections), answers: answers)
         if rooms.first(where: { $0.roomId == roomId })?.isEncrypted == true {
-            try await client.sendEncryptedContent(roomId, content)
+            try await client.sendEncryptedContent(
+                roomId, content, eventType: EventType.pollStart.rawValue)
         } else {
             try await client.messages.sendEvent(
                 roomId, eventType: EventType.pollStart.rawValue, content: content)
