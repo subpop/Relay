@@ -348,6 +348,8 @@
 				es,
 				ja,
 				vi,
+				de,
+				"fr-CA",
 			);
 			mainGroup = 3B4AFD802F638A35001F0EA1;
 			minimizedProjectReferenceProxies = 1;
