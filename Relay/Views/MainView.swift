@@ -113,9 +113,13 @@ struct MainView: View {
                 detailContent
                     .navigationSplitViewColumnWidth(min: 440, ideal: 540)
                     .frame(minHeight: 340)
+                    .toolbar { windowToolbarContent }
             }
             .navigationTitle("")
-            .toolbar { windowToolbarContent }
+            .inspector(isPresented: inspectorPresented) {
+                inspectorContent
+                    .inspectorColumnWidth(260)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -303,11 +307,6 @@ struct MainView: View {
         } else if let room = currentRoom {
             timelineView(for: room)
                 .id(room.roomId.value)
-                .inspector(isPresented: $showInspector) {
-                    inspectorPanel(roomId: room.roomId.value)
-                        .id(room.roomId.value)
-                        .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
-                }
         } else if let selectedSpaceId, let space = client.spaces.first(where: {
             $0.roomId.value == selectedSpaceId
         }) {
@@ -320,17 +319,53 @@ struct MainView: View {
                     showInspector.toggle()
                 }
             )
-            .inspector(isPresented: $showInspector) {
-                spaceInspectorPanel(spaceId: selectedSpaceId)
-                    .id(selectedSpaceId)
-                    .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
-            }
         } else {
             ContentUnavailableView(
                 "No Conversation Selected",
                 systemImage: "bubble.left.and.bubble.right",
                 description: Text("Pick a room from the sidebar to start chatting.")
             )
+        }
+    }
+
+    /// What the inspector is currently showing details for.
+    private enum InspectorTarget {
+        case room(String)
+        case space(String)
+    }
+
+    /// The inspector's subject, or `nil` where the detail column has nothing
+    /// to inspect (search results, invites, empty state).
+    private var inspectorTarget: InspectorTarget? {
+        guard !searchModel.isActive else { return nil }
+        if let room = currentRoom {
+            return room.membership == .invite ? nil : .room(room.roomId.value)
+        }
+        if let selectedSpaceId,
+            client.spaces.contains(where: { $0.roomId.value == selectedSpaceId })
+        {
+            return .space(selectedSpaceId)
+        }
+        return nil
+    }
+
+    private var inspectorPresented: Binding<Bool> {
+        Binding(
+            get: { showInspector && inspectorTarget != nil },
+            set: { showInspector = $0 })
+    }
+
+    @ViewBuilder
+    private var inspectorContent: some View {
+        switch inspectorTarget {
+        case .room(let roomId):
+            inspectorPanel(roomId: roomId)
+                .id(roomId)
+        case .space(let spaceId):
+            spaceInspectorPanel(spaceId: spaceId)
+                .id(spaceId)
+        case nil:
+            EmptyView()
         }
     }
 
