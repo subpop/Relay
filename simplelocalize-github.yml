@@ -1,0 +1,23 @@
+# Documentation: https://simplelocalize.io/docs/integrations/github-app/
+# You can use {lang} and {ns} placeholders in paths
+
+upload:
+  when:
+    push:
+  files:
+    - path: "Relay/Localizable.xcstrings"
+      format: "localizable-xcstrings"
+      language-key: "en"
+      options:
+        - UNIVERSAL_PLACEHOLDERS
+
+download:
+  files:
+    - path: "Relay/Localizable.xcstrings"
+      format: "localizable-xcstrings"
+      options:
+        - UNIVERSAL_PLACEHOLDERS
+
+pull-request:
+ title: "Update translations"
+ body: "This PR updates translations for the project."
