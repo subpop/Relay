@@ -277,8 +277,6 @@ struct MessageBubbleContent: View {
             )
             .padding(.horizontal, BubbleStyle.horizontalPadding)
             .padding(.vertical, BubbleStyle.verticalPadding)
-            .background(BubbleStyle.emote.backgroundColor)
-            .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {
                 sendFailedLabel(reason)
@@ -361,7 +359,7 @@ struct MessageBubbleContent: View {
                 let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
                 let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
                 emoteResult.append(NSAttributedString(
-                    string: "*\(message.displayName)* ",
+                    string: "\(message.displayName) ",
                     attributes: [.font: italicFont]
                 ))
                 emoteResult.append(parsed)
@@ -374,7 +372,7 @@ struct MessageBubbleContent: View {
         let italicDesc = nameFont.fontDescriptor.withSymbolicTraits(.italic)
         let italicFont = NSFont(descriptor: italicDesc, size: nameFont.pointSize) ?? nameFont
         let result = NSMutableAttributedString(
-            string: "*\(message.displayName)* ",
+            string: "\(message.displayName) ",
             attributes: [.font: italicFont]
         )
         result.append(NSAttributedString(matrixMarkdown: message.body))

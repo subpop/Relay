@@ -702,6 +702,11 @@ final class TimelineViewModel {
             }
             return
         }
+        // `/me <action>` is sent as an `m.emote` with the command stripped.
+        let emotePrefix = "/me "
+        let isEmote = text.hasPrefix(emotePrefix)
+            && !text.dropFirst(emotePrefix.count).allSatisfy(\.isWhitespace)
+        let body = isEmote ? String(text.dropFirst(emotePrefix.count)) : text
         let (echoStaged, continuation) = AsyncStream<Void>.makeStream()
         let echoRefreshTask = Task { @MainActor in
             for await _ in echoStaged {
@@ -709,7 +714,8 @@ final class TimelineViewModel {
             }
         }
         await client.messageSender?.sendText(
-            roomID, text, mentions: mentions,
+            roomID, body, mentions: mentions,
+            msgtype: isEmote ? .emote : .text,
             onEchoStaged: { continuation.yield() })
         continuation.finish()
         await echoRefreshTask.value

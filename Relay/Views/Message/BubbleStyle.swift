@@ -105,13 +105,6 @@ struct BubbleStyle {
         )
     }
 
-    /// The bubble style for emote messages (`/me` actions).
-    static let emote = BubbleStyle(
-        backgroundColor: Color.purple.opacity(0.1),
-        foregroundStyle: AnyShapeStyle(.primary),
-        _usesWhiteText: false
-    )
-
     /// Returns the bubble style for special message types (redacted, encrypted, etc.).
     static func special(kind: MessageKind) -> BubbleStyle {
         let background: Color = switch kind {
