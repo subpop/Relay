@@ -18,7 +18,7 @@ download:
     - path: "Relay/Localizable.xcstrings"
       format: "localizable-xcstrings"
       options:
-        - UPDATE_TRANSLATIONS
+        - MULTI_LANGUAGE
 
 pull-request:
   title: "Update translations"
