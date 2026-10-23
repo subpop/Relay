@@ -4,12 +4,15 @@
 upload:
   when:
     push:
+      branches:
+        - main
   files:
     - path: "Relay/Localizable.xcstrings"
       format: "localizable-xcstrings"
       language-key: "en"
       options:
         - UNIVERSAL_PLACEHOLDERS
+        - UPDATE_TRANSLATIONS
 
 download:
   files:
@@ -17,6 +20,7 @@ download:
       format: "localizable-xcstrings"
       options:
         - UNIVERSAL_PLACEHOLDERS
+        - UPDATE_TRANSLATIONS
 
 pull-request:
  title: "Update translations"
