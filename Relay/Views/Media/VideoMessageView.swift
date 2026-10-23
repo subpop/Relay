@@ -37,6 +37,9 @@ struct VideoMessageView: View {
     @State private var isLoadingMedia = false
     @State private var isRevealed = false
     @State private var cachedVideoFileURL: URL?
+    /// Why the video couldn't be loaded, set when QuickLook fell back to
+    /// presenting the thumbnail.
+    @State private var fullSizeError: String?
 
     private var download: MediaFileHelper.Download? {
         message.mediaDownload
@@ -125,6 +128,18 @@ struct VideoMessageView: View {
                     }
                 }
                 .padding(8)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if shouldShow, let fullSizeError {
+                Label("Video unavailable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .clipShape(.capsule)
+                    .padding(8)
+                    .help(fullSizeError)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -230,11 +245,18 @@ struct VideoMessageView: View {
             )
             cachedVideoFileURL = url
             quickLookURL = url
+            fullSizeError = nil
         } catch {
-            errorReporter.report(.mediaPreviewFailed(
-                filename: download.filename,
-                reason: error.localizedDescription
-            ))
+            // Present the thumbnail we already have rather than an alert.
+            if let thumbnail, let url = try? MediaFileHelper.writeThumbnailToTemporaryFile(thumbnail, for: download) {
+                quickLookURL = url
+                fullSizeError = error.localizedDescription
+            } else {
+                errorReporter.report(.mediaPreviewFailed(
+                    filename: download.filename,
+                    reason: error.localizedDescription
+                ))
+            }
         }
     }
 

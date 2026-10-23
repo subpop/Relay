@@ -74,6 +74,29 @@ enum MediaFileHelper {
             .appending(path: uniqueName)
     }
 
+    /// Writes an already-loaded thumbnail to a temporary PNG so QuickLook can
+    /// present it when the full-size content can't be downloaded.
+    ///
+    /// The file is named `<hash>-<base>-thumbnail.png` so it never collides
+    /// with the temporary file for the full content.
+    ///
+    /// - Throws: ``MediaFileError/downloadFailed`` if the image can't be
+    ///   encoded, or the file-system error if it can't be written.
+    static func writeThumbnailToTemporaryFile(_ image: NSImage, for download: Download) throws -> URL {
+        guard let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+        else {
+            throw MediaFileError.downloadFailed
+        }
+
+        let fullURL = temporaryFileURL(for: download)
+        let url = fullURL
+            .deletingLastPathComponent()
+            .appending(path: fullURL.deletingPathExtension().lastPathComponent + "-thumbnail.png")
+        try png.write(to: url)
+        return url
+    }
+
     /// Downloads media content and writes it to a temporary file.
     ///
     /// - Parameters:

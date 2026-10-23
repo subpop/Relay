@@ -45,6 +45,9 @@ struct ImageMessageView: View {
     @State private var quickLookURL: URL?
     @State private var isLoadingFullImage = false
     @State private var isRevealed = false
+    /// Why the full-size image couldn't be loaded, set when QuickLook fell
+    /// back to presenting the thumbnail.
+    @State private var fullSizeError: String?
 
     private var download: MediaFileHelper.Download? {
         message.mediaDownload
@@ -140,6 +143,18 @@ struct ImageMessageView: View {
                     .opacity(isHovering ? 1 : 0)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if shouldShow, let fullSizeError {
+                Label("Full-size image unavailable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .clipShape(.capsule)
+                    .padding(8)
+                    .help(fullSizeError)
+            }
+        }
         .overlay(alignment: .bottomLeading) {
             if shouldShow, let caption = message.caption {
                 Text(caption)
@@ -225,8 +240,16 @@ struct ImageMessageView: View {
             // panel from locating its data source.
             NSApp.keyWindow?.makeFirstResponder(nil)
             quickLookURL = url
+            fullSizeError = nil
         } catch {
-            errorReporter.report(.mediaPreviewFailed(filename: download.filename, reason: error.localizedDescription))
+            // Present the thumbnail we already have rather than an alert.
+            if let image, let url = try? MediaFileHelper.writeThumbnailToTemporaryFile(image, for: download) {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+                quickLookURL = url
+                fullSizeError = error.localizedDescription
+            } else {
+                errorReporter.report(.mediaPreviewFailed(filename: download.filename, reason: error.localizedDescription))
+            }
         }
     }
 
