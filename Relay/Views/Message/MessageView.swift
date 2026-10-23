@@ -66,9 +66,29 @@ struct MessageView: View {
     @Environment(\.swipeOffset) private var swipeOffset
     @Environment(\.swipeIsLocked) private var swipeIsLocked
     @State private var bubbleFrame: CGRect = .zero
+    @State private var senderNameWidth: CGFloat = 0
+    @State private var reactionBadgeWidth: CGFloat = 0
+
+    /// How far the reaction control extends past the bubble's trailing edge
+    /// (see ``MessageReactionBadges``).
+    private static let reactionOverhang: CGFloat = 8
+
+    /// Whether the collapsed reaction control would cover the sender name,
+    /// in which case the name is lifted above the control instead.
+    private var reactionsOverlapSenderName: Bool {
+        isSenderNameVisible && !message.reactions.isEmpty
+            && senderNameWidth > bubbleFrame.width + Self.reactionOverhang - reactionBadgeWidth
+    }
+
+    /// Whether a sender name is displayed above the bubble.
+    private var isSenderNameVisible: Bool {
+        showSenderName && !isOutgoing
+    }
 
     /// Whether reaction badges overlap the top edge, requiring extra top
-    /// padding to avoid clipping.
+    /// padding to avoid covering the content above. The padding goes directly
+    /// above the bubble, or above the sender name when one is shown so the
+    /// badges layer over the name's row without moving the name.
     private var hasTopOverlay: Bool {
         !message.reactions.isEmpty
     }
@@ -122,12 +142,18 @@ struct MessageView: View {
                         }
                     }
 
-                    if showSenderName && !isOutgoing {
+                    if isSenderNameVisible {
                         Text(message.displayName)
                             .scaledChromeFont(.caption1, weight: .medium)
                             .foregroundStyle(.secondary)
                             .padding(.leading, BubbleStyle.horizontalPadding)
-                            .padding(.bottom, 2)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.width
+                            } action: { width in
+                                senderNameWidth = width
+                            }
+                            .padding(.bottom, reactionsOverlapSenderName ? 16 : 2)
+                            .padding(.top, hasTopOverlay ? 11 : 0)
                     }
 
                     messageBubble
@@ -167,11 +193,12 @@ struct MessageView: View {
                     coloredBubbles: coloredBubbles,
                     canSendReactions: actions.permissions?.canSendReactions ?? true,
                     canSendRedactions: actions.permissions?.canSendRedactions ?? true,
-                    onToggle: { key in actions.toggleReaction(message.eventId.value, key) }
+                    onToggle: { key in actions.toggleReaction(message.eventId.value, key) },
+                    onCollapsedWidthChange: { reactionBadgeWidth = $0 }
                 )
             }
         }
-        .padding(.top, hasTopOverlay ? 11 : 0)
+        .padding(.top, hasTopOverlay && !isSenderNameVisible ? 18 : 0)
         .onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .global)
         } action: { newFrame in

@@ -67,6 +67,10 @@ struct MessageReactionBadges: View {
     /// Called with the emoji key when the user taps a reaction badge.
     let onToggle: (String) -> Void
 
+    /// Reports the collapsed control's width, so the enclosing view can tell
+    /// whether the control would overlap content above the bubble.
+    var onCollapsedWidthChange: ((CGFloat) -> Void)? = nil
+
     /// The diameter of each reaction badge circle and the smiley button.
     private static let badgeSize: CGFloat = 22
 
@@ -86,7 +90,12 @@ struct MessageReactionBadges: View {
                     .transition(expandTransition)
             } else {
                 collapsedPreview
-                    .background(Capsule().fill(.ultraThickMaterial))
+                    .background(Capsule().fill(.ultraThinMaterial))
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        onCollapsedWidthChange?(width)
+                    }
                     .transition(expandTransition)
             }
         }
