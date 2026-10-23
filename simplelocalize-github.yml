@@ -7,7 +7,7 @@ upload:
   files:
     - path: "Relay/Localizable.xcstrings"
       format: "localizable-xcstrings"
-      language-key: "en_US"
+      language-key: "en"
       options:
         - UNIVERSAL_PLACEHOLDERS
 
