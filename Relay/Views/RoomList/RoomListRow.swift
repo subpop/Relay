@@ -19,12 +19,11 @@ import SwiftUI
 struct RoomListRow: View {
     let room: RoomRowData
 
-    @Environment(\.hasSpaceRail) private var hasSpaceRail
     @Environment(\.roomListMeasuredWidth) private var sharedWidth
     @AppStorage("appearance.showUnreadCounts") private var showUnreadCounts = true
     @State private var rowWidth: CGFloat = 0
 
-    private static let compactThreshold: CGFloat = 100
+    private static let compactThreshold: CGFloat = 10
 
     /// The width to use for the compact/full decision: the room list's
     /// shared, settle-gated width when available, falling back to this
@@ -33,8 +32,7 @@ struct RoomListRow: View {
     private var measuredWidth: CGFloat { sharedWidth ?? rowWidth }
 
     private var isCompact: Bool {
-        let effectiveWidth = hasSpaceRail ? measuredWidth : measuredWidth - SpaceRail.width
-        return effectiveWidth < Self.compactThreshold
+        measuredWidth < Self.compactThreshold
     }
 
     /// Whether the room name should appear bold (has notification-worthy unread activity).

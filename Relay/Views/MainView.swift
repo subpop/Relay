@@ -106,7 +106,7 @@ struct MainView: View {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebarColumn
                     .navigationSplitViewColumnWidth(
-                        min: 110,
+                        min: 100,
                         ideal: 250,
                         max: 310)
             } detail: {
