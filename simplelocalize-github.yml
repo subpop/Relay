@@ -21,5 +21,5 @@ download:
         - UPDATE_TRANSLATIONS
 
 pull-request:
- title: "Update translations"
- body: "This PR updates translations for the project."
+  title: "Update translations"
+  body: "This PR updates translations for the project."
