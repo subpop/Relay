@@ -14,6 +14,7 @@
 
 import MatrixKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Verification Sheet
 
@@ -28,6 +29,7 @@ struct VerificationSheet: View {
     var viewModel: SessionVerificationViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var recoveryInput = ""
+    @State private var isChoosingRecoveryFile = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -249,10 +251,26 @@ struct VerificationSheet: View {
             SecureField("Recovery Key", text: $recoveryInput)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
+                .overlay(alignment: .trailing) {
+                    Button("Choose File…", systemImage: "folder") {
+                        isChoosingRecoveryFile = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 6)
+                    .help("Choose a file containing your recovery key")
+                }
                 .padding(.horizontal, 32)
                 .onSubmit {
                     guard !recoveryInput.isEmpty else { return }
                     submitRecoveryKey()
+                }
+                .fileImporter(
+                    isPresented: $isChoosingRecoveryFile,
+                    allowedContentTypes: [.plainText]
+                ) { result in
+                    loadRecoveryKey(from: result)
                 }
 
             Spacer()
@@ -270,6 +288,17 @@ struct VerificationSheet: View {
             }
             .padding()
         }
+    }
+
+    /// Fills the recovery key field from a text file the user picked.
+    private func loadRecoveryKey(from result: Result<URL, any Error>) {
+        guard case .success(let url) = result else { return }
+        let didStartAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess { url.stopAccessingSecurityScopedResource() }
+        }
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return }
+        recoveryInput = contents.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func submitRecoveryKey() {
@@ -424,4 +453,75 @@ struct VerificationSheet: View {
             .padding()
         }
     }
+}
+
+// MARK: - Previews
+
+/// A model parked in `state`, with no session behind it.
+@MainActor
+private func previewModel(
+    _ state: SessionVerificationState,
+    hasOtherDevices: Bool = true
+) -> SessionVerificationViewModel {
+    let model = SessionVerificationViewModel(client: RelayClient())
+    model.state = state
+    model.hasOtherDevices = hasOtherDevices
+    return model
+}
+
+#Preview("Idle") {
+    VerificationSheet(viewModel: previewModel(.idle))
+}
+
+#Preview("Idle, no other devices") {
+    VerificationSheet(viewModel: previewModel(.idle, hasOtherDevices: false))
+}
+
+#Preview("Incoming request") {
+    VerificationSheet(viewModel: previewModel(.incomingRequest))
+}
+
+#Preview("Waiting for other device") {
+    VerificationSheet(viewModel: previewModel(.waitingForOtherDevice))
+}
+
+#Preview("Compare emoji") {
+    let model = previewModel(.showingEmojis)
+    model.emojis = Array(CryptoPrimitives.sasEmojiTable.prefix(7))
+    return VerificationSheet(viewModel: model)
+}
+
+#Preview("Waiting for approval") {
+    VerificationSheet(viewModel: previewModel(.waitingForApproval))
+}
+
+#Preview("Awaiting backup key") {
+    VerificationSheet(viewModel: previewModel(.awaitingBackupKey))
+}
+
+#Preview("Enter recovery key") {
+    VerificationSheet(viewModel: previewModel(.enteringRecovery))
+}
+
+#Preview("Recovering") {
+    let model = previewModel(.recovering)
+    model.recoveryProgress = KeyFetchProgress(phase: .importing, completed: 40, total: 100)
+    return VerificationSheet(viewModel: model)
+}
+
+#Preview("Restore message history") {
+    VerificationSheet(viewModel: previewModel(.awaitingBackupRestore))
+}
+
+#Preview("Verified") {
+    VerificationSheet(viewModel: previewModel(.verified))
+}
+
+#Preview("Cancelled") {
+    VerificationSheet(viewModel: previewModel(.cancelled))
+}
+
+#Preview("Failed") {
+    VerificationSheet(
+        viewModel: previewModel(.failed("The other device did not respond.")))
 }
