@@ -3069,11 +3069,11 @@ final class RelayClient {
         sessionStartedAt = Date()
     }
 
-    /// Append a notable moment to the Activity window feed (capped at 20).
+    /// Append a notable moment to the Activity window feed (capped at 10).
     private func recordActivity(_ text: String) {
         recentActivity.append(ActivityEntry(text: text))
-        if recentActivity.count > 20 {
-            recentActivity.removeFirst(recentActivity.count - 20)
+        if recentActivity.count > 10 {
+            recentActivity.removeFirst(recentActivity.count - 10)
         }
     }
 
