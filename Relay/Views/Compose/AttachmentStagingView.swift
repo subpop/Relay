@@ -28,6 +28,10 @@ struct AttachmentStagingView: View {
                 ForEach(compose.attachments) { attachment in
                     AttachmentThumbnail(
                         attachment: attachment,
+                        isOversized: compose.isOversized(attachment),
+                        maxUploadSize: compose.maxUploadSize,
+                        isPublishing: compose.publishingAttachmentId == attachment.id,
+                        onCancelPublish: compose.cancelICloudLink,
                         isEditingCaption: compose.editingCaptionId == attachment.id,
                         onEditCaption: {
                             withAnimation(.easeOut(duration: 0.15)) {
@@ -70,6 +74,10 @@ struct AttachmentStagingView: View {
 /// filename underneath, similar to a Finder icon view.
 struct AttachmentThumbnail: View {
     let attachment: StagedAttachment
+    var isOversized = false
+    var maxUploadSize: Int?
+    var isPublishing = false
+    var onCancelPublish: () -> Void = {}
     let isEditingCaption: Bool
     var onEditCaption: () -> Void
     var onFinishCaption: () -> Void
@@ -84,6 +92,15 @@ struct AttachmentThumbnail: View {
         VStack(alignment: .leading, spacing: 4) {
             ZStack(alignment: .topTrailing) {
                 thumbnailContent
+                    .overlay { UploadingOverlay(isPublishing: isPublishing, onCancel: onCancelPublish) }
+                    .overlay(alignment: .bottomTrailing) {
+                        if isOversized, !isPublishing {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .symbolRenderingMode(.multicolor)
+                                .padding(4)
+                                .help(oversizedHelp)
+                        }
+                    }
 
                 Button("Remove", systemImage: "xmark.circle.fill", action: onRemove)
                     .labelStyle(.iconOnly)
@@ -98,6 +115,14 @@ struct AttachmentThumbnail: View {
             }
         }
         .fixedSize()
+    }
+
+    private var oversizedHelp: String {
+        guard let maxUploadSize else { return "" }
+        let limit = Int64(maxUploadSize).formatted(.byteCount(style: .file))
+        return String(
+            localized: "This file is larger than the server's \(limit) upload limit.",
+            comment: "Tooltip on a staged attachment that exceeds the homeserver's upload size limit")
     }
 
     @ViewBuilder
@@ -144,6 +169,28 @@ struct AttachmentThumbnail: View {
                     .lineLimit(1...2)
             }
             .buttonStyle(.plain)
+        }
+    }
+}
+
+/// A progress overlay shown on an attachment while it uploads to iCloud.
+private struct UploadingOverlay: View {
+    let isPublishing: Bool
+    var onCancel: () -> Void
+
+    var body: some View {
+        if isPublishing {
+            VStack(spacing: 4) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Uploading to iCloud…")
+                    .font(.caption2)
+                Button("Cancel", action: onCancel)
+                    .controlSize(.small)
+            }
+            .padding(4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.regularMaterial, in: .rect(cornerRadius: 8))
         }
     }
 }

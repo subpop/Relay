@@ -84,6 +84,29 @@ final class ComposeViewModel {
     /// The ID of the attachment whose caption field is being edited inline.
     var editingCaptionId: UUID?
 
+    // MARK: - Size Limits
+
+    /// The largest message body Relay sends as an event, in bytes. Matrix
+    /// caps events at 64 KiB; this leaves room for the event envelope and
+    /// encryption overhead.
+    static let maxEventContentSize = 40_000
+
+    /// The server's upload limit in bytes, or `nil` when unknown or unlimited.
+    var maxUploadSize: Int?
+
+    /// Whether the draft text is too long to send as a message.
+    var isShowingOversizedTextAlert = false
+
+    /// The staged attachment that exceeds the server's upload limit, while
+    /// its alert is presented.
+    var oversizedAttachment: StagedAttachment?
+
+    /// The ID of the attachment being uploaded to iCloud for a link.
+    var publishingAttachmentId: UUID?
+
+    @ObservationIgnored
+    private var linkTask: Task<Void, Never>?
+
     // MARK: - Text View Bridge
 
     /// Closure set by ``ComposeTextView`` to insert a mention pill into the text view.
@@ -197,6 +220,16 @@ final class ComposeViewModel {
         )
         let messageText = markdownWithMentions().trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Keep the draft intact and ask the user how to proceed.
+        if Self.exceedsEventSizeLimit(messageText) {
+            isShowingOversizedTextAlert = true
+            return
+        }
+        if let oversized = pendingAttachments.first(where: isOversized) {
+            oversizedAttachment = oversized
+            return
+        }
+
         if let editing = editingMessage {
             let editId = editing.eventId.value
             text = ""
@@ -245,6 +278,95 @@ final class ComposeViewModel {
             await typingStop
             client.donateOutgoingInteraction(roomId: viewModel.roomId)
         }
+    }
+
+    // MARK: - Oversized Content
+
+    /// Whether `text`, once converted to a Matrix message, is too large to send.
+    static func exceedsEventSizeLimit(_ text: String) -> Bool {
+        let content = MessageContent.markdown(text)
+        guard let data = try? JSONEncoder().encode(content) else { return false }
+        return data.count > maxEventContentSize
+    }
+
+    /// Whether the attachment is larger than the server accepts.
+    func isOversized(_ attachment: StagedAttachment) -> Bool {
+        guard let maxUploadSize else { return false }
+        return attachment.fileSize > maxUploadSize
+    }
+
+    /// Replaces the draft text with a `Message.txt` attachment and sends.
+    func sendTextAsFile(
+        using viewModel: TimelineViewModel,
+        client: RelayClient,
+        sendTypingNotifications: Bool,
+        errorReporter: ErrorReporter,
+        onScrollToBottom: (() -> Void)? = nil
+    ) {
+        let messageText = markdownWithMentions().trimmingCharacters(in: .whitespacesAndNewlines)
+        let folder = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString, directoryHint: .isDirectory)
+        let fileURL = folder.appending(path: "Message.txt", directoryHint: .notDirectory)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try messageText.write(to: fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            errorReporter.report(
+                .fileCopyFailed(filename: "Message.txt", reason: error.localizedDescription))
+            return
+        }
+        text = ""
+        mentions = []
+        attachments.append(StagedAttachment(url: fileURL, filename: "Message.txt", thumbnail: nil))
+        send(
+            using: viewModel, client: client,
+            sendTypingNotifications: sendTypingNotifications,
+            onScrollToBottom: onScrollToBottom)
+    }
+
+    /// Uploads the attachment to iCloud Drive, then sends a link to it in
+    /// place of the file along with the rest of the draft.
+    func sendICloudLink(
+        for attachment: StagedAttachment,
+        using viewModel: TimelineViewModel,
+        client: RelayClient,
+        sendTypingNotifications: Bool,
+        errorReporter: ErrorReporter,
+        onScrollToBottom: (() -> Void)? = nil
+    ) {
+        guard publishingAttachmentId == nil else { return }
+        publishingAttachmentId = attachment.id
+        linkTask = Task {
+            defer {
+                publishingAttachmentId = nil
+                linkTask = nil
+            }
+            do {
+                let link = try await ICloudLinkPublisher.publishLink(
+                    for: attachment.url, filename: attachment.filename)
+                guard attachments.contains(where: { $0.id == attachment.id }) else { return }
+                attachments.removeAll { $0.id == attachment.id }
+                let size = Int64(attachment.fileSize).formatted(.byteCount(style: .file))
+                let line = "[\(attachment.filename)](\(link.absoluteString)) (\(size))"
+                text = text.isEmpty ? line : text + "\n" + line
+                send(
+                    using: viewModel, client: client,
+                    sendTypingNotifications: sendTypingNotifications,
+                    onScrollToBottom: onScrollToBottom)
+            } catch is CancellationError {
+                return
+            } catch {
+                logger.error("iCloud link failed for \(attachment.filename): \(error)")
+                errorReporter.report(
+                    .iCloudLinkFailed(
+                        filename: attachment.filename, reason: error.localizedDescription))
+            }
+        }
+    }
+
+    /// Cancels an in-progress iCloud upload.
+    func cancelICloudLink() {
+        linkTask?.cancel()
     }
 
     private func stopTypingNotification(

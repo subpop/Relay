@@ -52,11 +52,13 @@ final class ActivityViewModel {
         }
     }
 
-    /// Fetch slow-changing state (trust counts, capabilities).
+    /// Fetch slow-changing state (trust counts, capabilities, upload limit).
     private func refreshSlowState() async {
         async let counts = client.otherDeviceVerificationCounts()
         async let capabilities = client.serverCapabilities()
+        async let uploadLimit: Void = client.refreshUploadSizeLimit()
         deviceCounts = await counts
         self.capabilities = await capabilities
+        await uploadLimit
     }
 }

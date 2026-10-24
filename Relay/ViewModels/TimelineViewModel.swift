@@ -788,7 +788,13 @@ final class TimelineViewModel {
             thumbnailData: thumbnailData, thumbnailMimeType: "image/jpeg",
             inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
             onEchoStaged: { echoStagedContinuation.yield() },
-            onProgress: { continuation.yield($0) })
+            onProgress: { continuation.yield($0) },
+            onFailure: { [client, size = data.count] error in
+                guard case .serverError(code: "M_TOO_LARGE", _, _) = error as? MatrixError else {
+                    return
+                }
+                Task { @MainActor in client.noteUploadTooLarge(size: size) }
+            })
         continuation.finish()
         echoStagedContinuation.finish()
         await consumer.value

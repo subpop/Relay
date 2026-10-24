@@ -589,6 +589,8 @@ final class RelayClient {
         self.client = nil
         authState = .loggedOut
         remoteSignOutNoticed = false
+        advertisedUploadLimit = nil
+        learnedUploadLimit = nil
         syncState = .idle
         hasLoadedRooms = false
         isSessionVerified = false
@@ -1248,6 +1250,34 @@ final class RelayClient {
     func serverCapabilities() async -> ServerCapabilities? {
         guard let client else { return nil }
         return try? await client.auth.capabilities()
+    }
+
+    /// The largest upload the server is known to accept, in bytes: the
+    /// smaller of the limit it advertises and the limit learned from a
+    /// rejected upload (e.g. a proxy's cap the server doesn't advertise).
+    /// Nil when neither is known.
+    var uploadSizeLimit: Int? {
+        [advertisedUploadLimit, learnedUploadLimit].compactMap(\.self).min()
+    }
+
+    private var advertisedUploadLimit: Int?
+    private var learnedUploadLimit: Int?
+
+    /// Fetches the upload limit the server advertises (`m.upload.size`).
+    func refreshUploadSizeLimit() async {
+        guard let client else { return }
+        do {
+            advertisedUploadLimit = try await client.media.config().uploadSize
+        } catch {
+            relayClientLogger.warning(
+                "Media config lookup failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Records that an upload of `size` bytes was rejected as too large, so
+    /// files at least that big are flagged before they're sent.
+    func noteUploadTooLarge(size: Int) {
+        learnedUploadLimit = min(learnedUploadLimit ?? .max, size - 1)
     }
 
     /// Decline the pending incoming verification request.

@@ -86,6 +86,61 @@ struct TimelineBottomBar: View {
         )
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+        .task { await client.refreshUploadSizeLimit() }
+        .onChange(of: client.uploadSizeLimit, initial: true) { _, limit in
+            compose.maxUploadSize = limit
+        }
+        .alert("Message Too Long", isPresented: $compose.isShowingOversizedTextAlert) {
+            if compose.editingMessage == nil {
+                Button("Send as File") {
+                    compose.sendTextAsFile(
+                        using: viewModel, client: client,
+                        sendTypingNotifications: sendTypingNotifications,
+                        errorReporter: errorReporter
+                    ) {
+                        onSendWillScroll()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } else {
+                Button("OK", role: .cancel) {}
+            }
+        } message: {
+            if compose.editingMessage == nil {
+                Text("This message is too long to send as text. You can send it as a text file instead.")
+            } else {
+                Text("This message is too long to send as text. Shorten it to save the edit.")
+            }
+        }
+        .alert(
+            "File Too Large",
+            isPresented: Binding(
+                get: { compose.oversizedAttachment != nil },
+                set: { if !$0 { compose.oversizedAttachment = nil } }),
+            presenting: compose.oversizedAttachment
+        ) { attachment in
+            if ICloudLinkPublisher.isAvailable {
+                Button("Send iCloud Link") {
+                    compose.sendICloudLink(
+                        for: attachment, using: viewModel, client: client,
+                        sendTypingNotifications: sendTypingNotifications,
+                        errorReporter: errorReporter
+                    ) {
+                        onSendWillScroll()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } else {
+                Button("OK", role: .cancel) {}
+            }
+        } message: { attachment in
+            let limit = Int64(compose.maxUploadSize ?? 0).formatted(.byteCount(style: .file))
+            if ICloudLinkPublisher.isAvailable {
+                Text("“\(attachment.filename)” is larger than the \(limit) this server accepts. Relay can upload it to iCloud Drive and send a download link instead. Anyone with the link can download the file.")
+            } else {
+                Text("“\(attachment.filename)” is larger than the \(limit) this server accepts. Sign in to iCloud in System Settings to share large files as links.")
+            }
+        }
     }
 
     // MARK: - Room Upgraded Banner

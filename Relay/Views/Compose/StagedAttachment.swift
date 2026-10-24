@@ -33,4 +33,15 @@ struct StagedAttachment: Identifiable {
 
     /// User-provided alt-text / caption. Empty string means no caption.
     var caption: String = ""
+
+    /// The file's size in bytes, or 0 when it can't be read.
+    let fileSize: Int
+
+    init(url: URL, filename: String, thumbnail: NSImage?, caption: String = "") {
+        self.url = url
+        self.filename = filename
+        self.thumbnail = thumbnail
+        self.caption = caption
+        self.fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    }
 }

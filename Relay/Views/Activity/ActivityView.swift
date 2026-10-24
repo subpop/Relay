@@ -79,6 +79,10 @@ struct ActivityView: View {
                                     ?? "Unknown")
                             Divider()
                             ActivityRow(
+                                icon: "arrow.up.doc.fill", tint: .gray,
+                                label: "Upload Limit", value: uploadLimitText)
+                            Divider()
+                            ActivityRow(
                                 icon: "lock.fill", tint: .gray,
                                 label: "Account Changes", value: accountChangesText)
                         }
@@ -182,6 +186,11 @@ struct ActivityView: View {
         case false: "Not supported"
         case nil: "Unknown"
         }
+    }
+
+    private var uploadLimitText: String {
+        guard let limit = client.uploadSizeLimit else { return "Not advertised" }
+        return Int64(limit).formatted(.byteCount(style: .file))
     }
 
     private var accountChangesText: String {
