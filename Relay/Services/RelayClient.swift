@@ -1122,33 +1122,23 @@ final class RelayClient {
     }
 
     /// Refresh notification modes (defaults plus per-room overrides)
-    /// and highlight keywords.
+    /// and highlight keywords from a single push-rules fetch.
     func refreshNotificationModes() async {
         guard let client else { return }
-        notificationKeywords = (try? await client.notifications.getNotificationKeywords()) ?? []
-        let customs: Set<RoomId>
+        let snapshot: NotificationModeSnapshot?
         do {
-            customs = Set(try await client.notifications.roomsWithCustomNotificationSettings())
+            snapshot = try await client.notifications.notificationModeSnapshot()
         } catch {
             relayClientLogger.warning(
                 "Push-rules fetch failed; falling back to defaults: \(error.localizedDescription, privacy: .public)")
-            customs = []
+            snapshot = nil
         }
+        notificationKeywords = snapshot?.keywords ?? []
         for room in rooms {
-            if customs.contains(room.roomId) {
-                do {
-                    if let override = try await client.notifications.getRoomNotificationMode(
-                        roomId: room.roomId)
-                    {
-                        notificationModeCache[room.roomId.value] = override
-                        continue
-                    }
-                } catch {
-                    relayClientLogger.warning(
-                        "Room mode fetch failed for \(room.roomId.value, privacy: .public); falling back to default: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-            notificationModeCache[room.roomId.value] = await effectiveDefault(for: room)
+            let isOneToOne = room.presentsAsDirect
+            notificationModeCache[room.roomId.value] =
+                snapshot?.mode(for: room.roomId, isOneToOne: isOneToOne)
+                ?? (isOneToOne ? .allMessages : .mentionsAndKeywordsOnly)
         }
     }
 
