@@ -2774,10 +2774,13 @@ final class RelayClient {
     /// Proactively rotate tokens at two-thirds of their advertised
     /// lifetime and persist the rotation, so expiry never surfaces as a
     /// sync failure. Unknown lifetimes (restored sessions) recheck every
-    /// minute. Transport-level retry covers races in between.
+    /// minute. Transport-level retry covers races in between. Sessions
+    /// without a refresh token (servers that issue non-expiring access
+    /// tokens) have nothing to rotate, so no loop runs.
     private func scheduleTokenRefresh() {
         refreshTask?.cancel()
         refreshTask = Task {
+            guard await client?.session.refreshToken != nil else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(await tokenRefreshDelay()))
                 guard !Task.isCancelled else { return }
