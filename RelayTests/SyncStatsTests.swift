@@ -72,6 +72,17 @@ struct SyncStatsTests {
         #expect(abs(rates.eventsPerMinute - 6) < 0.001)
     }
 
+    @Test func stallMeasuresFromLastDeltaOrRestart() {
+        var stats = RelayClient.SyncStats()
+        let now = Date()
+        #expect(!stats.isStalled(restartedAt: nil, now: now))
+        stats.record(delta: delta(), at: now.addingTimeInterval(-120))
+        #expect(stats.isStalled(restartedAt: nil, now: now))
+        #expect(!stats.isStalled(restartedAt: now.addingTimeInterval(-10), now: now))
+        stats.record(delta: delta(), at: now.addingTimeInterval(-10))
+        #expect(!stats.isStalled(restartedAt: nil, now: now))
+    }
+
     @Test func emptyStatsReportZeroRates() {
         let rates = RelayClient.SyncStats().rates()
         #expect(rates.deltasPerMinute == 0)

@@ -123,6 +123,20 @@ final class RelayClient {
             samples.removeAll { $0.date < cutoff }
         }
 
+        /// Long-poll syncs return within about 30 s even when idle, so
+        /// silence well past that means the connection died.
+        static let stallThreshold: TimeInterval = 90
+
+        /// Whether no delta has arrived since the later of the last delta
+        /// and `restartedAt` for longer than `stallThreshold`. False
+        /// until there is any activity to measure from.
+        func isStalled(restartedAt: Date?, now: Date = Date()) -> Bool {
+            guard let last = [lastSyncAt, restartedAt].compactMap({ $0 }).max() else {
+                return false
+            }
+            return now.timeIntervalSince(last) > Self.stallThreshold
+        }
+
         /// Record a sync failure.
         mutating func recordError(_ message: String, at date: Date = Date()) {
             lastSyncError = message
@@ -415,6 +429,20 @@ final class RelayClient {
     private let avatarCache = NSCache<NSString, NSImage>()
     private let intentDonation = IntentDonationService()
     private var monitor: NWPathMonitor?
+    /// Observes system wake notifications.
+    private var wakeTask: Task<Void, Never>?
+    /// Pending debounced `restartSync`; replaced by each new trigger.
+    private var syncRestartTask: Task<Void, Never>?
+    /// Interface names of the last network path, to spot a switch
+    /// (e.g. Wi-Fi to Ethernet) that leaves connections bound to the old
+    /// interface dead while the path stays satisfied.
+    private var lastPathInterfaces: [String]?
+    /// Guards `restartSync` against overlapping with itself and with the
+    /// liveness watchdog while the loop is briefly stopped.
+    private var isRestartingSync = false
+    /// When sync was last restarted; the stall check measures from here
+    /// so a fresh loop gets its full window to deliver a first delta.
+    private var lastSyncRestartAt: Date?
     /// Gates `startSyncIfNeeded` until the adopt flow has attached the
     /// store and run its first sync. The path monitor fires
     /// immediately on install (before restore), and starting the live
@@ -2597,8 +2625,14 @@ final class RelayClient {
             let client, case .loggedIn = authState,
             syncState == .running
         else { return }
+        guard !isRestartingSync else { return }
         let status = usingSlidingSync ? client.slidingSyncStatus : client.syncStatus
-        guard case .idle = status else { return }
+        guard case .idle = status else {
+            if syncStats.isStalled(restartedAt: lastSyncRestartAt) {
+                await restartSync(reason: "no sync response")
+            }
+            return
+        }
         await verifySessionAfterSyncDeath()
     }
 
@@ -2712,6 +2746,7 @@ final class RelayClient {
     /// tears down. Idempotent: every starter guards on its task handle.
     private func startSessionServices() {
         startNetworkMonitor()
+        startWakeObserver()
         startVerificationMonitor()
         startSecretsMonitor()
         startNotificationMonitor()
@@ -3019,6 +3054,10 @@ final class RelayClient {
         keyFetch.stopAll()
         monitor?.cancel()
         monitor = nil
+        wakeTask?.cancel()
+        wakeTask = nil
+        syncRestartTask?.cancel()
+        syncRestartTask = nil
     }
 
     // MARK: - Activity
@@ -3061,6 +3100,9 @@ final class RelayClient {
             Task { @MainActor in
                 guard let self else { return }
                 let connected = path.status == .satisfied
+                let interfaces = path.availableInterfaces.map(\.name)
+                let interfacesChanged = self.lastPathInterfaces.map { $0 != interfaces } ?? false
+                self.lastPathInterfaces = interfaces
                 self.isNetworkConnected = connected
                 if !connected {
                     relayClientLogger.warning("Connectivity lost")
@@ -3075,12 +3117,63 @@ final class RelayClient {
                         relayClientLogger.info("Connectivity restored")
                         self.recordActivity("Connectivity restored")
                         self.syncState = .running
+                        self.scheduleSyncRestart(reason: "connectivity restored")
+                    } else if interfacesChanged {
+                        relayClientLogger.info("Network interfaces changed")
+                        self.recordActivity("Network changed")
+                        self.scheduleSyncRestart(reason: "network changed")
                     }
                     self.startSyncIfNeeded()
                 }
             }
         }
         monitor.start(queue: .global(qos: .background))
+    }
+
+    private func startWakeObserver() {
+        guard wakeTask == nil else { return }
+        wakeTask = Task {
+            let wakes = NSWorkspace.shared.notificationCenter.notifications(
+                named: NSWorkspace.didWakeNotification)
+            for await _ in wakes {
+                relayClientLogger.info("System woke")
+                recordActivity("System woke")
+                scheduleSyncRestart(reason: "system wake")
+            }
+        }
+    }
+
+    /// Restart sync once network events have been quiet for a few
+    /// seconds. Wake and interface changes arrive in bursts while the
+    /// network is still coming up; restarting on the first event would
+    /// dial connections that die when the path settles.
+    private func scheduleSyncRestart(reason: String) {
+        syncRestartTask?.cancel()
+        syncRestartTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            await restartSync(reason: reason)
+        }
+    }
+
+    /// Flush pooled connections and restart the sync loop. Sleep and
+    /// network changes leave dead sockets that the pool keeps handing
+    /// out, stalling long-polls and sends alike. The SDK resumes from
+    /// its stored cursor.
+    private func restartSync(reason: String) async {
+        guard let client, !isRestartingSync, !syncStopRequested, !remoteSignOutNoticed,
+            isNetworkConnected, didFinishStartupSync
+        else { return }
+        isRestartingSync = true
+        defer { isRestartingSync = false }
+        relayClientLogger.info("Restarting sync: \(reason, privacy: .public)")
+        recordActivity("Sync restarted")
+        syncTask?.cancel()
+        syncTask = nil
+        await stopSDKSync()
+        await client.transport.resetConnections()
+        lastSyncRestartAt = Date()
+        startSyncLoop()
     }
 
     private func homeserverURL(_ homeserver: String) throws -> URL {
