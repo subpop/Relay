@@ -35,35 +35,27 @@ struct KeychainKeyStore: KeyStore {
         #endif
     }
 
-    private func query(for key: KeyStoreKey) -> [String: Any] {
+    /// Identity of the item, without accessibility or keychain-selection
+    /// attributes, so it matches items written by earlier versions.
+    private func identity(for key: KeyStoreKey) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "\(Self.servicePrefix).\(key.service)",
             kSecAttrAccount as String: key.account,
             kSecAttrAccessGroup as String: RelayShared.AppGroup.identifier,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
         ]
     }
 
-    func save(_ data: Data, for key: KeyStoreKey) async throws {
-        // Add-or-update, never delete-then-add: a crash or kill between
-        // the delete and the add would silently destroy the stored value
-        // (e.g. the session), stranding the next launch logged out.
-        var attributes = query(for: key)
-        attributes[kSecValueData as String] = data
-        var status = SecItemAdd(attributes as CFDictionary, nil)
-        if status == errSecDuplicateItem {
-            status = SecItemUpdate(
-                query(for: key) as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary)
-        }
-        guard status == errSecSuccess else {
-            throw KeychainError.saveFailed(status)
-        }
+    /// Items live in the data-protection keychain, where the
+    /// accessibility attribute is enforced.
+    private func query(for key: KeyStoreKey) -> [String: Any] {
+        var query = identity(for: key)
+        query[kSecUseDataProtectionKeychain as String] = true
+        return query
     }
 
-    func load(_ key: KeyStoreKey) async throws -> Data? {
-        var query = query(for: key)
+    private func read(_ query: [String: Any]) -> Data? {
+        var query = query
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
@@ -73,7 +65,57 @@ struct KeychainKeyStore: KeyStore {
         return result as? Data
     }
 
+    /// Adds or updates the item and reports whether a new item was added.
+    @discardableResult
+    private func store(_ data: Data, for key: KeyStoreKey) throws -> Bool {
+        // Add-or-update, never delete-then-add: a crash or kill between
+        // the delete and the add would silently destroy the stored value
+        // (e.g. the session), stranding the next launch logged out.
+        var attributes = query(for: key)
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        var status = SecItemAdd(attributes as CFDictionary, nil)
+        let added = status == errSecSuccess
+        if status == errSecDuplicateItem {
+            status = SecItemUpdate(
+                query(for: key) as CFDictionary,
+                [
+                    kSecValueData as String: data,
+                    kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                ] as CFDictionary)
+        }
+        guard status == errSecSuccess else {
+            throw KeychainError.saveFailed(status)
+        }
+        return added
+    }
+
+    func save(_ data: Data, for key: KeyStoreKey) async throws {
+        try store(data, for: key)
+    }
+
+    /// Loads the item, moving one written by an earlier version (outside
+    /// the data-protection keychain, or with a syncable accessibility
+    /// class) into the current form.
+    func load(_ key: KeyStoreKey) async throws -> Data? {
+        if let data = read(query(for: key)) {
+            return data
+        }
+        guard let legacy = read(identity(for: key)) else { return nil }
+        // Only a newly added item proves the legacy one lives elsewhere;
+        // on a duplicate the store updated it in place and deleting the
+        // legacy query would remove the migrated item.
+        if (try? store(legacy, for: key)) == true {
+            SecItemDelete(identity(for: key) as CFDictionary)
+            if read(query(for: key)) == nil {
+                try? store(legacy, for: key)
+            }
+        }
+        return legacy
+    }
+
     func delete(_ key: KeyStoreKey) async throws {
         SecItemDelete(query(for: key) as CFDictionary)
+        SecItemDelete(identity(for: key) as CFDictionary)
     }
 }
