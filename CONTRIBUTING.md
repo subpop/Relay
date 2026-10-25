@@ -122,6 +122,49 @@ docker rm -v relay-homeserver && docker volume rm relay-homeserver-data
 
 Replace `docker` with your container runtime if different.
 
+## Localizing Relay
+
+Relay's UI strings live in String Catalogs.
+
+| File | Contents |
+|---|---|
+| `Relay/Localizable.xcstrings` | App UI strings |
+| `Relay/InfoPlist.xcstrings` | App metadata strings (e.g. permission prompts) |
+| `RelayShareExtension/Localizable.xcstrings` | Share extension strings |
+
+Source strings are written in English (`en`). Don't edit the English text
+when translating; if a source string is unclear or wrong, open an issue or PR
+for it separately.
+
+### Translating with Xcode
+
+1. Open `Relay.xcodeproj` and select the catalog you want to translate.
+2. To add a new language, click **+** at the bottom of the catalog editor and
+   choose it. This also adds the language to the project's known regions.
+3. Translate each string. Use the **Needs Review** filter to find strings that
+   are new or changed, and mark finished strings as translated.
+4. Respect format specifiers (`%@`, `%lld`, …) and keep them intact, using
+   positional specifiers (`%1$@`, `%2$@`) if the word order differs in your
+   language. Use plural variations where your language requires them.
+5. Build and run Relay with your language (**Product > Scheme > Edit Scheme >
+   Run > Options > App Language**) to check that translations fit the UI.
+
+### Translating with SimpleLocalize
+
+`Relay/Localizable.xcstrings` is synced with
+[SimpleLocalize](https://simplelocalize.io) (see `simplelocalize-github.yml`).
+Source strings are uploaded when changes land on `main`, and translations are
+returned as an "Update translations" pull request. Ask in the
+[Matrix room](https://matrix.to/#/#relayapp:matrix.org) if you'd like to
+translate there instead of editing the catalog directly.
+
+### Submitting a translation
+
+Open a pull request as described in [Submitting Changes](#submitting-changes).
+Keep one language per pull request, and use a message such as "Add German
+translations". If you're adding a new language, mention it in the description
+so a maintainer can confirm it's complete enough to ship.
+
 ## Submitting Changes
 
 1. Fork the repository and create a branch from `main`.

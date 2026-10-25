@@ -82,6 +82,7 @@
 
 /* Begin PBXFileReference section */
 		3B11E0882F9A3F600051F7B3 /* RelayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RelayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3B2D9A15308DAA6200338116 /* CONTRIBUTING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CONTRIBUTING.md; sourceTree = "<group>"; };
 		3B3B82B82FC69A9F008DCEDC /* RelayShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RelayShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3B82D42FC69C2F008DCEDC /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
 		3B4AFD892F638A35001F0EA1 /* Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Relay.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -197,6 +198,7 @@
 			children = (
 				3BSEC0012FEF0001001F0EA1 /* Secrets.xcconfig */,
 				3BAE76A72F6A43BA000EC1E6 /* README.md */,
+				3B2D9A15308DAA6200338116 /* CONTRIBUTING.md */,
 				3B4AFD8B2F638A35001F0EA1 /* Relay */,
 				3B11E0892F9A3F600051F7B3 /* RelayTests */,
 				3B3B82CF2FC69B60008DCEDC /* RelayShareExtension */,
@@ -362,6 +364,7 @@
 				vi,
 				de,
 				"fr-CA",
+				"zh-Hans",
 			);
 			mainGroup = 3B4AFD802F638A35001F0EA1;
 			minimizedProjectReferenceProxies = 1;

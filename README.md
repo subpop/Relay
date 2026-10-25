@@ -106,6 +106,13 @@ Join us in the Matrix room to ask questions, discuss ideas, or just say hello:
 
 [#relayapp:matrix.org](https://matrix.to/#/#relayapp:matrix.org)
 
+# Localization
+
+Relay's strings live in Xcode String Catalogs (`Relay/Localizable.xcstrings`
+and friends). To fix or add a translation, edit the catalog in Xcode and open
+a pull request. See [Localizing Relay](./CONTRIBUTING.md#localizing-relay) for
+details.
+
 # License
 
 Code is licensed under the Apache 2.0 license. See the [LICENSE](./LICENSE) file for details.
