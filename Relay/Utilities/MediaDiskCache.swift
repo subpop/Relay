@@ -17,10 +17,11 @@ import Foundation
 
 /// File-backed media cache shared by avatars, thumbnails, and downloads.
 ///
-/// Directory, key formats, and SHA-256 filenames intentionally match the
-/// pre-migration media cache, so bytes cached by previous installs are
-/// reused instead of re-downloaded (or lost when the server prunes them).
-/// All file I/O runs on this actor, off the main thread. Errors are
+/// Entries are kept so media still resolves after the server prunes it.
+/// Content from encrypted attachments is stored as received (still
+/// encrypted) under `encryptedKey(_:)` and decrypted by the caller on
+/// every read, so no plaintext of end-to-end encrypted media rests on
+/// disk. All file I/O runs on this actor, off the main thread. Errors are
 /// silently ignored: a miss simply falls through to network.
 actor MediaDiskCache {
     static let shared = MediaDiskCache()
@@ -28,16 +29,26 @@ actor MediaDiskCache {
     /// The on-disk cache directory for media files.
     private let directory: URL = {
         #if DEBUG
-        let subdirectory = "Relay/media-cache-debug"
+        let name = "media-cache-debug"
         #else
-        let subdirectory = "Relay/media-cache"
+        let name = "media-cache"
         #endif
+        // The unversioned directory may hold decrypted attachments.
+        try? FileManager.default.removeItem(
+            at: URL.cachesDirectory.appending(
+                path: "Relay/\(name)", directoryHint: .isDirectory))
         let url = URL.cachesDirectory.appending(
-            path: subdirectory, directoryHint: .isDirectory)
+            path: "Relay/\(name)-v2", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(
             at: url, withIntermediateDirectories: true)
         return url
     }()
+
+    /// Cache key for the still-encrypted bytes of an encrypted attachment,
+    /// kept apart from plaintext entries for the same MXC URI.
+    nonisolated static func encryptedKey(_ key: String) -> String {
+        "encrypted:\(key)"
+    }
 
     /// SHA-256 hex digest of the cache key, safe for use as a filename.
     private nonisolated func filename(for key: String) -> String {

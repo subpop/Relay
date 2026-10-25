@@ -946,16 +946,27 @@ final class RelayClient {
         }
     }
 
-    /// Download and decrypt an encrypted file, or nil on failure.
+    /// Download and decrypt an encrypted file, or nil on failure. Only the
+    /// encrypted bytes are cached; decryption happens on every call.
     func downloadDecryptedMedia(file: EncryptedFile) async -> Data? {
-        if let hit = await MediaDiskCache.shared.read(key: file.url) {
-            return hit
+        await decryptedMedia(file, cacheKey: file.url)
+    }
+
+    /// Fetch an encrypted file's ciphertext (from the disk cache when
+    /// present) and decrypt it in memory. A cached entry that no longer
+    /// decrypts falls through to a fresh download.
+    private func decryptedMedia(_ file: EncryptedFile, cacheKey: String) async -> Data? {
+        let key = MediaDiskCache.encryptedKey(cacheKey)
+        if let cached = await MediaDiskCache.shared.read(key: key),
+            let decrypted = try? MediaClient.decryptFile(cached, file: file) {
+            return decrypted
         }
-        guard let client else { return nil }
+        guard let client, let uri = try? MXCURI(file.url) else { return nil }
         do {
-            let data = try await client.media.downloadDecrypted(file)
-            await MediaDiskCache.shared.write(key: file.url, data: data)
-            return data
+            let raw = try await client.media.download(uri)
+            let decrypted = try MediaClient.decryptFile(raw, file: file)
+            await MediaDiskCache.shared.write(key: key, data: raw)
+            return decrypted
         } catch {
             logMediaFailure("decrypted-download", mxcURL: file.url, error: error)
             return nil
@@ -1007,18 +1018,14 @@ final class RelayClient {
         _ download: MediaFileHelper.Download, width: UInt64, height: UInt64
     ) async -> Data? {
         let cacheKey = "\(download.mxcURL)_thumb_\(width)x\(height)"
-        if let hit = await MediaDiskCache.shared.read(key: cacheKey) {
+        if let encrypted = download.encryptedThumbnail {
+            if let decrypted = await decryptedMedia(encrypted, cacheKey: cacheKey) {
+                return decrypted
+            }
+        } else if let hit = await MediaDiskCache.shared.read(key: cacheKey) {
             return hit
         }
         guard let client else { return nil }
-        if let encrypted = download.encryptedThumbnail {
-            guard let uri = try? MXCURI(encrypted.url) else { return nil }
-            guard let raw = try? await client.media.download(uri) else { return nil }
-            if let decrypted = try? MediaClient.decryptFile(raw, file: encrypted) {
-                await MediaDiskCache.shared.write(key: cacheKey, data: decrypted)
-                return decrypted
-            }
-        }
         let thumbMXC = download.thumbnailMXCURL ?? download.mxcURL
         if let uri = try? MXCURI(thumbMXC),
            let data = try? await client.media.thumbnail(
