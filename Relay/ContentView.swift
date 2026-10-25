@@ -22,25 +22,28 @@ struct ContentView: View {
         Group {
             switch client.authState {
             case .unknown:
-                ProgressView("Loading…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView {
+                    Text("Loading…")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loggedOut:
                 LoginView()
             case .loggingIn:
-                ProgressView("Signing in…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView {
+                    Text("Signing In…")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loggedIn:
                 switch client.syncState {
                 case .idle:
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .controlSize(.large)
+                    ProgressView {
                         Text("Syncing your rooms…")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
-                        Text("This may take a moment on first sign-in.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .fontWeight(.bold)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .task { client.startSyncIfNeeded() }
@@ -90,7 +93,29 @@ struct ContentView: View {
     }
 }
 
-#Preview {
+#Preview("Restoring session") {
+    let client = RelayClient()
+    client.authState = .unknown
+    return ContentView()
+        .environment(client)
+}
+
+#Preview("Signing in") {
+    let client = RelayClient()
+    client.authState = .loggingIn
+    return ContentView()
+        .environment(client)
+}
+
+#Preview("Syncing rooms") {
+    let client = RelayClient()
+    client.authState = .loggedIn(userId: "@preview:example.com")
+    client.syncState = .idle
+    return ContentView()
+        .environment(client)
+}
+
+#Preview("Logged out") {
     ContentView()
-        .environment(PreviewFixtures.previewClient())
+        .environment(PreviewFixtures.loggedOutClient)
 }
