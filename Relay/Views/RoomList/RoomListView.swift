@@ -105,14 +105,12 @@ struct RoomListView: View {
             if !favorites.isEmpty {
                 Section {
                     ForEach(favorites) { room in
-                        RoomListRow(room: room)
-                            .tag(room.id)
-                            .swipeActions(edge: .trailing) {
-                                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
-                            }
-                            .contextMenu {
-                                roomContextMenu(for: room)
-                            }
+                        JoinedRoomListRow(
+                            room: room,
+                            onToggleFavourite: { toggleFavourite(room) },
+                            onLeave: { confirmLeave(room) }
+                        )
+                        .tag(room.id)
                     }
                 } header: {
                     Text("Favorites")
@@ -121,14 +119,12 @@ struct RoomListView: View {
 
             Section {
                 ForEach(roomsAndDMs) { room in
-                    RoomListRow(room: room)
-                        .tag(room.id)
-                        .swipeActions(edge: .trailing) {
-                            Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
-                        }
-                        .contextMenu {
-                            roomContextMenu(for: room)
-                        }
+                    JoinedRoomListRow(
+                        room: room,
+                        onToggleFavourite: { toggleFavourite(room) },
+                        onLeave: { confirmLeave(room) }
+                    )
+                    .tag(room.id)
                 }
             } header: {
                 if !invites.isEmpty || !favorites.isEmpty || !muted.isEmpty {
@@ -139,14 +135,12 @@ struct RoomListView: View {
             if !muted.isEmpty {
                 Section {
                     ForEach(muted) { room in
-                        RoomListRow(room: room)
-                            .tag(room.id)
-                            .swipeActions(edge: .trailing) {
-                                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
-                            }
-                            .contextMenu {
-                                roomContextMenu(for: room)
-                            }
+                        JoinedRoomListRow(
+                            room: room,
+                            onToggleFavourite: { toggleFavourite(room) },
+                            onLeave: { confirmLeave(room) }
+                        )
+                        .tag(room.id)
                     }
                 } header: {
                     Text("Muted Rooms")
@@ -211,19 +205,6 @@ struct RoomListView: View {
         } message: { invite in
             Text("Decline the invitation to \"\(invite.name)\"? You'll need to be re-invited to join later.")
         }
-    }
-
-    // MARK: - Context Menu
-
-    @ViewBuilder
-    private func roomContextMenu(for room: RoomRowData) -> some View {
-        Button(
-            room.isFavourite ? "Unfavorite" : "Favorite",
-            systemImage: room.isFavourite ? "star.slash" : "star",
-            action: { toggleFavourite(room) }
-        )
-        Divider()
-        Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: { confirmLeave(room) })
     }
 
     // MARK: - Browse Rooms
@@ -314,6 +295,29 @@ struct RoomListView: View {
             Label("Sort and Filter", systemImage: "line.3.horizontal.decrease")
         }
         .menuIndicator(.hidden)
+    }
+}
+
+/// A joined room row with its swipe-to-leave action and favorite/leave context menu.
+private struct JoinedRoomListRow: View {
+    let room: RoomRowData
+    let onToggleFavourite: () -> Void
+    let onLeave: () -> Void
+
+    var body: some View {
+        RoomListRow(room: room)
+            .swipeActions(edge: .trailing) {
+                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: onLeave)
+            }
+            .contextMenu {
+                Button(
+                    room.isFavourite ? "Unfavorite" : "Favorite",
+                    systemImage: room.isFavourite ? "star.slash" : "star",
+                    action: onToggleFavourite
+                )
+                Divider()
+                Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: onLeave)
+            }
     }
 }
 
