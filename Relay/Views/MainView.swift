@@ -261,7 +261,7 @@ struct MainView: View {
         .searchable(
             text: $searchModel.searchText,
             placement: .sidebar,
-            prompt: "Search messages…")
+            prompt: "Search")
         .searchFocused($isSearchFocused)
         .environment(\.hasSpaceRail, showsSpaceRail)
     }
