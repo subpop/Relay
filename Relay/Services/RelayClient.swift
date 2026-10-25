@@ -2491,6 +2491,7 @@ final class RelayClient {
                 "Encryption bootstrap failed: \(error.localizedDescription, privacy: .public)")
             recordActivity("Encryption bootstrap failed")
         }
+        await client.setRoomKeySharingPolicy(.crossSignedOnly)
         await client.configureEncryption()
         // Attach the normalized store before the first sync: every delta
         // persists through the writer, and the stored cursor turns the

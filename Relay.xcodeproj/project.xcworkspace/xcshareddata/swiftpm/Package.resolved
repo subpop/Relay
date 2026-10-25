@@ -1,5 +1,5 @@
 {
-  "originHash" : "bb79715a1c94d52a753d6566cf25daadea4274698c68215167b9cf9ab0186aae",
+  "originHash" : "a35781623aaf989eedaaed908375928bf9c6715c1c590d5b040e6281b928708c",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -43,7 +43,7 @@
       "location" : "https://github.com/subpop/MatrixKit",
       "state" : {
         "branch" : "main",
-        "revision" : "3c5b2cbc3767ee741b929508654242f5cd8d783a"
+        "revision" : "fa9b64d409bd998fdee114dab870338ffd07f18b"
       }
     },
     {
