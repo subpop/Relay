@@ -23,7 +23,7 @@ struct RoomListRow: View {
     @AppStorage("appearance.showUnreadCounts") private var showUnreadCounts = true
     @State private var rowWidth: CGFloat = 0
 
-    private static let compactThreshold: CGFloat = 10
+    private static let compactThreshold: CGFloat = 100
 
     /// The width to use for the compact/full decision: the room list's
     /// shared, settle-gated width when available, falling back to this
@@ -32,7 +32,7 @@ struct RoomListRow: View {
     private var measuredWidth: CGFloat { sharedWidth ?? rowWidth }
 
     private var isCompact: Bool {
-        measuredWidth < Self.compactThreshold
+        measuredWidth <= Self.compactThreshold
     }
 
     /// Whether the room name should appear bold (has notification-worthy unread activity).
