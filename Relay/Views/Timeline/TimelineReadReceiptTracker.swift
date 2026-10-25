@@ -31,15 +31,17 @@ final class TimelineReadReceiptTracker {
 
     /// Debounced advance of the fully-read marker. Ignores moves backwards
     /// from the already-recorded high-water mark. While the app is inactive
-    /// the high-water mark is still recorded but no send is scheduled; the
-    /// view re-advances on reactivation.
+    /// the high-water mark is still recorded but no send is scheduled (and a
+    /// pending send is dropped if the app deactivates during the debounce);
+    /// the view re-advances on reactivation.
     ///
     /// - Parameters:
     ///   - eventId: The event id of the newest message currently visible.
     ///   - messages: All loaded messages, to compare indices.
-    ///   - isActive: Whether the app currently has focus.
+    ///   - isActive: Whether the app currently has focus. Evaluated again
+    ///     after the debounce, so a send never fires once focus is lost.
     ///   - sendReceipt: Called (debounced) with the event to read up to.
-    func updateHighWaterMark(eventId: String, in messages: [ObservableTimelineEvent], isActive: Bool, sendReceipt: @escaping (String) async -> Void) {
+    func updateHighWaterMark(eventId: String, in messages: [ObservableTimelineEvent], isActive: @escaping () -> Bool, sendReceipt: @escaping (String) async -> Void) {
         if let lastId = lastFullyReadEventId,
            let lastIndex = messages.firstIndex(where: { $0.eventId.value == lastId }),
            let newIndex = messages.firstIndex(where: { $0.eventId.value == eventId }),
@@ -49,10 +51,10 @@ final class TimelineReadReceiptTracker {
 
         lastFullyReadEventId = eventId
         fullyReadDebounceTask?.cancel()
-        guard isActive else { return }
+        guard isActive() else { return }
         fullyReadDebounceTask = Task {
             try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, isActive() else { return }
             await sendReceipt(eventId)
         }
     }
@@ -63,12 +65,12 @@ final class TimelineReadReceiptTracker {
     /// transitions) coalesce into a single send once settled, and newly
     /// arrived messages sit unread briefly while being read. The latest
     /// call's values win, so scrolling away cancels a pending mark.
-    func markReadIfNeeded(isNearEnd: Bool, isActive: Bool, markAsRead: @escaping () async -> Void) {
+    func markReadIfNeeded(isNearEnd: Bool, isActive: @escaping () -> Bool, markAsRead: @escaping () async -> Void) {
         markReadDebounceTask?.cancel()
         markReadDebounceTask = Task {
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
-            guard isNearEnd, isActive else { return }
+            guard isNearEnd, isActive() else { return }
             await markAsRead()
         }
     }

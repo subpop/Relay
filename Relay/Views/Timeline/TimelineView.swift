@@ -41,6 +41,10 @@ struct TimelineView: View {
     @Environment(\.gifSearchService) private var gifSearchService
     @Environment(\.composeDraftStore) private var composeDraftStore
     @Environment(\.scenePhase) private var scenePhase
+    /// Whether Relay is the frontmost app. `scenePhase` stays `.active` while
+    /// the window is visible but another app has focus, so it's tracked
+    /// separately from the application activation notifications.
+    @State private var isAppActive = NSApp.isActive
     @Environment(AppActions.self) private var appActions
 
     let roomId: String
@@ -134,10 +138,12 @@ struct TimelineView: View {
     /// the debounced read receipt hasn't landed yet. Otherwise mirrors
     /// `viewModel.firstUnreadMessageId` so it stays pinned while scrolled
     /// back, reappearing the moment focus/scroll/activity state changes.
+    private var isForeground: Bool { scenePhase == .active && isAppActive }
+
     private var displayedUnreadMessageId: String? {
         guard let id = viewModel.firstUnreadMessageId else { return nil }
         let isLiveAtBottom = viewModel.timelineFocus == .live && isNearEnd
-        if isLiveAtBottom && scenePhase == .active { return nil }
+        if isLiveAtBottom && isForeground { return nil }
         return id
     }
 
@@ -463,8 +469,18 @@ struct TimelineView: View {
                 markAsReadIfNeeded()
             }
         }
-        .onChange(of: scenePhase) { _, newValue in
-            guard newValue == .active else { return }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                isAppActive = true
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
+                isAppActive = false
+            }
+        }
+        .onChange(of: isForeground) { _, newValue in
+            guard newValue else { return }
             // App regained focus: resume read marking after the dwell, and
             // catch up the fully-read marker to the last visible row (its
             // change handler doesn't refire on reactivation alone).
@@ -540,7 +556,7 @@ struct TimelineView: View {
         guard !readOnly else { return }
         readReceiptTracker.markReadIfNeeded(
             isNearEnd: isNearEnd,
-            isActive: scenePhase == .active,
+            isActive: { [self] in isForeground },
             markAsRead: { [self] in
                 await client.markAsRead(roomId: roomId, sendReceipt: sendReadReceipts)
             }
@@ -555,7 +571,7 @@ struct TimelineView: View {
         readReceiptTracker.updateHighWaterMark(
             eventId: eventId,
             in: viewModel.events,
-            isActive: scenePhase == .active,
+            isActive: { [self] in isForeground },
             sendReceipt: { [viewModel] eventId in
                 await viewModel.sendFullyReadReceipt(upTo: eventId)
             }
