@@ -108,7 +108,7 @@ struct KeychainKeyStore: KeyStore {
         if (try? store(legacy, for: key)) == true {
             SecItemDelete(identity(for: key) as CFDictionary)
             if read(query(for: key)) == nil {
-                try? store(legacy, for: key)
+                _ = try? store(legacy, for: key)
             }
         }
         return legacy

@@ -312,6 +312,7 @@ private struct PollAnswerRowContent: View {
         .background(baseFill, in: .rect(cornerRadius: 10))
         .background(alignment: .leading) {
             if showResults {
+                let share = share
                 barFill
                     .visualEffect { content, _ in
                         content.scaleEffect(x: share, y: 1, anchor: .leading)
