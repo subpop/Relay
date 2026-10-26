@@ -72,6 +72,7 @@ struct RoomListView: View {
         let favorites = filtered.filter(\.isFavourite)
         let muted = filtered.filter { !$0.isFavourite && $0.isMuted }
         let roomsAndDMs = filtered.filter { !$0.isFavourite && !$0.isMuted }
+        let showsRoomsAndDMsTitle: Bool = !invites.isEmpty || !favorites.isEmpty || !muted.isEmpty
 
         List(selection: listSelection) {
             if showsAllRoomsSearch {
@@ -80,71 +81,37 @@ struct RoomListView: View {
             }
 
             if !invites.isEmpty {
-                Section {
-                    ForEach(invites) { invite in
-                        InviteListRow(
-                            room: invite,
-                            onAccept: { acceptInvite(invite) },
-                            onDecline: { confirmDecline(invite) }
-                        )
-                        .tag(invite.id)
-                        .swipeActions(edge: .trailing) {
-                            Button("Decline", systemImage: "xmark", role: .destructive) {
-                                confirmDecline(invite)
-                            }
-                            Button("Accept", systemImage: "checkmark") {
-                                acceptInvite(invite)
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Invites")
-                }
+                InviteSection(
+                    invites: invites,
+                    onAccept: acceptInvite,
+                    onDecline: confirmDecline
+                )
             }
 
             if !favorites.isEmpty {
-                Section {
-                    ForEach(favorites) { room in
-                        JoinedRoomListRow(
-                            room: room,
-                            onToggleFavourite: { toggleFavourite(room) },
-                            onLeave: { confirmLeave(room) }
-                        )
-                        .tag(room.id)
-                    }
-                } header: {
-                    Text("Favorites")
-                }
+                JoinedRoomsSection(
+                    title: "Favorites",
+                    rooms: favorites,
+                    onToggleFavourite: toggleFavourite,
+                    onLeave: confirmLeave
+                )
             }
 
-            Section {
-                ForEach(roomsAndDMs) { room in
-                    JoinedRoomListRow(
-                        room: room,
-                        onToggleFavourite: { toggleFavourite(room) },
-                        onLeave: { confirmLeave(room) }
-                    )
-                    .tag(room.id)
-                }
-            } header: {
-                if !invites.isEmpty || !favorites.isEmpty || !muted.isEmpty {
-                    Text("Rooms & DMs")
-                }
-            }
+            JoinedRoomsSection(
+                title: "Rooms & DMs",
+                showsTitle: showsRoomsAndDMsTitle,
+                rooms: roomsAndDMs,
+                onToggleFavourite: toggleFavourite,
+                onLeave: confirmLeave
+            )
 
             if !muted.isEmpty {
-                Section {
-                    ForEach(muted) { room in
-                        JoinedRoomListRow(
-                            room: room,
-                            onToggleFavourite: { toggleFavourite(room) },
-                            onLeave: { confirmLeave(room) }
-                        )
-                        .tag(room.id)
-                    }
-                } header: {
-                    Text("Muted Rooms")
-                }
+                JoinedRoomsSection(
+                    title: "Muted Rooms",
+                    rooms: muted,
+                    onToggleFavourite: toggleFavourite,
+                    onLeave: confirmLeave
+                )
             }
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
@@ -152,14 +119,8 @@ struct RoomListView: View {
         } action: { newValue in
             commitOrDeferWidth(newValue)
         }
-        .onScrollPhaseChange { oldPhase, newPhase in
-            Task { @MainActor in
-                isListScrolling = newPhase == .interacting || newPhase == .decelerating
-                if !isListScrolling, let pendingWidth {
-                    measuredWidth = pendingWidth
-                    self.pendingWidth = nil
-                }
-            }
+        .onScrollPhaseChange { _, newPhase in
+            updateScrolling(for: newPhase)
         }
         .environment(\.roomListMeasuredWidth, measuredWidth)
         .animation(.default, value: favorites.map(\.id))
@@ -174,24 +135,10 @@ struct RoomListView: View {
             }
         }
         .overlay {
-            if client.rooms.isEmpty {
-                if client.hasLoadedRooms {
-                    ContentUnavailableView(
-                        "No Rooms",
-                        systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Join a room to start chatting.")
-                    )
-                } else {
-                    ProgressView("Syncing...")
-                }
-            }
+            RoomListEmptyOverlay()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                OfflineBanner()
-                SessionVerificationBanner()
-                KeyRestoreBanner()
-            }
+            RoomListBanners()
         }
         .alert("Leave Room", isPresented: $showLeaveConfirmation, presenting: roomToLeave) { room in
             Button("Cancel", role: .cancel) {}
@@ -295,6 +242,92 @@ struct RoomListView: View {
             Label("Sort and Filter", systemImage: "line.3.horizontal.decrease")
         }
         .menuIndicator(.hidden)
+    }
+}
+
+/// The pending invites section, with accept/decline swipe actions.
+private struct InviteSection: View {
+    let invites: [InviteRowData]
+    let onAccept: (InviteRowData) -> Void
+    let onDecline: (InviteRowData) -> Void
+
+    var body: some View {
+        Section {
+            ForEach(invites) { invite in
+                InviteListRow(
+                    room: invite,
+                    onAccept: { onAccept(invite) },
+                    onDecline: { onDecline(invite) }
+                )
+                .tag(invite.id)
+                .swipeActions(edge: .trailing) {
+                    Button("Decline", systemImage: "xmark", role: .destructive) {
+                        onDecline(invite)
+                    }
+                    Button("Accept", systemImage: "checkmark") {
+                        onAccept(invite)
+                    }
+                }
+            }
+        } header: {
+            Text("Invites")
+        }
+    }
+}
+
+/// A titled section of joined rooms.
+private struct JoinedRoomsSection: View {
+    let title: LocalizedStringKey
+    var showsTitle = true
+    let rooms: [RoomRowData]
+    let onToggleFavourite: (RoomRowData) -> Void
+    let onLeave: (RoomRowData) -> Void
+
+    var body: some View {
+        Section {
+            ForEach(rooms) { room in
+                JoinedRoomListRow(
+                    room: room,
+                    onToggleFavourite: { onToggleFavourite(room) },
+                    onLeave: { onLeave(room) }
+                )
+                .tag(room.id)
+            }
+        } header: {
+            if showsTitle {
+                Text(title)
+            }
+        }
+    }
+}
+
+/// The placeholder shown over the list while there are no rooms to display.
+private struct RoomListEmptyOverlay: View {
+    @Environment(RelayClient.self) private var client
+
+    var body: some View {
+        if client.rooms.isEmpty {
+            if client.hasLoadedRooms {
+                ContentUnavailableView(
+                    "No Rooms",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("Join a room to start chatting.")
+                )
+            } else {
+                ProgressView("Syncing...")
+            }
+        }
+    }
+}
+
+/// The status banners pinned to the bottom of the list.
+private struct RoomListBanners: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            OfflineBanner()
+            SessionVerificationBanner()
+            KeyRestoreBanner()
+        }
     }
 }
 
@@ -413,6 +446,16 @@ extension RoomListView {
     /// width is flushed the instant scrolling settles (see
     /// `onScrollPhaseChange` in ``body``). The first measurement always
     /// commits immediately so the initial layout isn't delayed.
+    private func updateScrolling(for newPhase: ScrollPhase) {
+        Task { @MainActor in
+            isListScrolling = newPhase == .interacting || newPhase == .decelerating
+            if !isListScrolling, let pendingWidth {
+                measuredWidth = pendingWidth
+                self.pendingWidth = nil
+            }
+        }
+    }
+
     private func commitOrDeferWidth(_ newValue: CGFloat) {
         guard hasMeasuredWidthOnce, isListScrolling else {
             hasMeasuredWidthOnce = true

@@ -13,20 +13,21 @@ concurrency:
 jobs:
   build:
     name: Build
-    # Relay requires macOS 26 (Tahoe) and Xcode 26.
-    # If macos-26 is unavailable, check GitHub's runner images documentation
-    # for the current label: https://github.com/actions/runner-images
-    runs-on: macos-26
+    # Relay builds with Xcode 27, which GitHub provides on the arm64-only
+    # xcode-27 image rather than a macos-27 label. Check GitHub's runner
+    # images documentation for the current label:
+    # https://github.com/actions/runner-images
+    runs-on: xcode-27
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26
+      - name: Select Xcode 27.1
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: '27.1'
 
       - name: Create empty Secrets.xcconfig
         run: touch Secrets.xcconfig
