@@ -29,6 +29,17 @@ extension NSAttributedString.Key {
     static let blockquoteMarker = NSAttributedString.Key("matrixBlockquoteMarker")
 }
 
+// MARK: - MessageBlock + Matrix HTML
+
+extension MessageBlock {
+    /// Parses a Matrix `formatted_body` into blocks, rendering top-level
+    /// `<pre>` elements as code blocks and `<table>` elements as tables.
+    /// Returns an empty array when the body has no visible content.
+    static func blocks(matrixHTML html: String) -> [MessageBlock] {
+        MatrixHTMLParser(html).parseBlocks()
+    }
+}
+
 // MARK: - NSAttributedString + Matrix HTML
 
 extension NSAttributedString {
@@ -474,11 +485,189 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
 
     // MARK: - Parse Entry Point
 
+    /// Parses the whole body into one attributed string. Code blocks and
+    /// tables render inline (preformatted text, tab-delimited cells).
     func parse() -> NSAttributedString? {
-        // Strip <mx-reply>...</mx-reply> blocks per spec.
-        let cleaned = removeMxReply(html)
+        render(tokenize(removeMxReply(html)))
+    }
 
-        let tokens = tokenize(cleaned)
+    /// Parses the body into blocks, lifting top-level `<pre>` and `<table>`
+    /// elements out of the surrounding prose. Nested ones (inside a list or
+    /// blockquote) stay in the prose and render inline.
+    func parseBlocks() -> [MessageBlock] {
+        let tokens = tokenize(removeMxReply(html))
+        var blocks: [MessageBlock] = []
+        var pending: [Token] = []
+        var openTags: [String] = []
+        var index = 0
+
+        func flush() {
+            if let prose = render(pending) { blocks.append(.richText(prose)) }
+            pending.removeAll()
+        }
+
+        while index < tokens.count {
+            let token = tokens[index]
+
+            if openTags.isEmpty, case .openTag(let name, _) = token, name == "pre" || name == "table" {
+                let end = closingIndex(of: name, after: index, in: tokens[...])
+                let inner = tokens[(index + 1)..<end]
+                let block: MessageBlock? = name == "pre"
+                    ? codeBlock(from: inner).map(MessageBlock.code)
+                    : table(from: inner).map(MessageBlock.table)
+                if let block {
+                    flush()
+                    blocks.append(block)
+                    index = end + 1
+                    continue
+                }
+            }
+
+            switch token {
+            case .openTag(let name, _) where !Self.voidTags.contains(name) && name != "img":
+                openTags.append(name)
+            case .closeTag(let name):
+                if let open = openTags.lastIndex(of: name) { openTags.removeSubrange(open...) }
+            default:
+                break
+            }
+
+            // Whitespace between a lifted block and the next element would
+            // otherwise lead the following prose.
+            if pending.isEmpty, case .text(let text) = token,
+               text.allSatisfy(\.isWhitespace) {
+                index += 1
+                continue
+            }
+            pending.append(token)
+            index += 1
+        }
+        flush()
+        return blocks
+    }
+
+    // MARK: - Block Extraction
+
+    /// The index of the close tag matching the open tag at `start`, or
+    /// `tokens.endIndex` when it is never closed.
+    private func closingIndex(
+        of name: String, after start: Int, in tokens: ArraySlice<Token>
+    ) -> Int {
+        var depth = 0
+        for index in (start + 1)..<tokens.endIndex {
+            switch tokens[index] {
+            case .openTag(let open, _) where open == name:
+                depth += 1
+            case .closeTag(let close) where close == name:
+                if depth == 0 { return index }
+                depth -= 1
+            default:
+                break
+            }
+        }
+        return tokens.endIndex
+    }
+
+    /// Builds a code block from the tokens inside a `<pre>`, or `nil` if it
+    /// holds no text.
+    private func codeBlock(from tokens: ArraySlice<Token>) -> MessageCodeBlock? {
+        var code = ""
+        var language: String?
+        for token in tokens {
+            switch token {
+            case .text(let text):
+                code += text
+            case .openTag(let name, let attributes):
+                if name == "br" {
+                    code += "\n"
+                } else if name == "code", language == nil {
+                    language = attributes["class"]?
+                        .split(separator: " ")
+                        .first { $0.hasPrefix("language-") }
+                        .map { String($0.dropFirst("language-".count)) }
+                }
+            case .closeTag:
+                break
+            }
+        }
+        // A trailing newline is the `<pre>` convention, not a blank last line.
+        if code.hasSuffix("\n") { code.removeLast() }
+        return code.isEmpty ? nil : MessageCodeBlock(code: code, language: language)
+    }
+
+    /// Builds a table from the tokens inside a `<table>`, or `nil` if it has
+    /// no rows.
+    private func table(from tokens: ArraySlice<Token>) -> MessageTable? {
+        var caption: NSAttributedString?
+        var rows: [MessageTable.Row] = []
+        var cells: [(cell: MessageTable.Cell, isHeader: Bool)] = []
+        var inHead = false
+
+        func finishRow() {
+            guard !cells.isEmpty else { return }
+            rows.append(MessageTable.Row(
+                cells: cells.map(\.cell),
+                isHeader: inHead || cells.allSatisfy(\.isHeader)
+            ))
+            cells.removeAll()
+        }
+
+        var index = tokens.startIndex
+        while index < tokens.endIndex {
+            switch tokens[index] {
+            case .openTag(let name, let attributes):
+                switch name {
+                case "thead":
+                    finishRow()
+                    inHead = true
+                case "tbody":
+                    finishRow()
+                    inHead = false
+                case "tr":
+                    finishRow()
+                case "caption", "th", "td":
+                    // The matching close tag is included so the cell renders
+                    // with its own `<th>`/`<caption>` styling.
+                    let end = closingIndex(of: name, after: index, in: tokens)
+                    let last = min(end, tokens.endIndex - 1)
+                    let content = render(Array(tokens[index...last])) ?? NSAttributedString()
+                    if name == "caption" {
+                        caption = content
+                    } else {
+                        cells.append((
+                            MessageTable.Cell(content: content, alignment: alignment(of: attributes)),
+                            name == "th"
+                        ))
+                    }
+                    index = last
+                default:
+                    break
+                }
+            case .closeTag(let name):
+                if name == "tr" { finishRow() }
+                if name == "thead" { finishRow(); inHead = false }
+            case .text:
+                break
+            }
+            index += 1
+        }
+        finishRow()
+        return rows.isEmpty ? nil : MessageTable(caption: caption, rows: rows)
+    }
+
+    private func alignment(of attributes: [String: String]) -> MessageTable.Alignment {
+        let style = (attributes["style"] ?? "").lowercased().replacing(" ", with: "")
+        let align = attributes["align"]?.lowercased()
+        if align == "center" || style.contains("text-align:center") { return .center }
+        if align == "right" || style.contains("text-align:right") { return .trailing }
+        return .leading
+    }
+
+    // MARK: - Inline Rendering
+
+    /// Renders a token run into an attributed string, or `nil` if it has no
+    /// visible content.
+    private func render(_ tokens: [Token]) -> NSAttributedString? {
         let result = NSMutableAttributedString()
         var styleStack: [Style] = [Style()]
         var blockquoteDepth = 0

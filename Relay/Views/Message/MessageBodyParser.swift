@@ -19,10 +19,10 @@ import MatrixKit
 
 extension MessageBubbleContent {
     /// LRU cache for parsed HTML bodies. Shared across all `MessageBubbleContent` instances.
-    static let htmlCache = ParseCache<String, NSAttributedString?>(capacity: 128)
+    static let htmlCache = ParseCache<String, [MessageBlock]>(capacity: 128)
 
     /// LRU cache for parsed Markdown bodies. Shared across all `MessageBubbleContent` instances.
-    static let markdownCache = ParseCache<String, NSAttributedString>(capacity: 128)
+    static let markdownCache = ParseCache<String, [MessageBlock]>(capacity: 128)
 
     /// LRU cache for parsed emote HTML bodies. Shared across all `MessageBubbleContent` instances.
     static let emoteHtmlCache = ParseCache<String, NSAttributedString?>(capacity: 64)

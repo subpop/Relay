@@ -54,6 +54,8 @@ struct MessageBubbleContent: View {
     /// than through ``MessageTextScale/scale`` itself.
     @AppStorage(MessageTextScale.userDefaultsKey) private var textScale = Double(MessageTextScale.defaultScale)
 
+    @State private var isShowingFullMessage = false
+
     @Environment(\.timelineActions) private var actions
     @Environment(\.colorScheme) private var colorScheme
 
@@ -114,19 +116,24 @@ struct MessageBubbleContent: View {
     private var textContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
             VStack(alignment: .leading, spacing: 0) {
-                MessageTextView(
-                    attributedString: parsedBody,
-                    isOutgoing: style.usesWhiteText,
-                    onUserTap: { actions.userTap($0) },
-                    onRoomTap: actions.roomTap,
-                    contextMessage: onPresentReactionPicker != nil ? message : nil,
-                    isOutgoingMessage: isOutgoing,
-                    onMessageContextAction: { actions.contextAction($0) },
-                    onPresentReactionPicker: onPresentReactionPicker,
-                    permissions: actions.permissions,
-                    highlightedUserId: message.highlightedMentionUserId?.value,
-                    highlightKeywords: message.highlightKeywords
-                )
+                VStack(alignment: .leading, spacing: 0) {
+                    messageBlocks(usesWhiteText: style.usesWhiteText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxHeight: isCollapsed ? Self.collapsedHeight : nil, alignment: .top)
+                        .clipped()
+                        .mask(collapseFade)
+
+                    if isCollapsed {
+                        Button("Show More") { isShowingFullMessage = true }
+                            .buttonStyle(.plain)
+                            .font(.callout.bold())
+                            .foregroundStyle(style.usesWhiteText ? Color.white : Color.accentColor)
+                            .padding(.top, 4)
+                            .popover(isPresented: $isShowingFullMessage) {
+                                fullMessagePopover
+                            }
+                    }
+                }
                 .padding(.horizontal, BubbleStyle.horizontalPadding)
                 .padding(.vertical, BubbleStyle.verticalPadding)
 
@@ -150,6 +157,60 @@ struct MessageBubbleContent: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, BubbleStyle.horizontalPadding)
             }
+        }
+    }
+
+    // MARK: - Long Message Collapse
+
+    /// Height of the collapsed preview, in line-heights of the base font.
+    private static var collapsedHeight: CGFloat { MessageTextScale.baseFontSize * 18 }
+
+    /// Whether this text message is long enough to show only a preview.
+    private var isCollapsed: Bool {
+        if case .text = message.kind { return MessageBlock.isLongBody(message.body) }
+        return false
+    }
+
+    /// Fades the bottom of a collapsed preview to hint that more follows.
+    private var collapseFade: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .black, location: isCollapsed ? 0.8 : 1),
+                .init(color: isCollapsed ? .clear : .black, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// The whole message in a scrollable popover. It sits on the popover
+    /// material rather than the bubble, so text uses the neutral colors.
+    private var fullMessagePopover: some View {
+        ScrollView {
+            messageBlocks(usesWhiteText: false)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: 520, height: 480)
+        .background(.ultraThickMaterial)
+        .environment(\.colorScheme, colorScheme)
+    }
+
+    private func messageBlocks(usesWhiteText: Bool) -> some View {
+        MessageBlocksView(blocks: parsedBlocks, usesWhiteText: usesWhiteText) { text in
+            MessageTextView(
+                attributedString: text,
+                isOutgoing: usesWhiteText,
+                onUserTap: { actions.userTap($0) },
+                onRoomTap: actions.roomTap,
+                contextMessage: onPresentReactionPicker != nil ? message : nil,
+                isOutgoingMessage: isOutgoing,
+                onMessageContextAction: { actions.contextAction($0) },
+                onPresentReactionPicker: onPresentReactionPicker,
+                permissions: actions.permissions,
+                highlightedUserId: message.highlightedMentionUserId?.value,
+                highlightKeywords: message.highlightKeywords
+            )
         }
     }
 
@@ -333,17 +394,17 @@ struct MessageBubbleContent: View {
 
     // MARK: - Body Parsing (HTML -> Markdown fallback)
 
-    /// The parsed message body as an `NSAttributedString`. Prefers `formatted_body`
-    /// (HTML) when available, falling back to inline Markdown parsing of `body`.
-    private var parsedBody: NSAttributedString {
+    /// The parsed message body as blocks. Prefers `formatted_body` (HTML) when
+    /// available, falling back to Markdown parsing of `body`.
+    private var parsedBlocks: [MessageBlock] {
         if let html = message.formattedBody {
             let cached = Self.htmlCache.value(forKey: Self.scaledCacheKey(html)) {
-                NSAttributedString(matrixHTML: html)
+                MessageBlock.blocks(matrixHTML: html)
             }
-            if let result = cached { return result }
+            if !cached.isEmpty { return cached }
         }
         return Self.markdownCache.value(forKey: Self.scaledCacheKey(message.body)) {
-            NSAttributedString(matrixMarkdown: message.body)
+            MessageBlock.blocks(matrixMarkdown: message.body)
         }
     }
 
@@ -406,6 +467,57 @@ struct MessageBubbleContent: View {
             isOutgoing: true
         )
     }
+    .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .padding()
+    .frame(width: 450)
+}
+
+#Preview("Blocks") {
+    VStack(alignment: .leading, spacing: 6) {
+        MessageBubbleContent(
+            message: PreviewFixtures.event(
+                "1", sender: "@alice:matrix.org", displayName: "Alice",
+                body: "code",
+                formattedBody: """
+                <p>Try this:</p>
+                <pre><code class="language-swift">let greeting = "hello"
+                for index in 0..&lt;3 {
+                    print(greeting, index)
+                }
+                let aVeryLongLine = "this line is intentionally long so that the block has to scroll horizontally instead of wrapping"
+                </code></pre>
+                <p>Then run it.</p>
+                """
+            ),
+            isOutgoing: false
+        )
+        MessageBubbleContent(
+            message: PreviewFixtures.event(
+                "2", sender: "@me:matrix.org",
+                body: "table",
+                formattedBody: """
+                <table><thead><tr><th>Name</th><th align="right">Qty</th></tr></thead>
+                <tbody><tr><td>Apple</td><td align="right">3</td></tr>
+                <tr><td><b>Pear</b></td><td align="right">12</td></tr>
+                <tr><td>Fig</td><td align="right">7</td></tr></tbody></table>
+                """
+            ),
+            isOutgoing: true
+        )
+    }
+    .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .padding()
+    .frame(width: 450)
+}
+
+#Preview("Long Message") {
+    MessageBubbleContent(
+        message: PreviewFixtures.event(
+            "1", sender: "@alice:matrix.org", displayName: "Alice",
+            body: (1...40).map { "Line \($0) of a very long message" }.joined(separator: "\n")
+        ),
+        isOutgoing: false
+    )
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
     .padding()
     .frame(width: 450)
