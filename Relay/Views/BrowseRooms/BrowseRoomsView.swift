@@ -39,6 +39,7 @@ struct BrowseRoomsView: View {
     @State private var scope: String?
     @State private var homeServer: String?
     @State private var remoteServers: [String] = []
+    @State private var aliasInput = ""
 
     private var visiblePages: [BrowseRoomsViewModel.ServerPage] {
         guard let scope else { return [] }
@@ -47,7 +48,13 @@ struct BrowseRoomsView: View {
 
     var body: some View {
         NavigationStack {
-            directoryContent
+            VStack(spacing: 0) {
+                directoryContent
+                Divider()
+                JoinByAliasRow(alias: $aliasInput, isJoining: isJoining && joiningRoomId == nil) {
+                    joinRoom(idOrAlias: aliasInput.trimmingCharacters(in: .whitespaces))
+                }
+            }
                 .navigationTitle("Browse Rooms")
                 .searchable(text: $query, placement: .toolbar, prompt: "Search rooms by name or alias")
                 .onSubmit(of: .search) { performSearch() }
@@ -242,19 +249,21 @@ struct BrowseRoomsView: View {
     // MARK: - Join
 
     private func joinRoom(_ room: PublicRoomEntry) {
+        joinRoom(idOrAlias: room.canonicalAlias ?? room.roomId.value, joiningId: room.roomId.value)
+    }
+
+    private func joinRoom(idOrAlias: String, joiningId: String? = nil) {
         guard !isJoining else { return }
         isJoining = true
-        joiningRoomId = room.roomId.value
+        joiningRoomId = joiningId
 
         Task {
             do {
-                let idOrAlias = room.canonicalAlias ?? room.roomId.value
                 try await client.joinRoom(idOrAlias: idOrAlias)
 
                 try? await Task.sleep(for: .milliseconds(500))
                 if let joined = client.rooms.first(where: {
-                    $0.roomId.value == room.roomId.value
-                        || $0.canonicalAlias == room.canonicalAlias
+                    $0.roomId.value == idOrAlias || $0.canonicalAlias == idOrAlias
                 }) {
                     selectedRoomId = joined.roomId.value
                 }
@@ -265,6 +274,37 @@ struct BrowseRoomsView: View {
             isJoining = false
             joiningRoomId = nil
         }
+    }
+}
+
+// MARK: - Join By Alias Row
+
+/// A row pinned below the directory for joining a room by alias
+/// (`#room:server`) or room ID (`!id:server`).
+private struct JoinByAliasRow: View {
+    @Binding var alias: String
+    let isJoining: Bool
+    let onJoin: () -> Void
+
+    private var isValid: Bool {
+        BrowseRoomsViewModel.isValidRoomIdOrAlias(alias.trimmingCharacters(in: .whitespaces))
+    }
+
+    var body: some View {
+        HStack {
+            TextField("Join by alias", text: $alias, prompt: Text("Join a room by alias, e.g. #room:example.org"))
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                .onSubmit { if isValid { onJoin() } }
+            if isJoining {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Button("Join", action: onJoin)
+                .disabled(!isValid || isJoining)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 

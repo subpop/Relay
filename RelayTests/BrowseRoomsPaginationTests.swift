@@ -86,3 +86,17 @@ struct BrowseRoomsPaginationTests {
         #expect(page.nextBatch == "t1")
     }
 }
+
+// MARK: - BrowseRoomsJoinValidationTests
+
+struct BrowseRoomsJoinValidationTests {
+    @Test("Accepts aliases and room IDs", arguments: ["#room:example.org", "!abc:example.org"])
+    func accepts(_ text: String) {
+        #expect(BrowseRoomsViewModel.isValidRoomIdOrAlias(text))
+    }
+
+    @Test("Rejects malformed input", arguments: ["", "room", "#room", "#:example.org", "#room:", "@user:example.org"])
+    func rejects(_ text: String) {
+        #expect(!BrowseRoomsViewModel.isValidRoomIdOrAlias(text))
+    }
+}

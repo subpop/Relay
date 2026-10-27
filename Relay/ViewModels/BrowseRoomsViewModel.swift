@@ -177,6 +177,16 @@ final class BrowseRoomsViewModel {
             || nextBatch == sentBatch
     }
 
+    /// Whether `text` looks like a room alias (`#name:server`) or room ID
+    /// (`!id:server`) that can be passed to a join request.
+    static func isValidRoomIdOrAlias(_ text: String) -> Bool {
+        guard let sigil = text.first, sigil == "#" || sigil == "!",
+            let colon = text.firstIndex(of: ":")
+        else { return false }
+        return colon > text.index(after: text.startIndex)
+            && text.index(after: colon) < text.endIndex
+    }
+
     private static func makePages(homeServer: String?, remotes: [String]) -> [ServerPage] {
         var pages: [ServerPage] = []
         if let homeServer {
