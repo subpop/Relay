@@ -41,11 +41,6 @@ struct ImageMessageView: View {
     /// Side length for a square gallery tile; nil renders at the media's own size.
     var tileSize: CGFloat? = nil
 
-    @available(*, deprecated, message: "Build a MediaItem and use init(item:uploadProgress:tileSize:).")
-    init(message: ObservableTimelineEvent, uploadProgress: Double? = nil) {
-        self.init(item: MediaItem(message: message), uploadProgress: uploadProgress)
-    }
-
     init(item: MediaItem, uploadProgress: Double? = nil, tileSize: CGFloat? = nil) {
         self.item = item
         self.uploadProgress = uploadProgress

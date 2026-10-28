@@ -32,13 +32,6 @@ struct AudioMessageView: View {
     /// Whether the message was sent by the local user.
     let isOutgoing: Bool
 
-    @available(*, deprecated, message: "Build a MediaItem and use init(item:senderID:isOutgoing:).")
-    init(message: ObservableTimelineEvent, isOutgoing: Bool) {
-        self.init(
-            item: MediaItem(message: message), senderID: message.sender.value,
-            isOutgoing: isOutgoing)
-    }
-
     init(item: MediaItem, senderID: String, isOutgoing: Bool) {
         self.item = item
         self.senderID = senderID

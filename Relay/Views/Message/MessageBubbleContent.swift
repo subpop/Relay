@@ -230,7 +230,7 @@ struct MessageBubbleContent: View {
 
     private var imageContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            ImageMessageView(message: message, uploadProgress: uploadProgress)
+            ImageMessageView(item: MediaItem(message: message), uploadProgress: uploadProgress)
                 .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {
@@ -257,7 +257,7 @@ struct MessageBubbleContent: View {
 
     private var videoContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            VideoMessageView(message: message, uploadProgress: uploadProgress)
+            VideoMessageView(item: MediaItem(message: message), uploadProgress: uploadProgress)
                 .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {
@@ -270,7 +270,9 @@ struct MessageBubbleContent: View {
 
     private var audioContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            AudioMessageView(message: message, isOutgoing: isOutgoing)
+            AudioMessageView(item: MediaItem(message: message),
+                             senderID: message.sender.value,
+                             isOutgoing: isOutgoing)
                 .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {
@@ -283,7 +285,10 @@ struct MessageBubbleContent: View {
 
     private var fileContent: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
-            FileMessageView(message: message, isOutgoing: isOutgoing)
+            FileMessageView(item: MediaItem(message: message),
+                            senderID: message.sender.value,
+                            isOutgoing: isOutgoing
+            )
                 .clipShape(BubbleStyle.shape)
 
             if case .failed(let reason) = message.sendState {
