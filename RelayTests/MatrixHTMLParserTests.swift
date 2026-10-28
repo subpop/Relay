@@ -240,6 +240,15 @@ struct MatrixHTMLParserTests {
         #expect(isSpoiler == true)
     }
 
+    @Test func bareAttributeBeforeOtherAttributes() {
+        // A valueless attribute is not always the last one in the tag.
+        let result = NSAttributedString(matrixHTML:
+            ##"<span data-mx-spoiler data-mx-color="#ff0000">secret</span>"##
+        )!
+        #expect(result.string == "secret")
+        #expect(attrs(result, at: 0)[.matrixSpoiler] as? Bool == true)
+    }
+
     @Test func spoilerHasObscuredColors() {
         let result = NSAttributedString(matrixHTML:
             #"<span data-mx-spoiler>secret</span>"#

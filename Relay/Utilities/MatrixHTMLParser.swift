@@ -1261,20 +1261,21 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
         var remaining = cleaned[index...].trimmingCharacters(in: .whitespaces)
 
         while !remaining.isEmpty {
-            // Find attribute name.
-            guard let eqIndex = remaining.firstIndex(of: "=") else {
-                // Bare attribute (e.g. `data-mx-spoiler` without a value).
-                let attrName = remaining.trimmingCharacters(in: .whitespaces).lowercased()
+            // An attribute name runs to whitespace or `=`.
+            let nameEnd = remaining.firstIndex(where: { $0.isWhitespace || $0 == "=" })
+                ?? remaining.endIndex
+            let attrName = remaining[remaining.startIndex..<nameEnd].lowercased()
+            let afterName = remaining[nameEnd...].trimmingCharacters(in: .whitespaces)
+            guard afterName.hasPrefix("=") else {
+                // Bare attribute (e.g. `data-mx-spoiler` or `data-mx-emoticon`),
+                // which may be followed by further attributes.
                 if !attrName.isEmpty {
                     attributes[attrName] = ""
                 }
-                break
+                remaining = afterName
+                continue
             }
-
-            let attrName = remaining[remaining.startIndex..<eqIndex]
-                .trimmingCharacters(in: .whitespaces).lowercased()
-            var afterEq = remaining[remaining.index(after: eqIndex)...]
-                .trimmingCharacters(in: .whitespaces)
+            var afterEq = String(afterName.dropFirst()).trimmingCharacters(in: .whitespaces)
 
             let value: String
             if afterEq.hasPrefix("\"") {
