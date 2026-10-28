@@ -355,6 +355,8 @@ final class RelayClient {
     var storeWriter: MatrixStoreWriter?
     /// Fetch-based reads over the normalized store.
     var storeReader: MatrixStoreReader?
+    /// Rooms whose stored image packs were reconciled with server state this session.
+    @ObservationIgnored private var imagePackRefreshedRooms: Set<RoomId> = []
     /// Store-backed room snapshots driving the room list and every
     /// per-room lookup. Rebuilt off the main thread after each sync
     /// delta (see `scheduleRoomCacheRebuild()`); `@Observable`
@@ -643,6 +645,7 @@ final class RelayClient {
         storeContainer = nil
         storeWriter = nil
         storeReader = nil
+        imagePackRefreshedRooms = []
         relayClientLogger.info("Signed out (reason: \(reason, privacy: .public))")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
@@ -1994,6 +1997,101 @@ final class RelayClient {
         } else {
             _ = try await client.rooms.join(RoomAlias(unchecked: idOrAlias))
         }
+    }
+
+    // MARK: - Stickers
+
+    /// Account-data type holding the user's own sticker pack: an image pack
+    /// in `m.room.image_pack` content shape, kept on the account because the
+    /// spec defines packs only for rooms.
+    static let ownStickerPackType = "app.subpop.relay.sticker_pack"
+
+    /// The user's own sticker pack as last synced, empty when there is none.
+    func ownStickerPack() -> ImagePackContent {
+        guard let content = try? storeReader?.accountData(Self.ownStickerPackType) else {
+            return ImagePackContent()
+        }
+        return Self.stickerPack(from: content)
+    }
+
+    /// Image packs the room advertises, in the spec's priority order.
+    ///
+    /// The first request for a room in a session reconciles the stored packs
+    /// with the room's full state: sync only sends a pack when it changes, so
+    /// packs that predate the local store would otherwise never appear.
+    func imagePacks(for roomId: RoomId) async -> [ImagePack] {
+        guard let reader = storeReader else { return [] }
+        if let client, let writer = storeWriter,
+            imagePackRefreshedRooms.insert(roomId).inserted
+        {
+            do {
+                let state = try await client.roomState.getState(roomId)
+                try await writer.refreshImagePacks(roomId: roomId, state: state)
+            } catch {
+                imagePackRefreshedRooms.remove(roomId)
+                relayClientLogger.warning(
+                    "Image pack refresh failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        let packs = try? await Task.detached(priority: .userInitiated) {
+            try reader.imagePacks(for: roomId)
+        }.value
+        return packs ?? []
+    }
+
+    /// Uploads an image and adds it to the user's own sticker pack under
+    /// `shortcode`, returning the updated pack. The image is stored unencrypted,
+    /// as pack images are. `onProgress` receives the upload fraction (0 to 1).
+    func addOwnSticker(
+        data: Data, mimeType: String, filename: String, shortcode: String, body: String,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> ImagePackContent {
+        guard let client else { throw MatrixError.notAuthenticated }
+        let mxc = try await client.media.upload(
+            data, mimeType: mimeType, filename: filename, onProgress: onProgress)
+        var info = MediaInfo(
+            mimeType: mimeType, size: data.count,
+            isAnimated: ImageAnimation.isAnimated(imageData: data))
+        if let pixels = StickerPackEditing.pixelSize(of: data) {
+            let size = StickerPackEditing.displaySize(
+                pixelWidth: pixels.width, pixelHeight: pixels.height)
+            info.width = size.width
+            info.height = size.height
+        }
+        var pack = try await currentOwnStickerPack(client)
+        pack.images[shortcode] = ImagePackImage(
+            url: mxc.value, body: body.isEmpty ? nil : body, info: info)
+        try await saveOwnStickerPack(pack, client: client)
+        return pack
+    }
+
+    /// Removes a sticker from the user's own sticker pack, returning the
+    /// updated pack.
+    func removeOwnSticker(shortcode: String) async throws -> ImagePackContent {
+        guard let client else { throw MatrixError.notAuthenticated }
+        var pack = try await currentOwnStickerPack(client)
+        pack.images[shortcode] = nil
+        try await saveOwnStickerPack(pack, client: client)
+        return pack
+    }
+
+    /// The pack on the server: edits start from it, not the synced copy, so
+    /// a change made on another device isn't overwritten.
+    private func currentOwnStickerPack(_ client: MatrixClient) async throws -> ImagePackContent {
+        Self.stickerPack(from: try await client.accountData.get(Self.ownStickerPackType) ?? [:])
+    }
+
+    private func saveOwnStickerPack(_ pack: ImagePackContent, client: MatrixClient) async throws {
+        let encoded = try JSONEncoder().encode(pack)
+        let content = try JSONDecoder().decode([String: AnyCodable].self, from: encoded)
+        try await client.accountData.put(Self.ownStickerPackType, content: content)
+    }
+
+    private static func stickerPack(from content: [String: AnyCodable]) -> ImagePackContent {
+        guard let data = try? JSONEncoder().encode(content),
+            let pack = try? JSONDecoder().decode(ImagePackContent.self, from: data)
+        else { return ImagePackContent() }
+        return pack
     }
 
     /// Preview a room's metadata and recent messages without joining.
@@ -3502,6 +3600,7 @@ final class RelayClient {
         storeContainer = nil
         storeWriter = nil
         storeReader = nil
+        imagePackRefreshedRooms = []
         cachedRooms = []
         cachedInvitedRooms = []
         roomRevisions = [:]

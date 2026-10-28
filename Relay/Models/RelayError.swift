@@ -110,6 +110,9 @@ enum RelayError: LocalizedError, Sendable {
     /// A download link could not be created for a file in iCloud Drive.
     case iCloudLinkFailed(filename: String, reason: String)
 
+    /// The user's own sticker pack could not be updated.
+    case stickerPackUpdateFailed(String)
+
     // MARK: Verification
 
     /// Session verification failed.
@@ -200,6 +203,8 @@ enum RelayError: LocalizedError, Sendable {
             String(localized: "Could Not Read File", comment: "Error alert title: copying a file for upload staging failed")
         case .iCloudLinkFailed:
             String(localized: "Could Not Create iCloud Link", comment: "Error alert title: uploading a file to iCloud Drive to share a link failed")
+        case .stickerPackUpdateFailed:
+            String(localized: "Could Not Update Stickers", comment: "Error alert title: adding a sticker to, or removing one from, the user's sticker pack failed")
         case .verificationFailed:
             String(localized: "Verification Failed", comment: "Error alert title: device/session cross-signing verification failed")
         case .keyBackupRestoreFailed:
@@ -276,6 +281,8 @@ enum RelayError: LocalizedError, Sendable {
             String(localized: "Could not read \(filename): \(reason)", comment: "Error alert message: filename is the attachment's name, reason is why reading failed")
         case .iCloudLinkFailed(let filename, let reason):
             String(localized: "Could not share \(filename) through iCloud: \(reason)", comment: "Error alert message: filename is the attachment's name, reason is why creating the iCloud link failed")
+        case .stickerPackUpdateFailed(let reason):
+            reason
         case .verificationFailed(let reason):
             reason
         case .keyBackupRestoreFailed(let reason):
