@@ -60,7 +60,7 @@ struct InspectorBehaviorTab: View {
                 Divider()
 
                 BehaviorOverridePicker(
-                    label: "Animate GIFs",
+                    label: "Animate Images",
                     icon: "play.circle",
                     override: $overrides.animateGIFs,
                     globalDefault: globalAnimateGIFs.rawValue,

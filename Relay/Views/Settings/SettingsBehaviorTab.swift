@@ -105,7 +105,7 @@ struct SettingsBehaviorTab: View {
             }
 
             Section {
-                Picker("Animate GIFs", selection: $animateGIFs) {
+                Picker("Animate Images", selection: $animateGIFs) {
                     ForEach(GIFAnimationMode.allCases, id: \.self) { mode in
                         Text(mode.label).tag(mode)
                     }
