@@ -72,6 +72,9 @@ final class ComposeViewModel {
     /// Whether the GIF picker popover is presented.
     var isShowingGIFPicker = false
 
+    /// Whether the sticker picker popover is presented.
+    var isShowingStickerPicker = false
+
     /// Whether the poll composer sheet is presented.
     var isShowingPollComposer = false
 
@@ -494,6 +497,21 @@ final class ComposeViewModel {
             }
 
             await viewModel.sendAttachment(url: tempURL, caption: nil, inReplyTo: replyEventId)
+        }
+    }
+
+    /// Sends a sticker from the picker, as a reply when one is pending.
+    func sendSticker(
+        _ image: ImagePackImage,
+        shortcode: String,
+        using viewModel: TimelineViewModel,
+        onScrollToBottom: (() -> Void)? = nil
+    ) {
+        let replyEventId = replyingTo?.eventId.value
+        replyingTo = nil
+        onScrollToBottom?()
+        Task {
+            await viewModel.sendSticker(image, shortcode: shortcode, inReplyTo: replyEventId)
         }
     }
 

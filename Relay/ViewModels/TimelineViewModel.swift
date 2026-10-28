@@ -721,6 +721,32 @@ final class TimelineViewModel {
         await echoRefreshTask.value
     }
 
+    /// The `m.sticker` content for a pack image, replying to `inReplyTo` when set.
+    static func stickerContent(
+        for image: ImagePackImage, shortcode: String, inReplyTo: String?
+    ) -> StickerContent {
+        var content = image.stickerContent(shortcode: shortcode)
+        content.relatesTo = inReplyTo.map { .reply(to: EventId(unchecked: $0)) }
+        return content
+    }
+
+    /// Sends an image from an image pack as an `m.sticker`, optionally as a
+    /// reply. The local echo appears immediately; sync confirms it in the
+    /// background.
+    func sendSticker(_ image: ImagePackImage, shortcode: String, inReplyTo: String?) async {
+        let (echoStaged, continuation) = AsyncStream<Void>.makeStream()
+        let echoRefreshTask = Task { @MainActor in
+            for await _ in echoStaged {
+                await refreshForLocalEcho()
+            }
+        }
+        await client.messageSender?.sendSticker(
+            roomID, Self.stickerContent(for: image, shortcode: shortcode, inReplyTo: inReplyTo),
+            onEchoStaged: { continuation.yield() })
+        continuation.finish()
+        await echoRefreshTask.value
+    }
+
     /// Reads a file and probes its dimensions, duration, and thumbnail.
     /// Reports the failure and returns nil when the file is unreadable.
     private func probeUpload(url: URL, filename: String, caption: String?) async

@@ -33,6 +33,12 @@ struct ComposeBar: View {
     /// Called when the user selects a GIF from the picker.
     var onGIFSelected: (GIFSearchResult) async -> Void
 
+    /// Room whose sticker packs the sticker picker offers.
+    var roomId: RoomId
+
+    /// Called when the user selects a sticker (the pack image and its shortcode).
+    var onStickerSelected: (ImagePackImage, String) -> Void
+
     /// Called with a validated poll (question, options, max selections, kind).
     var onPollCreated: (String, [String], Int, PollKind) async -> Void
 
@@ -116,7 +122,9 @@ struct ComposeBar: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        ComposeBarActions(compose: compose, onGIFSelected: onGIFSelected)
+        ComposeBarActions(
+            compose: compose, roomId: roomId, onGIFSelected: onGIFSelected,
+            onStickerSelected: onStickerSelected)
     }
 }
 
@@ -232,7 +240,9 @@ private struct ComposeBarContent: View {
 /// The attachment popover and GIF button on the right side of the compose bar.
 private struct ComposeBarActions: View {
     @Bindable var compose: ComposeViewModel
+    var roomId: RoomId
     var onGIFSelected: (GIFSearchResult) async -> Void
+    var onStickerSelected: (ImagePackImage, String) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -269,6 +279,12 @@ private struct ComposeBarActions: View {
                 }
             }
         }
+        .popover(isPresented: $compose.isShowingStickerPicker, arrowEdge: .top) {
+            StickerPickerView(roomId: roomId) { image, shortcode in
+                compose.isShowingStickerPicker = false
+                onStickerSelected(image, shortcode)
+            }
+        }
     }
 }
 
@@ -292,6 +308,10 @@ private struct AttachmentMenuView: View {
             AttachmentMenuRow(title: "GIFs", systemImage: "number") {
                 compose.isShowingAttachmentMenu = false
                 compose.isShowingGIFPicker = true
+            }
+            AttachmentMenuRow(title: "Stickers", systemImage: "face.smiling") {
+                compose.isShowingAttachmentMenu = false
+                compose.isShowingStickerPicker = true
             }
             AttachmentMenuRow(title: "Poll", systemImage: "chart.bar") {
                 compose.isShowingAttachmentMenu = false
@@ -346,6 +366,8 @@ private let previewMembers: [RoomMemberDetails] = [
     RoomMemberDetails(userId: UserId(unchecked: "@diana:matrix.org"), displayName: "Diana Evans"),
 ]
 
+private let previewRoomId = RoomId(unchecked: "!preview:matrix.org")
+
 #Preview("Empty") {
     ComposeBar(
         compose: {
@@ -356,6 +378,8 @@ private let previewMembers: [RoomMemberDetails] = [
         onSend: {},
         onAttach: { _ in },
         onGIFSelected: { _ in },
+        roomId: previewRoomId,
+        onStickerSelected: { _, _ in },
         onPollCreated: { _, _, _, _ in }
     )
     .frame(width: 400)
@@ -372,6 +396,8 @@ private let previewMembers: [RoomMemberDetails] = [
         onSend: {},
         onAttach: { _ in },
         onGIFSelected: { _ in },
+        roomId: previewRoomId,
+        onStickerSelected: { _, _ in },
         onPollCreated: { _, _, _, _ in }
     )
     .frame(width: 400)
@@ -401,6 +427,8 @@ private let previewMembers: [RoomMemberDetails] = [
         onSend: {},
         onAttach: { _ in },
         onGIFSelected: { _ in },
+        roomId: previewRoomId,
+        onStickerSelected: { _, _ in },
         onPollCreated: { _, _, _, _ in }
     )
     .frame(width: 500)
@@ -420,6 +448,8 @@ private let previewMembers: [RoomMemberDetails] = [
             onSend: {},
             onAttach: { _ in },
             onGIFSelected: { _ in },
+            roomId: previewRoomId,
+            onStickerSelected: { _, _ in },
             onPollCreated: { _, _, _, _ in }
         )
         .environment(PreviewFixtures.previewClient())

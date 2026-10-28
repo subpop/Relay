@@ -77,6 +77,12 @@ struct TimelineBottomBar: View {
                     onSendWillScroll()
                 }
             },
+            roomId: RoomId(unchecked: viewModel.roomId),
+            onStickerSelected: { image, shortcode in
+                compose.sendSticker(image, shortcode: shortcode, using: viewModel) {
+                    onSendWillScroll()
+                }
+            },
             onPollCreated: { question, options, maxSelections, kind in
                 await viewModel.startPoll(
                     question: question, options: options,
