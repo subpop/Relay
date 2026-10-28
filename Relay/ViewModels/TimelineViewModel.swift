@@ -740,6 +740,7 @@ final class TimelineViewModel {
         {
             upload.width = cgImage.width
             upload.height = cgImage.height
+            upload.isAnimated = ImageAnimation.isAnimated(imageData: data)
             upload.thumbnailData = jpegThumbnail(cgImage: cgImage, maxDimension: 800)
             upload.thumbnailMimeType = "image/jpeg"
         } else if utType.conforms(to: .movie) || utType.conforms(to: .video)
@@ -821,7 +822,7 @@ final class TimelineViewModel {
                 roomID,
                 data: upload.data, filename: upload.filename, mimeType: upload.mimeType,
                 caption: upload.caption, width: upload.width, height: upload.height,
-                duration: upload.duration,
+                duration: upload.duration, isAnimated: upload.isAnimated,
                 thumbnailData: upload.thumbnailData, thumbnailMimeType: upload.thumbnailMimeType,
                 inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
                 onEchoStaged: onEchoStaged,

@@ -57,7 +57,7 @@ struct ImageMessageView: View {
 
     @State private var image: NSImage?
     @State private var imageData: Data?
-    @State private var webPFrames: AnimatedWebPFrames?
+    @State private var animatedFrames: AnimatedImageFrames?
     @State private var isLoading = true
     @State private var isHovering = false
     @State private var quickLookURL: URL?
@@ -90,7 +90,7 @@ struct ImageMessageView: View {
         return (download?.filename ?? "").lowercased().hasSuffix(".webp")
     }
 
-    /// Whether a GIF or WebP should currently be animating, based on the user preference.
+    /// Whether an animated image should currently be animating, based on the user preference.
     private var shouldAnimateGIF: Bool {
         switch animateGIFs {
         case .always: true
@@ -108,8 +108,8 @@ struct ImageMessageView: View {
                     AnimatedImageView(data: imageData, isAnimating: shouldAnimateGIF)
                         .frame(width: displaySize.width, height: displaySize.height)
                         .clipped()
-                } else if let webPFrames {
-                    AnimatedWebPView(frames: webPFrames, isAnimating: shouldAnimateGIF)
+                } else if let animatedFrames {
+                    AnimatedFramesView(frames: animatedFrames, isAnimating: shouldAnimateGIF)
                         .aspectRatio(contentMode: isSticker ? .fit : .fill)
                         .frame(width: displaySize.width, height: displaySize.height)
                         .clipped()
@@ -151,7 +151,7 @@ struct ImageMessageView: View {
             }
         }
         .overlay {
-            if shouldShow, !isSticker, !isGIF, webPFrames == nil, image != nil {
+            if shouldShow, !isSticker, !isGIF, animatedFrames == nil, image != nil {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 48, weight: .semibold))
                     .foregroundStyle(.ultraThinMaterial)
@@ -218,17 +218,16 @@ struct ImageMessageView: View {
         .task(id: shouldShow ? download?.mxcURL : nil) {
             guard shouldShow, let download else { return }
             isLoading = true
-            if isGIF {
-                // Load full content for GIFs to preserve animation frames.
+            if ImageAnimation.loadsOriginal(
+                isAnimated: item.info?.isAnimated, isGIF: isGIF, isWebP: isWebP)
+            {
+                // Server thumbnails are static, so animation needs the original.
                 if let data = await client.mediaBytes(download) {
-                    imageData = data
-                    image = NSImage(data: data)
-                }
-            } else if isWebP {
-                // Server thumbnails are static, so animated WebPs need the
-                // full file.
-                if let data = await client.mediaBytes(download) {
-                    webPFrames = AnimatedWebPFrames(data: data)
+                    if isGIF {
+                        imageData = data
+                    } else {
+                        animatedFrames = AnimatedImageFrames(data: data)
+                    }
                     image = NSImage(data: data)
                 }
             } else {

@@ -16,13 +16,13 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The decoded frame timing of an animated WebP.
+/// The decoded frame timing of an animated WebP or PNG (APNG).
 ///
-/// `NSImageView.animates` only drives GIFs: AppKit exposes each WebP frame as
-/// a separate image representation. ImageIO does decode the frames and their
-/// delays, so playback is driven from here. Frames are decoded on demand to
-/// keep long animations out of memory.
-struct AnimatedWebPFrames {
+/// `NSImageView.animates` only drives GIFs: AppKit exposes each WebP or APNG
+/// frame as a separate image representation. ImageIO does decode the frames
+/// and their delays, so playback is driven from here. Frames are decoded on
+/// demand to keep long animations out of memory.
+struct AnimatedImageFrames {
     private let source: CGImageSource
     private let delays: [TimeInterval]
     private let totalDuration: TimeInterval
@@ -31,19 +31,27 @@ struct AnimatedWebPFrames {
     private static let minimumDelay: TimeInterval = 0.02
     private static let defaultDelay: TimeInterval = 0.1
 
-    /// Reads the frames of `data`, or returns nil when it is not a WebP with
-    /// more than one frame.
+    /// Reads the frames of `data`, or returns nil when it is not a WebP or
+    /// PNG with more than one frame. GIFs play through ``AnimatedImageView``.
     init?(data: Data) {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-            CGImageSourceGetType(source) as String? == UTType.webP.identifier,
-            CGImageSourceGetCount(source) > 1
+            CGImageSourceGetCount(source) > 1,
+            let type = (CGImageSourceGetType(source) as String?).flatMap(UTType.init)
         else { return nil }
+        let delayKeys: (dictionary: CFString, delay: CFString)
+        if type == .webP {
+            delayKeys = (kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime)
+        } else if type == .png {
+            delayKeys = (kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime)
+        } else {
+            return nil
+        }
         self.source = source
         delays = (0..<CGImageSourceGetCount(source)).map { index in
             let properties =
                 CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
-            let webP = properties?[kCGImagePropertyWebPDictionary] as? [CFString: Any]
-            let delay = webP?[kCGImagePropertyWebPUnclampedDelayTime] as? TimeInterval
+            let format = properties?[delayKeys.dictionary] as? [CFString: Any]
+            let delay = format?[delayKeys.delay] as? TimeInterval
             return if let delay, delay >= Self.minimumDelay { delay } else { Self.defaultDelay }
         }
         totalDuration = delays.reduce(0, +)
@@ -66,10 +74,10 @@ struct AnimatedWebPFrames {
     }
 }
 
-/// Plays an animated WebP while `isAnimating`, and shows its first frame
-/// otherwise. Sizing is left to the caller.
-struct AnimatedWebPView: View {
-    let frames: AnimatedWebPFrames
+/// Plays an animated WebP or APNG while `isAnimating`, and shows its first
+/// frame otherwise. Sizing is left to the caller.
+struct AnimatedFramesView: View {
+    let frames: AnimatedImageFrames
     let isAnimating: Bool
 
     var body: some View {
