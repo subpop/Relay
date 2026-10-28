@@ -24,23 +24,34 @@ struct AudioMessageView: View {
     @Environment(\.errorReporter) private var errorReporter
     @AppStorage("appearance.coloredBubbles") private var coloredBubbles = false
 
-    let message: ObservableTimelineEvent
+    let item: MediaItem
+
+    /// Sender ID, used to pick the colored-bubble style.
+    let senderID: String
 
     /// Whether the message was sent by the local user.
     let isOutgoing: Bool
+
+    @available(*, deprecated, message: "Build a MediaItem and use init(item:senderID:isOutgoing:).")
+    init(message: ObservableTimelineEvent, isOutgoing: Bool) {
+        self.init(
+            item: MediaItem(message: message), senderID: message.sender.value,
+            isOutgoing: isOutgoing)
+    }
+
+    init(item: MediaItem, senderID: String, isOutgoing: Bool) {
+        self.item = item
+        self.senderID = senderID
+        self.isOutgoing = isOutgoing
+    }
 
     @State private var quickLookURL: URL?
     @State private var isLoadingMedia = false
     @State private var isHovering = false
 
-    private var download: MediaFileHelper.Download? {
-        message.mediaDownload
-    }
+    private var download: MediaFileHelper.Download? { item.download }
 
-    private var mediaInfo: MediaInfo? {
-        if case .audio(_, _, let info) = message.kind { return info }
-        return nil
-    }
+    private var mediaInfo: MediaInfo? { item.info }
 
     /// Duration in seconds (`MediaInfo` carries milliseconds).
     private var durationSeconds: TimeInterval? {
@@ -51,7 +62,7 @@ struct AudioMessageView: View {
     private var style: BubbleStyle {
         .message(
             isOutgoing: isOutgoing,
-            senderID: message.sender.value,
+            senderID: senderID,
             coloredBubbles: coloredBubbles)
     }
 
@@ -68,7 +79,7 @@ struct AudioMessageView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(download?.filename ?? message.body)
+                Text(download?.filename ?? item.fallbackName)
                     .font(.callout)
                     .fontWeight(.medium)
                     .lineLimit(1)

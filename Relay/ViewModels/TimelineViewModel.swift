@@ -721,26 +721,27 @@ final class TimelineViewModel {
         await echoRefreshTask.value
     }
 
-    /// Send a file attachment with probed metadata.
-    func sendAttachment(url: URL, caption: String?, inReplyTo: String?) async {
-        let filename = url.lastPathComponent
+    /// Reads a file and probes its dimensions, duration, and thumbnail.
+    /// Reports the failure and returns nil when the file is unreadable.
+    private func probeUpload(url: URL, filename: String, caption: String?) async
+        -> MessageSender.GalleryUpload?
+    {
         let utType = UTType(filenameExtension: url.pathExtension) ?? .data
         let mimeType = utType.preferredMIMEType ?? "application/octet-stream"
         guard let data = try? Data(contentsOf: url) else {
             errorReporter.report(.fileCopyFailed(filename: filename, reason: "Unreadable file"))
-            return
+            return nil
         }
-        var width: Int?
-        var height: Int?
-        var duration: Int?
-        var thumbnailData: Data?
+        var upload = MessageSender.GalleryUpload(
+            data: data, filename: filename, mimeType: mimeType, caption: caption)
         if utType.conforms(to: .image),
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
         {
-            width = cgImage.width
-            height = cgImage.height
-            thumbnailData = jpegThumbnail(cgImage: cgImage, maxDimension: 800)
+            upload.width = cgImage.width
+            upload.height = cgImage.height
+            upload.thumbnailData = jpegThumbnail(cgImage: cgImage, maxDimension: 800)
+            upload.thumbnailMimeType = "image/jpeg"
         } else if utType.conforms(to: .movie) || utType.conforms(to: .video)
             || utType.conforms(to: .audio)
         {
@@ -748,15 +749,27 @@ final class TimelineViewModel {
             if let track = try? await asset.loadTracks(withMediaType: .video).first,
                 let size = try? await track.load(.naturalSize)
             {
-                width = Int(size.width)
-                height = Int(size.height)
+                upload.width = Int(size.width)
+                upload.height = Int(size.height)
             }
             if let durationSeconds = try? await asset.load(.duration).seconds,
                 durationSeconds.isFinite
             {
-                duration = Int(durationSeconds * 1000)
+                upload.duration = Int(durationSeconds * 1000)
             }
         }
+        return upload
+    }
+
+    /// Runs an upload-and-send, publishing its progress through
+    /// ``uploadProgress`` and refreshing the timeline once the local echo
+    /// is staged. `send` receives the echo-staged and progress callbacks.
+    private func trackingUpload(
+        _ send: (
+            _ onEchoStaged: @escaping @Sendable () -> Void,
+            _ onProgress: @escaping @Sendable (Double) -> Void
+        ) async -> Void
+    ) async {
         let uploadId = UUID()
         uploadFractions[uploadId] = 0
         defer { uploadFractions.removeValue(forKey: uploadId) }
@@ -781,24 +794,64 @@ final class TimelineViewModel {
                 client.bumpRevision(roomID)
             }
         }
-        await client.messageSender?.sendAttachment(
-            roomID,
-            data: data, filename: filename, mimeType: mimeType,
-            caption: caption, width: width, height: height, duration: duration,
-            thumbnailData: thumbnailData, thumbnailMimeType: "image/jpeg",
-            inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
-            onEchoStaged: { echoStagedContinuation.yield() },
-            onProgress: { continuation.yield($0) },
-            onFailure: { [client, size = data.count] error in
-                guard case .serverError(code: "M_TOO_LARGE", _, _) = error as? MatrixError else {
-                    return
-                }
-                Task { @MainActor in client.noteUploadTooLarge(size: size) }
-            })
+        await send({ echoStagedContinuation.yield() }, { continuation.yield($0) })
         continuation.finish()
         echoStagedContinuation.finish()
         await consumer.value
         await echoStagedConsumer.value
+    }
+
+    /// Records the server's upload limit when it rejects `size` bytes.
+    private func uploadFailureHandler(size: Int) -> @Sendable (any Error) -> Void {
+        { [client] error in
+            guard case .serverError(code: "M_TOO_LARGE", _, _) = error as? MatrixError else {
+                return
+            }
+            Task { @MainActor in client.noteUploadTooLarge(size: size) }
+        }
+    }
+
+    /// Send a file attachment with probed metadata.
+    func sendAttachment(url: URL, caption: String?, inReplyTo: String?) async {
+        guard let upload = await probeUpload(
+            url: url, filename: url.lastPathComponent, caption: caption)
+        else { return }
+        await trackingUpload { onEchoStaged, onProgress in
+            await client.messageSender?.sendAttachment(
+                roomID,
+                data: upload.data, filename: upload.filename, mimeType: upload.mimeType,
+                caption: upload.caption, width: upload.width, height: upload.height,
+                duration: upload.duration,
+                thumbnailData: upload.thumbnailData, thumbnailMimeType: upload.thumbnailMimeType,
+                inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
+                onEchoStaged: onEchoStaged,
+                onProgress: onProgress,
+                onFailure: uploadFailureHandler(size: upload.data.count))
+        }
+    }
+
+    /// Sends several files as one gallery message (MSC4274). Each entry is
+    /// the staged file, its display filename, and its optional caption.
+    func sendGallery(
+        files: [(url: URL, filename: String, caption: String?)],
+        caption: String, inReplyTo: String?
+    ) async {
+        var uploads: [MessageSender.GalleryUpload] = []
+        for file in files {
+            guard let upload = await probeUpload(
+                url: file.url, filename: file.filename, caption: file.caption)
+            else { return }
+            uploads.append(upload)
+        }
+        let totalSize = uploads.reduce(0) { $0 + $1.data.count }
+        await trackingUpload { onEchoStaged, onProgress in
+            await client.messageSender?.sendGallery(
+                roomID, items: uploads, caption: caption,
+                inReplyTo: inReplyTo.map(EventId.init(unchecked:)),
+                onEchoStaged: onEchoStaged,
+                onProgress: onProgress,
+                onFailure: uploadFailureHandler(size: totalSize))
+        }
     }
 
     /// Toggle an emoji reaction (removes the user's own reaction if present).

@@ -247,6 +247,9 @@ final class ComposeViewModel {
         }
 
         let replyEventId = replyingTo?.eventId.value
+        let galleryCaption = Self.galleryCaption(
+            text: messageText, attachmentCount: pendingAttachments.count,
+            galleriesEnabled: UserDefaults.standard.bool(forKey: Self.galleriesLabsKey))
         text = ""
         mentions = []
         replyingTo = nil
@@ -260,24 +263,54 @@ final class ComposeViewModel {
 
             async let typingStop = stopTypingNotification(
                 ifEnabled: sendTypingNotifications, using: viewModel)
-            if !messageText.isEmpty {
-                let messageState = composeSignposter.beginInterval(
-                    "sendTextFromTimeline", id: composeSignposter.makeSignpostID())
-                await viewModel.send(
-                    text: messageText, inReplyTo: replyEventId, mentionedUserIds: mentionedUserIds
-                )
-                composeSignposter.endInterval("sendTextFromTimeline", messageState)
-            }
-            for attachment in pendingAttachments {
-                let caption = attachment.caption.trimmingCharacters(in: .whitespacesAndNewlines)
-                await viewModel.sendAttachment(
-                    url: attachment.url, caption: caption.isEmpty ? nil : caption,
-                    inReplyTo: replyEventId
-                )
+            if let galleryCaption {
+                await viewModel.sendGallery(
+                    files: pendingAttachments.map { attachment in
+                        let itemCaption = attachment.caption.trimmingCharacters(
+                            in: .whitespacesAndNewlines)
+                        return (attachment.url, attachment.filename,
+                            itemCaption.isEmpty ? nil : itemCaption)
+                    },
+                    caption: galleryCaption, inReplyTo: replyEventId)
+            } else {
+                if !messageText.isEmpty {
+                    let messageState = composeSignposter.beginInterval(
+                        "sendTextFromTimeline", id: composeSignposter.makeSignpostID())
+                    await viewModel.send(
+                        text: messageText, inReplyTo: replyEventId,
+                        mentionedUserIds: mentionedUserIds
+                    )
+                    composeSignposter.endInterval("sendTextFromTimeline", messageState)
+                }
+                for attachment in pendingAttachments {
+                    let caption = attachment.caption.trimmingCharacters(
+                        in: .whitespacesAndNewlines)
+                    await viewModel.sendAttachment(
+                        url: attachment.url, caption: caption.isEmpty ? nil : caption,
+                        inReplyTo: replyEventId
+                    )
+                }
             }
             await typingStop
             client.donateOutgoingInteraction(roomId: viewModel.roomId)
         }
+    }
+
+    // MARK: - Galleries
+
+    /// `UserDefaults` key for the Labs option that sends several staged
+    /// attachments as one gallery message (MSC4274).
+    static let galleriesLabsKey = "labs.galleries"
+
+    /// The caption for sending the draft as a gallery, or nil when it goes
+    /// out as separate messages: galleries need the Labs option and two or
+    /// more attachments. The typed text is the caption; without text, a
+    /// summary stands in so clients without gallery support show something.
+    static func galleryCaption(
+        text: String, attachmentCount: Int, galleriesEnabled: Bool
+    ) -> String? {
+        guard galleriesEnabled, attachmentCount >= 2 else { return nil }
+        return text.isEmpty ? GallerySummary.text(for: attachmentCount) : text
     }
 
     // MARK: - Oversized Content

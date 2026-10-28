@@ -18,6 +18,7 @@ import SwiftUI
 struct SettingsLabsTab: View {
     @Environment(RelayClient.self) private var client
     @AppStorage(RelayClient.slidingSyncLabsKey) private var slidingSync = false
+    @AppStorage(ComposeViewModel.galleriesLabsKey) private var galleries = false
 
     var body: some View {
         Form {
@@ -28,6 +29,14 @@ struct SettingsLabsTab: View {
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Sync Experiments")
+            }
+
+            Section {
+                Toggle("Send attachments as a gallery", isOn: $galleries)
+                Text("Sends two or more attachments as one gallery message. Galleries are an unratified Matrix proposal (MSC4274); many apps show only the caption.")
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Messages")
             }
         }
         .formStyle(.grouped)

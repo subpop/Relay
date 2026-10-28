@@ -24,11 +24,25 @@ struct VideoMessageView: View {
     @Environment(RelayClient.self) private var client
     @Environment(\.mediaAutoReveal) private var autoReveal
     @Environment(\.errorReporter) private var errorReporter
-    let message: ObservableTimelineEvent
+    let item: MediaItem
 
     /// Upload progress (0 to 1) when this video is still being sent, or nil
     /// once uploaded. Drawn as a thin bar over the bottom of the placeholder.
     var uploadProgress: Double? = nil
+
+    /// Side length for a square gallery tile; nil renders at the media's own size.
+    var tileSize: CGFloat? = nil
+
+    @available(*, deprecated, message: "Build a MediaItem and use init(item:uploadProgress:tileSize:).")
+    init(message: ObservableTimelineEvent, uploadProgress: Double? = nil) {
+        self.init(item: MediaItem(message: message), uploadProgress: uploadProgress)
+    }
+
+    init(item: MediaItem, uploadProgress: Double? = nil, tileSize: CGFloat? = nil) {
+        self.item = item
+        self.uploadProgress = uploadProgress
+        self.tileSize = tileSize
+    }
 
     @State private var thumbnail: NSImage?
     @State private var isLoading = true
@@ -41,17 +55,13 @@ struct VideoMessageView: View {
     /// presenting the thumbnail.
     @State private var fullSizeError: String?
 
-    private var download: MediaFileHelper.Download? {
-        message.mediaDownload
-    }
+    private var download: MediaFileHelper.Download? { item.download }
 
-    private var mediaInfo: MediaInfo? {
-        if case .video(_, _, let info) = message.kind { return info }
-        return nil
-    }
+    private var mediaInfo: MediaInfo? { item.info }
 
     private var displaySize: CGSize {
-        mediaInfo?.displaySize(defaultHeight: 180) ?? CGSize(width: 280, height: 180)
+        if let tileSize { return CGSize(width: tileSize, height: tileSize) }
+        return mediaInfo?.displaySize(defaultHeight: 180) ?? CGSize(width: 280, height: 180)
     }
 
     /// Duration in seconds (`MediaInfo` carries milliseconds).
@@ -143,7 +153,7 @@ struct VideoMessageView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if shouldShow, let caption = message.caption {
+            if shouldShow, tileSize == nil, let caption = item.caption {
                 Text(caption)
                     .font(.caption)
                     .padding(.horizontal, 8)

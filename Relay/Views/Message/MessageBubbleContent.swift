@@ -78,6 +78,8 @@ struct MessageBubbleContent: View {
             imageContent
         } else if case .video = message.kind {
             videoContent
+        } else if case .gallery(let body, let items) = message.kind {
+            galleryContent(body: body, items: items)
         } else if case .audio = message.kind {
             audioContent
                 .environment(\.colorScheme, bubbleColorScheme)
@@ -237,6 +239,20 @@ struct MessageBubbleContent: View {
         }
     }
 
+    // MARK: - Gallery Content
+
+    private func galleryContent(body: String, items: [GalleryItem]) -> some View {
+        VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
+            GalleryMessageView(
+                message: message, caption: body, items: items,
+                isOutgoing: isOutgoing, uploadProgress: uploadProgress)
+
+            if case .failed(let reason) = message.sendState {
+                sendFailedLabel(reason)
+            }
+        }
+    }
+
     // MARK: - Video Content
 
     private var videoContent: some View {
@@ -382,6 +398,7 @@ struct MessageBubbleContent: View {
         case .video: "play.rectangle"
         case .audio: "waveform"
         case .file: "doc"
+        case .gallery: "photo.on.rectangle.angled"
         case .location, .liveLocation: "location"
         case .sticker: "face.smiling"
         case .redacted: "trash"
@@ -655,6 +672,64 @@ struct MessageBubbleContent: View {
             isOutgoing: true
         )
     }
+    .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .padding()
+    .frame(width: 450)
+}
+
+#Preview("Gallery") {
+    let items = [
+        GalleryItem(
+            itemtype: .image, body: "beach.jpg", filename: "beach.jpg",
+            url: "mxc://matrix.org/beach",
+            info: MediaInfo(mimeType: "image/jpeg", width: 800, height: 600)),
+        GalleryItem(
+            itemtype: .image, body: "Sunset", filename: "sunset.jpg",
+            url: "mxc://matrix.org/sunset",
+            info: MediaInfo(mimeType: "image/jpeg", width: 600, height: 800)),
+        GalleryItem(
+            itemtype: .video, body: "clip.mov", filename: "clip.mov",
+            url: "mxc://matrix.org/clip",
+            info: MediaInfo(mimeType: "video/quicktime", duration: 12_000)),
+        GalleryItem(
+            itemtype: .audio, body: "memo.m4a", filename: "memo.m4a",
+            url: "mxc://matrix.org/memo",
+            info: MediaInfo(mimeType: "audio/mp4", size: 120_000, duration: 34_000)),
+        GalleryItem(
+            itemtype: .file, body: "itinerary.pdf", filename: "itinerary.pdf",
+            url: "mxc://matrix.org/itinerary",
+            info: MediaInfo(mimeType: "application/pdf", size: 480_000)),
+    ]
+    VStack(alignment: .leading, spacing: 12) {
+        ForEach([false, true], id: \.self) { isOutgoing in
+            MessageBubbleContent(
+                message: PreviewFixtures.event(
+                    "1", sender: isOutgoing ? "@me:matrix.org" : "@alice:matrix.org",
+                    body: "Trip photos",
+                    kind: .gallery(body: "Trip photos", items: items)),
+                isOutgoing: isOutgoing)
+        }
+    }
+    .environment(PreviewFixtures.previewClient())
+    .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
+    .padding()
+    .frame(width: 450)
+}
+
+#Preview("Gallery Caption Only") {
+    let items = (1...3).map { number in
+        GalleryItem(
+            itemtype: .image, body: "photo\(number).jpg", filename: "photo\(number).jpg",
+            url: "mxc://matrix.org/photo\(number)",
+            info: MediaInfo(mimeType: "image/jpeg", width: 800, height: 600))
+    }
+    MessageBubbleContent(
+        message: PreviewFixtures.event(
+            "1", sender: "@me:matrix.org", body: "Are we cool yet?",
+            kind: .gallery(body: "Are we cool yet?", items: items)),
+        isOutgoing: true
+    )
+    .environment(PreviewFixtures.previewClient())
     .environment(\.timelineActions, TimelineActions(currentUserID: "@me:matrix.org"))
     .padding()
     .frame(width: 450)

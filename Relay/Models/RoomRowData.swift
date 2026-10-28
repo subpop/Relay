@@ -86,12 +86,14 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
 
     /// Room-list preview text for a message. Media bodies hold the
     /// caption-or-filename, so describe them instead of showing it.
-    private static func preview(for content: MessageContent) -> String {
+    static func preview(for content: MessageContent) -> String {
         switch content.msgtype {
         case .image: "Sent an image"
         case .video: "Sent a video"
         case .audio: "Sent an audio message"
         case .file: "Sent a file"
+        case .gallery:
+            content.itemtypes.map { "Sent \($0.count) attachments" } ?? "Sent a gallery"
         case .location: "Sent a location"
         case .keyVerificationRequest: "Sent a verification request"
         case .badEncrypted: "Unable to decrypt a message"

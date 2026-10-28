@@ -231,7 +231,7 @@ extension ObservableTimelineEvent {
         switch kind {
         case .state, .profileChange, .callEvent, .pollEnd, .verificationRequest:
             return true
-        case .text, .emote, .notice, .image, .video, .audio, .file,
+        case .text, .emote, .notice, .image, .video, .audio, .file, .gallery,
             .location, .liveLocation, .sticker, .poll, .serverNotice,
             .redacted, .unableToDecrypt, .unknown:
             return false
@@ -248,7 +248,7 @@ extension ObservableTimelineEvent {
             .image(let body, _, _), .video(let body, _, _),
             .audio(let body, _, _), .file(let body, _, _),
             .location(let body), .liveLocation(let body),
-            .sticker(let body, _, _):
+            .sticker(let body, _, _), .gallery(let body, _):
             return body
         case .poll(let poll):
             return poll.question
@@ -275,7 +275,7 @@ extension ObservableTimelineEvent {
         case .image(let body, _, _), .video(let body, _, _):
             guard let filename, filename != body, !body.isEmpty else { return nil }
             return body
-        case .text, .emote, .notice, .audio, .file,
+        case .text, .emote, .notice, .audio, .file, .gallery,
             .location, .liveLocation, .sticker, .poll, .state,
             .profileChange, .callEvent, .pollEnd, .verificationRequest,
             .serverNotice, .redacted, .unableToDecrypt, .unknown:
@@ -295,7 +295,7 @@ extension MessageKind {
     /// rather than as a text or media bubble.
     var isSpecialType: Bool {
         switch self {
-        case .text, .emote, .notice, .image, .video, .audio, .file:
+        case .text, .emote, .notice, .image, .video, .audio, .file, .gallery:
             return false
         case .location, .liveLocation, .sticker, .poll, .state,
             .profileChange, .callEvent, .pollEnd, .verificationRequest,

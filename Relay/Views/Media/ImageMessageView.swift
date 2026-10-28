@@ -32,11 +32,25 @@ struct ImageMessageView: View {
         }
         return globalAnimateGIFs
     }
-    let message: ObservableTimelineEvent
+    let item: MediaItem
 
     /// Upload progress (0 to 1) when this image is still being sent, or nil
     /// once uploaded. Drawn as a thin bar over the bottom of the placeholder.
     var uploadProgress: Double? = nil
+
+    /// Side length for a square gallery tile; nil renders at the media's own size.
+    var tileSize: CGFloat? = nil
+
+    @available(*, deprecated, message: "Build a MediaItem and use init(item:uploadProgress:tileSize:).")
+    init(message: ObservableTimelineEvent, uploadProgress: Double? = nil) {
+        self.init(item: MediaItem(message: message), uploadProgress: uploadProgress)
+    }
+
+    init(item: MediaItem, uploadProgress: Double? = nil, tileSize: CGFloat? = nil) {
+        self.item = item
+        self.uploadProgress = uploadProgress
+        self.tileSize = tileSize
+    }
 
     @State private var image: NSImage?
     @State private var imageData: Data?
@@ -49,18 +63,11 @@ struct ImageMessageView: View {
     /// back to presenting the thumbnail.
     @State private var fullSizeError: String?
 
-    private var download: MediaFileHelper.Download? {
-        message.mediaDownload
-    }
-
-    private var mediaInfo: MediaInfo? {
-        if case .image(_, _, let info) = message.kind { return info }
-        if case .sticker(_, _, let info) = message.kind { return info }
-        return nil
-    }
+    private var download: MediaFileHelper.Download? { item.download }
 
     private var displaySize: CGSize {
-        mediaInfo?.displaySize() ?? CGSize(width: 280, height: 200)
+        if let tileSize { return CGSize(width: tileSize, height: tileSize) }
+        return item.info?.displaySize() ?? CGSize(width: 280, height: 200)
     }
 
     /// Whether this message contains a GIF image, detected by MIME type or file extension.
@@ -156,7 +163,7 @@ struct ImageMessageView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if shouldShow, let caption = message.caption {
+            if shouldShow, tileSize == nil, let caption = item.caption {
                 Text(caption)
                     .font(.caption)
                     .padding(.horizontal, 8)
