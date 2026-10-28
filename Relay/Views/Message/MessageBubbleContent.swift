@@ -89,9 +89,9 @@ struct MessageBubbleContent: View {
         } else if case .emote = message.kind {
             emoteContent
         } else if case .sticker = message.kind, message.mediaDownload != nil {
-            // Stickers render as images when downloadable; without a URL
-            // they fall through to the special-content placeholder below.
-            imageContent
+            // Stickers render when downloadable; without a URL they fall
+            // through to the special-content placeholder below.
+            stickerContent
         } else if case .poll(let poll) = message.kind {
             pollContent(poll)
                 .environment(\.colorScheme, bubbleColorScheme)
@@ -232,6 +232,20 @@ struct MessageBubbleContent: View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
             ImageMessageView(item: MediaItem(message: message), uploadProgress: uploadProgress)
                 .clipShape(BubbleStyle.shape)
+
+            if case .failed(let reason) = message.sendState {
+                sendFailedLabel(reason)
+            }
+        }
+    }
+
+    // MARK: - Sticker Content
+
+    private var stickerContent: some View {
+        VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 2) {
+            ImageMessageView(
+                item: MediaItem(message: message), uploadProgress: uploadProgress,
+                isSticker: true)
 
             if case .failed(let reason) = message.sendState {
                 sendFailedLabel(reason)

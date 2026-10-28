@@ -44,7 +44,11 @@ enum TimelineMessageContextMenu {
 
         var result: [TimelineMessageContextMenuEntry] = [.copyMessage]
         if message.mediaDownload != nil {
-            result.append(.saveMedia)
+            if case .sticker = message.kind {
+                // Stickers offer no download.
+            } else {
+                result.append(.saveMedia)
+            }
         }
         if canSendMessages {
             result.insert(.reply, at: 0)

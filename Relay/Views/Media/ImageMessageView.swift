@@ -41,14 +41,23 @@ struct ImageMessageView: View {
     /// Side length for a square gallery tile; nil renders at the media's own size.
     var tileSize: CGFloat? = nil
 
-    init(item: MediaItem, uploadProgress: Double? = nil, tileSize: CGFloat? = nil) {
+    /// Whether the image is a sticker: shown whole, with its description as a
+    /// tooltip, and without the zoom, download, and caption affordances.
+    var isSticker = false
+
+    init(
+        item: MediaItem, uploadProgress: Double? = nil, tileSize: CGFloat? = nil,
+        isSticker: Bool = false
+    ) {
         self.item = item
         self.uploadProgress = uploadProgress
         self.tileSize = tileSize
+        self.isSticker = isSticker
     }
 
     @State private var image: NSImage?
     @State private var imageData: Data?
+    @State private var webPFrames: AnimatedWebPFrames?
     @State private var isLoading = true
     @State private var isHovering = false
     @State private var quickLookURL: URL?
@@ -73,7 +82,15 @@ struct ImageMessageView: View {
         return (download?.filename ?? "").lowercased().hasSuffix(".gif")
     }
 
-    /// Whether the GIF should currently be animating, based on the user preference.
+    /// Whether this message contains a WebP image, detected by MIME type or file extension.
+    private var isWebP: Bool {
+        if let mime = download?.mimetype, mime.lowercased() == "image/webp" {
+            return true
+        }
+        return (download?.filename ?? "").lowercased().hasSuffix(".webp")
+    }
+
+    /// Whether a GIF or WebP should currently be animating, based on the user preference.
     private var shouldAnimateGIF: Bool {
         switch animateGIFs {
         case .always: true
@@ -91,10 +108,15 @@ struct ImageMessageView: View {
                     AnimatedImageView(data: imageData, isAnimating: shouldAnimateGIF)
                         .frame(width: displaySize.width, height: displaySize.height)
                         .clipped()
+                } else if let webPFrames {
+                    AnimatedWebPView(frames: webPFrames, isAnimating: shouldAnimateGIF)
+                        .aspectRatio(contentMode: isSticker ? .fit : .fill)
+                        .frame(width: displaySize.width, height: displaySize.height)
+                        .clipped()
                 } else if let image {
                     Image(nsImage: image)
                         .resizable()
-                        .scaledToFill()
+                        .aspectRatio(contentMode: isSticker ? .fit : .fill)
                         .frame(width: displaySize.width, height: displaySize.height)
                         .clipped()
                 } else {
@@ -129,7 +151,7 @@ struct ImageMessageView: View {
             }
         }
         .overlay {
-            if shouldShow, !isGIF, image != nil {
+            if shouldShow, !isSticker, !isGIF, webPFrames == nil, image != nil {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 48, weight: .semibold))
                     .foregroundStyle(.ultraThinMaterial)
@@ -139,7 +161,7 @@ struct ImageMessageView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if shouldShow, image != nil {
+            if shouldShow, !isSticker, image != nil {
                 downloadButton
                     .padding(8)
                     .opacity(isHovering ? 1 : 0)
@@ -158,7 +180,7 @@ struct ImageMessageView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if shouldShow, tileSize == nil, let caption = item.caption {
+            if shouldShow, !isSticker, tileSize == nil, let caption = item.caption {
                 Text(caption)
                     .font(.caption)
                     .padding(.horizontal, 8)
@@ -169,7 +191,7 @@ struct ImageMessageView: View {
             }
         }
         .onTapGesture {
-            if shouldShow {
+            if shouldShow, !isSticker {
                 Task { await openQuickLook() }
             }
         }
@@ -190,6 +212,7 @@ struct ImageMessageView: View {
             }
         }
         .quickLookPreview($quickLookURL)
+        .help(isSticker ? item.fallbackName : "")
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .task(id: shouldShow ? download?.mxcURL : nil) {
@@ -199,6 +222,13 @@ struct ImageMessageView: View {
                 // Load full content for GIFs to preserve animation frames.
                 if let data = await client.mediaBytes(download) {
                     imageData = data
+                    image = NSImage(data: data)
+                }
+            } else if isWebP {
+                // Server thumbnails are static, so animated WebPs need the
+                // full file.
+                if let data = await client.mediaBytes(download) {
+                    webPFrames = AnimatedWebPFrames(data: data)
                     image = NSImage(data: data)
                 }
             } else {
