@@ -14,6 +14,7 @@
 // limitations under the License.
 
 import AppKit
+import MatrixKit
 
 // MARK: - Matrix Attributed String Keys
 
@@ -723,6 +724,15 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                 }
                 guard opaqueDepth == 0 else { continue }
 
+                // Images are only ever custom emoticons; an `img` is void, so
+                // it never pushes a style.
+                if tag == "img" {
+                    if let emoticon = emoticon(from: attributes, style: styleStack.last!) {
+                        result.append(emoticon)
+                    }
+                    continue
+                }
+
                 guard Self.allowedTags.contains(tag) else { continue }
 
                 // Pre-element block break.
@@ -1077,6 +1087,30 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
     // MARK: - Attribute Builder
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
+    /// An inline emoticon for an `<img data-mx-emoticon>` element, or nil when
+    /// the element is not one. The spec treats an `img` as an emoticon if and
+    /// only if the attribute is present, whatever its value, and forbids loading
+    /// images from anything but an `mxc://` URI.
+    private func emoticon(
+        from attributes: [String: String], style: Style
+    ) -> NSAttributedString? {
+        guard attributes.keys.contains("data-mx-emoticon"),
+            let source = attributes["src"], (try? MXCURI(source))?.components != nil
+        else { return nil }
+        let textAttributes = buildAttributes(from: style)
+        let font = textAttributes[.font] as? NSFont
+            ?? NSFont.systemFont(ofSize: MessageTextScale.baseFontSize)
+        let attachment = EmoticonTextAttachment(
+            mxcURI: source, altText: attributes["alt"], shortcode: attributes["title"], font: font)
+        let result = NSMutableAttributedString(attachment: attachment)
+        let range = NSRange(location: 0, length: result.length)
+        result.addAttributes(textAttributes, range: range)
+        if let shortcode = attributes["title"], !shortcode.isEmpty {
+            result.addAttribute(.toolTip, value: shortcode, range: range)
+        }
+        return result
+    }
+
     private func buildAttributes(from style: Style) -> [NSAttributedString.Key: Any] {
         let baseSize = MessageTextScale.baseFontSize
         var attrs: [NSAttributedString.Key: Any] = [:]

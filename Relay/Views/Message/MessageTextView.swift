@@ -182,6 +182,8 @@ struct MessageTextView: NSViewRepresentable {
         coordinator.cachedResolved = resolved
         view.linkTextAttributes = [.foregroundColor: linkColor]
         view.textStorage?.setAttributedString(resolved)
+        view.emoticonImageLoader = context.environment.emoticonImageLoader
+        view.loadPendingEmoticons()
 
         return view
     }
@@ -217,6 +219,8 @@ struct MessageTextView: NSViewRepresentable {
 
             view.linkTextAttributes = [.foregroundColor: linkColor]
             view.textStorage?.setAttributedString(resolved)
+            view.emoticonImageLoader = context.environment.emoticonImageLoader
+            view.loadPendingEmoticons()
 
             // Invalidate the size cache — the text content changed.
             coordinator.cachedSizeResult = nil
@@ -350,6 +354,37 @@ final class MessageTextContent: NSTextView {
 
     /// The current user's room-level permissions for gating context menu actions.
     var permissions: RoomPermissions?
+
+    /// Fetches the images of the emoticons in the text. Set by ``MessageTextView``.
+    var emoticonImageLoader = EmoticonImageLoader.none
+
+    // MARK: - Emoticons
+
+    /// Starts loading the image of every emoticon in the text that has none
+    /// yet. Emoticons with the same image share one load, and a finished load
+    /// redraws the text without changing its layout. The returned task
+    /// completes when every load has finished, and is nil when there is
+    /// nothing to load.
+    @discardableResult
+    func loadPendingEmoticons() -> Task<Void, Never>? {
+        guard let load = emoticonImageLoader.load, let textStorage else { return nil }
+        let pending = Dictionary(
+            grouping: textStorage.emoticonAttachments.filter { !$0.isResolved }, by: \.mxcURI)
+        guard !pending.isEmpty else { return nil }
+        let loads = pending.map { uri, attachments in
+            Task { [weak self] in
+                let image = await load(uri)
+                if let image { EmoticonImageCache.store(image, for: uri) }
+                for attachment in attachments {
+                    if let image { attachment.setLoaded(image) } else { attachment.setFailed() }
+                }
+                self?.needsDisplay = true
+            }
+        }
+        return Task {
+            for load in loads { await load.value }
+        }
+    }
 
     // MARK: - Link Click Interception
 

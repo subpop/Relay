@@ -52,7 +52,8 @@ extension ReplyPreviewBubble {
         // Prefer HTML path: parse the formatted body and extract the plain-text string.
         if let html = reply.formattedBody {
             return replyTextCache.value(forKey: html) {
-                let parsed = NSAttributedString(matrixHTML: html)?.string ?? reply.body
+                let parsed = NSAttributedString(matrixHTML: html)?.plainTextReplacingEmoticons
+                    ?? reply.body
                 // Drop blockquote marker placeholders (replaced with icons only
                 // in the rendered message body).
                 return parsed.replacing("\u{FFFC}", with: "")

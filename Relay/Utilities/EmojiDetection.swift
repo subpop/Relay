@@ -71,6 +71,9 @@ extension String {
 func isBigEmojiMessage(body: String, formattedBody: String?) -> Bool {
     guard body.isEmojiOnly, body.emojiCount <= 8 else { return false }
     guard let formattedBody else { return true }
-    guard let visible = NSAttributedString(matrixHTML: formattedBody)?.string else { return false }
+    guard let parsed = NSAttributedString(matrixHTML: formattedBody) else { return false }
+    // Large emoji draw only the plain-text body, which would drop a custom emoticon.
+    guard !parsed.containsEmoticons else { return false }
+    let visible = parsed.string
     return visible.isEmojiOnly && visible.emojiCount <= 8
 }

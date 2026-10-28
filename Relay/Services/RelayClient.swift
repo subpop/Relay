@@ -1999,6 +1999,14 @@ final class RelayClient {
         }
     }
 
+    /// The image behind a custom emoticon in message text, as a scaled
+    /// thumbnail, or nil when it can't be fetched.
+    func emoticonImage(mxcURI: String) async -> NSImage? {
+        let download = MediaFileHelper.Download(mxcURL: mxcURI, filename: "emoticon")
+        guard let data = await mediaThumbnail(download, width: 96, height: 96) else { return nil }
+        return NSImage(data: data)
+    }
+
     // MARK: - Stickers
 
     /// Account-data type holding the user's own sticker pack: an image pack

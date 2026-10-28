@@ -125,6 +125,9 @@ struct RelayApp: App {
                 .environment(\.callManager, callManager)
                 .environment(\.composeDraftStore, composeDraftStore)
                 .environment(\.gifSearchService, gifSearchService)
+                .environment(\.emoticonImageLoader, EmoticonImageLoader { [client] uri in
+                    await client.emoticonImage(mxcURI: uri)
+                })
                 .environment(appActions)
                 .onChange(of: client.pendingVerificationRequest?.id) { _, newValue in
                     if newValue != nil, let request = client.pendingVerificationRequest {

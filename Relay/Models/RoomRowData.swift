@@ -106,7 +106,7 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
     /// clients leave markup unstripped in the plain-text `body` fallback.
     private static func previewText(body: String, formattedBody: String?) -> String {
         if let formattedBody,
-           let parsed = NSAttributedString(matrixHTML: formattedBody)?.string {
+           let parsed = NSAttributedString(matrixHTML: formattedBody)?.plainTextReplacingEmoticons {
             return parsed
                 .replacing("\u{FFFC}", with: "")
                 .collapsingWhitespaceToSingleLine
