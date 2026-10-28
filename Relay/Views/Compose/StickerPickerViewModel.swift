@@ -162,7 +162,7 @@ final class StickerPickerViewModel {
             let title =
                 if let name = pack.displayName, !name.isEmpty { name }
                 else if !pack.stateKey.isEmpty { pack.stateKey }
-                else { String(localized: "Stickers", comment: "Sticker picker section title for a pack with no name") }
+                else { String(localized: "Stickers", comment: "Title of a sticker pack that has no name, and the label of the compose bar's plus-menu row that opens the sticker picker") }
             return PackSection(id: pack.id, title: title, entries: entries)
         }
     }

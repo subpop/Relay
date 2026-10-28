@@ -237,7 +237,8 @@ private struct ComposeBarContent: View {
     }
 }
 
-/// The attachment popover and GIF button on the right side of the compose bar.
+/// The plus button on the right side of the compose bar, and the popovers it opens:
+/// the attachment menu, then the GIF and sticker pickers it leads to.
 private struct ComposeBarActions: View {
     @Bindable var compose: ComposeViewModel
     var roomId: RoomId
@@ -245,38 +246,24 @@ private struct ComposeBarActions: View {
     var onStickerSelected: (ImagePackImage, String) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                compose.isShowingAttachmentMenu = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .regular))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Attachments")
-            .glassEffect(in: .circle)
-            .popover(isPresented: $compose.isShowingAttachmentMenu, arrowEdge: .top) {
-                AttachmentMenuView(compose: compose)
-            }
-
-            Button {
-                compose.isShowingGIFPicker = true
-            } label: {
-                Image(systemName: "number")
-                    .font(.system(size: 15, weight: .regular))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("GIFs")
-            .glassEffect(in: .circle)
-            .popover(isPresented: $compose.isShowingGIFPicker, arrowEdge: .top) {
-                GIFPickerView { gif in
-                    compose.isShowingGIFPicker = false
-                    Task { await onGIFSelected(gif) }
-                }
+        Button {
+            compose.isShowingAttachmentMenu = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 15, weight: .regular))
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Attachments")
+        .glassEffect(in: .circle)
+        .popover(isPresented: $compose.isShowingAttachmentMenu, arrowEdge: .top) {
+            AttachmentMenuView(compose: compose)
+        }
+        .popover(isPresented: $compose.isShowingGIFPicker, arrowEdge: .top) {
+            GIFPickerView { gif in
+                compose.isShowingGIFPicker = false
+                Task { await onGIFSelected(gif) }
             }
         }
         .popover(isPresented: $compose.isShowingStickerPicker, arrowEdge: .top) {
@@ -325,7 +312,7 @@ private struct AttachmentMenuView: View {
 
 /// One icon-plus-label row in the attachment options popover.
 private struct AttachmentMenuRow: View {
-    var title: String
+    var title: LocalizedStringKey
     var systemImage: String
     var action: () -> Void
 
