@@ -33,6 +33,9 @@ struct ComposeTextView: NSViewRepresentable {
     /// Set by the representable on creation; the owner can call this closure
     /// to insert a mention pill at the current `@query` position.
     @Binding var insertMentionHandler: ((_ userId: String, _ displayName: String) -> Void)?
+    /// Set by the representable alongside ``insertMentionHandler``; the owner
+    /// can call this closure to open the system emoji picker for the field.
+    @Binding var showEmojiPaletteHandler: (() -> Void)?
     var onSubmit: () -> Void
     var onCancel: (() -> Void)?
     var onHeightChange: ((CGFloat) -> Void)?
@@ -87,6 +90,9 @@ struct ComposeTextView: NSViewRepresentable {
         self.insertMentionHandler = { [weak coordinator] userId, displayName in
             coordinator?.insertMention(userId: userId, displayName: displayName)
         }
+        self.showEmojiPaletteHandler = { [weak coordinator] in
+            coordinator?.showEmojiPalette()
+        }
         // cachedHeight's stored-property default is seeded at the unscaled
         // system font size; recompute it now that `font` is set to the
         // persisted zoom scale so a launch at a non-default zoom doesn't
@@ -127,6 +133,9 @@ struct ComposeTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         self.insertMentionHandler = { [weak coordinator] userId, displayName in
             coordinator?.insertMention(userId: userId, displayName: displayName)
+        }
+        self.showEmojiPaletteHandler = { [weak coordinator] in
+            coordinator?.showEmojiPalette()
         }
 
         guard let textView = scrollView.linkedTextView else { return }
@@ -488,6 +497,33 @@ struct ComposeTextView: NSViewRepresentable {
         /// Replaces the `@query` text with a ``PillTextAttachment`` character
         /// that renders as an inline pill. Adds `.mentionUserID` and
         /// `.mentionDisplayName` attributes for later extraction.
+        /// Opens the system emoji picker, which inserts into the first
+        /// responder of the key window.
+        var presentEmojiPalette: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
+
+        private var windowKeyObserver: NSObjectProtocol?
+
+        /// Focuses the field and opens the system emoji picker. When the
+        /// window is not key yet, such as while the plus menu's popover is
+        /// closing, waits until it is, so the emoji go into this field.
+        func showEmojiPalette() {
+            guard let textView, let window = textView.window else { return }
+            if let windowKeyObserver {
+                NotificationCenter.default.removeObserver(windowKeyObserver)
+                self.windowKeyObserver = nil
+            }
+            guard window.isKeyWindow else {
+                windowKeyObserver = NotificationCenter.default.addObserver(
+                    forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.showEmojiPalette() }
+                }
+                return
+            }
+            window.makeFirstResponder(textView)
+            presentEmojiPalette()
+        }
+
         func insertMention(userId: String, displayName: String) {
             guard let textView, let storage = textView.textStorage else { return }
             let nsString = storage.string as NSString

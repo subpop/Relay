@@ -167,6 +167,7 @@ private struct ComposeBarContent: View {
                 text: $compose.text,
                 mentionQuery: $compose.mentionQuery,
                 insertMentionHandler: $compose.insertMentionHandler,
+                showEmojiPaletteHandler: $compose.showEmojiPaletteHandler,
                 onSubmit: {
                     if compose.hasContent {
                         Task { await onSend() }
@@ -299,6 +300,10 @@ private struct AttachmentMenuView: View {
             AttachmentMenuRow(title: "Stickers", image: "custom.square.sticker") {
                 compose.isShowingAttachmentMenu = false
                 compose.isShowingStickerPicker = true
+            }
+            AttachmentMenuRow(title: "Emoji", systemImage: "face.smiling") {
+                compose.isShowingAttachmentMenu = false
+                compose.showEmojiPalette()
             }
             AttachmentMenuRow(title: "Poll", systemImage: "chart.bar") {
                 compose.isShowingAttachmentMenu = false

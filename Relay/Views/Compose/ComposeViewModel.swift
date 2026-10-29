@@ -121,6 +121,12 @@ final class ComposeViewModel {
     @ObservationIgnored
     var insertMentionHandler: ((_ userId: String, _ displayName: String) -> Void)?
 
+    /// Called by ``showEmojiPalette()`` to bridge from the view model to the
+    /// `ComposeTextView.Coordinator`. Excluded from observation for the same
+    /// reason as ``insertMentionHandler``.
+    @ObservationIgnored
+    var showEmojiPaletteHandler: (() -> Void)?
+
     // MARK: - Supported Types
 
     /// UTTypes accepted by the file picker and drop target.
@@ -168,6 +174,12 @@ final class ComposeViewModel {
         let index = max(0, min(mentionSelectedIndex, matches.count - 1))
         selectMention(matches[index])
         return true
+    }
+
+    /// Opens the system emoji picker for the text field. Does nothing until
+    /// the text field exists.
+    func showEmojiPalette() {
+        showEmojiPaletteHandler?()
     }
 
     /// Inserts a mention pill for the given member via the text view coordinator.
