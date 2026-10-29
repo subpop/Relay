@@ -296,7 +296,7 @@ private struct AttachmentMenuView: View {
                 compose.isShowingAttachmentMenu = false
                 compose.isShowingGIFPicker = true
             }
-            AttachmentMenuRow(title: "Stickers", systemImage: "face.smiling") {
+            AttachmentMenuRow(title: "Stickers", image: "custom.square.sticker") {
                 compose.isShowingAttachmentMenu = false
                 compose.isShowingStickerPicker = true
             }
@@ -313,15 +313,31 @@ private struct AttachmentMenuView: View {
 /// One icon-plus-label row in the attachment options popover.
 private struct AttachmentMenuRow: View {
     var title: LocalizedStringKey
-    var systemImage: String
+    private var icon: Image
     var action: () -> Void
 
     @State private var isHovering = false
 
+    /// A row with an SF Symbol.
+    init(title: LocalizedStringKey, systemImage: String, action: @escaping () -> Void) {
+        self.init(title: title, icon: Image(systemName: systemImage), action: action)
+    }
+
+    /// A row with a custom symbol or image from the asset catalog.
+    init(title: LocalizedStringKey, image: String, action: @escaping () -> Void) {
+        self.init(title: title, icon: Image(image), action: action)
+    }
+
+    private init(title: LocalizedStringKey, icon: Image, action: @escaping () -> Void) {
+        self.title = title
+        self.icon = icon
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: systemImage)
+                icon
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
