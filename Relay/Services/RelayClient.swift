@@ -396,6 +396,7 @@ final class RelayClient {
     /// default live keychain is shared with the running app, and a
     /// test calling `logout()` would otherwise wipe the real session.
     private let keychain: any KeyStore
+    private var sessionPersistenceGeneration = UUID()
     private var syncTask: Task<Void, Never>?
     /// Watchdog for silent sync-loop death (see `startSyncWatchLoop`).
     private var syncWatchTask: Task<Void, Never>?
@@ -499,6 +500,8 @@ final class RelayClient {
         guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else {
             return
         }
+        let generation = UUID()
+        sessionPersistenceGeneration = generation
         let sessionKey = KeyStoreKey(
             service: Self.sessionService, account: Self.sessionAccount)
         let data: Data?
@@ -533,6 +536,7 @@ final class RelayClient {
             oidcClientId: stored.oidcClientId,
             oidcTokenEndpoint: stored.oidcTokenEndpoint,
             keystore: keychain)
+        await installTokenRefresher(on: client, generation: generation)
         // The stored MXID may differ from the server-assigned one (e.g.
         // unqualified at login time); reconcile before adopting so rooms
         // observe the correct local user. Persist the reconciled ID so the
@@ -540,7 +544,8 @@ final class RelayClient {
         // (e.g. offline) keeps the stored identity rather than logging out.
         do {
             try await client.reconcileIdentity()
-            await persistSessionLoudly(for: client, context: "reconcile")
+            await persistSessionLoudly(
+                for: client, context: "reconcile", generation: generation)
         } catch {
             relayClientLogger.warning(
                 "Identity reconciliation failed, using stored user ID: \(error.localizedDescription, privacy: .public)")
@@ -550,6 +555,8 @@ final class RelayClient {
 
     /// Log in with username and password.
     func login(username: String, password: String, homeserver: String) async {
+        let generation = UUID()
+        sessionPersistenceGeneration = generation
         authState = .loggingIn
         do {
             let url = try homeserverURL(homeserver)
@@ -559,11 +566,12 @@ final class RelayClient {
                 password: password,
                 deviceDisplayName: "Relay (macOS)",
                 keystore: keychain)
+            await installTokenRefresher(on: client, generation: generation)
             guard let userId = client.userId?.value else {
                 authState = .error("Sign in succeeded without a user ID.")
                 return
             }
-            try await persistSession(for: client)
+            try await persistSession(for: client, generation: generation)
             relayClientLogger.info("Signed in as \(userId, privacy: .public)")
             await adopt(client: client, userId: userId)
         } catch {
@@ -579,6 +587,8 @@ final class RelayClient {
         homeserver: String,
         openURL: @escaping @Sendable (URL) async throws -> URL
     ) async throws {
+        let generation = UUID()
+        sessionPersistenceGeneration = generation
         let url = try homeserverURL(homeserver)
         let pending = try await MatrixClient.prepareOIDCBrowserLogin(
             homeserver: url, clientName: "Relay",
@@ -595,10 +605,11 @@ final class RelayClient {
         }
         let client = try await MatrixClient.completeOIDCBrowserLogin(
             pending, code: code, state: state, keystore: keychain)
+        await installTokenRefresher(on: client, generation: generation)
         guard let userId = client.userId?.value else {
             throw RelayError.oauthInvalidURL
         }
-        try await persistSession(for: client)
+        try await persistSession(for: client, generation: generation)
         await adopt(client: client, userId: userId)
     }
 
@@ -614,6 +625,7 @@ final class RelayClient {
     /// Destructive: only call from explicit user action (never from
     /// alert dismissal, teardown, or error paths).
     func logout(reason: String = "explicit") async {
+        sessionPersistenceGeneration = UUID()
         stopTasks()
         let client = self.client
         self.client = nil
@@ -2871,6 +2883,35 @@ final class RelayClient {
         startRetentionMonitor()
     }
 
+    private func installTokenRefresher(
+        on client: MatrixClient, generation: UUID
+    ) async {
+        // MatrixKit invokes this on an authenticated request's unknown-token
+        // retry. Persist here as well as in the scheduled refresh path below.
+        await client.transport.setTokenRefresher { [weak self, weak client] in
+            guard let client else { return nil }
+            do {
+                try await client.auth.refresh()
+                if let self {
+                    await self.persistRefreshedSession(for: client, generation: generation)
+                }
+            } catch {
+                relayClientLogger.warning(
+                    "Automatic session token refresh failed: \(error.localizedDescription, privacy: .public)")
+            }
+            let token = await client.session.accessToken
+            return token.isEmpty ? nil : token
+        }
+    }
+
+    private func persistRefreshedSession(
+        for client: MatrixClient, generation: UUID
+    ) async {
+        guard sessionPersistenceGeneration == generation else { return }
+        await persistSessionLoudly(
+            for: client, context: "token refresh", generation: generation)
+    }
+
     /// Freeze the session after the homeserver rejects our token: stop
     /// all loops and raise the blocking sign-out alert. Idempotent:
     /// sync, refresh, and one-shot failures converge here. The alert
@@ -3303,9 +3344,13 @@ final class RelayClient {
     /// succeeds server-side but never reaches the keychain strands the
     /// next launch with a consumed refresh token, so these failures
     /// must never be silent.
-    private func persistSessionLoudly(for client: MatrixClient, context: String) async {
+    private func persistSessionLoudly(
+        for client: MatrixClient, context: String, generation: UUID? = nil
+    ) async {
         do {
-            try await persistSession(for: client)
+            try await persistSession(for: client, generation: generation)
+        } catch is CancellationError {
+            return
         } catch {
             relayClientLogger.error(
                 "Session persist failed (\(context, privacy: .public)): \(error.localizedDescription, privacy: .public)")
@@ -3313,7 +3358,9 @@ final class RelayClient {
         }
     }
 
-    private func persistSession(for client: MatrixClient) async throws {
+    private func persistSession(
+        for client: MatrixClient, generation: UUID? = nil
+    ) async throws {
         guard
             let userId = client.userId?.value,
             let deviceId = client.deviceId?.value,
@@ -3330,6 +3377,9 @@ final class RelayClient {
             oidcClientId: await client.session.oidcClientId,
             oidcTokenEndpoint: await client.session.oidcTokenEndpoint)
         let data = try JSONEncoder().encode(stored)
+        if let generation, generation != sessionPersistenceGeneration {
+            throw CancellationError()
+        }
         try await keychain.save(
             data,
             for: KeyStoreKey(
