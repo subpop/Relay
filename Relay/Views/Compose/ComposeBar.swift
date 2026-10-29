@@ -49,8 +49,8 @@ struct ComposeBar: View {
     var body: some View {
         GlassEffectContainer {
             HStack(alignment: .bottom, spacing: 8) {
-                composeContent
                 actionButtons
+                composeContent
             }
         }
         .animation(.easeOut(duration: 0.15), value: compose.mentionQuery != nil)
@@ -163,49 +163,54 @@ private struct ComposeBarContent: View {
                 }
             }
 
-            ComposeTextView(
-                text: $compose.text,
-                mentionQuery: $compose.mentionQuery,
-                insertMentionHandler: $compose.insertMentionHandler,
-                showEmojiPaletteHandler: $compose.showEmojiPaletteHandler,
-                onSubmit: {
-                    if compose.hasContent {
-                        Task { await onSend() }
-                    }
-                },
-                onCancel: compose.editingMessage != nil || compose.replyingTo != nil ? {
-                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                        if compose.editingMessage != nil {
-                            compose.cancelEdit()
-                        } else {
-                            compose.cancelReply()
+            HStack(alignment: .center, spacing: 0) {
+                ComposeTextView(
+                    text: $compose.text,
+                    mentionQuery: $compose.mentionQuery,
+                    insertMentionHandler: $compose.insertMentionHandler,
+                    showEmojiPaletteHandler: $compose.showEmojiPaletteHandler,
+                    onSubmit: {
+                        if compose.hasContent {
+                            Task { await onSend() }
                         }
+                    },
+                    onCancel: compose.editingMessage != nil || compose.replyingTo != nil ? {
+                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                            if compose.editingMessage != nil {
+                                compose.cancelEdit()
+                            } else {
+                                compose.cancelReply()
+                            }
+                        }
+                    } : nil,
+                    onHeightChange: { textViewHeight = $0 },
+                    onMentionNavigateUp: {
+                        compose.mentionSelectedIndex = max(
+                            0, compose.mentionSelectedIndex - 1
+                        )
+                    },
+                    onMentionNavigateDown: {
+                        compose.mentionSelectedIndex += 1
+                    },
+                    onMentionConfirm: {
+                        return compose.confirmSelectedMention()
+                    },
+                    shouldFocus: $compose.shouldFocusTextField
+                )
+                .frame(height: textViewHeight)
+                .overlay(alignment: .topLeading) {
+                    if compose.text.isEmpty {
+                        // Placeholder positioned to match textContainerInset (8, 10)
+                        // plus lineFragmentPadding (4).
+                        Text("Message")
+                            .foregroundStyle(.placeholder)
+                            .padding(.leading, 12)
+                            .padding(.top, 10)
+                            .allowsHitTesting(false)
                     }
-                } : nil,
-                onHeightChange: { textViewHeight = $0 },
-                onMentionNavigateUp: {
-                    compose.mentionSelectedIndex = max(
-                        0, compose.mentionSelectedIndex - 1
-                    )
-                },
-                onMentionNavigateDown: {
-                    compose.mentionSelectedIndex += 1
-                },
-                onMentionConfirm: {
-                    return compose.confirmSelectedMention()
-                },
-                shouldFocus: $compose.shouldFocusTextField
-            )
-            .frame(height: textViewHeight)
-            .overlay(alignment: .topLeading) {
-                if compose.text.isEmpty {
-                    // Placeholder positioned to match textContainerInset (8, 10)
-                    // plus lineFragmentPadding (4).
-                    Text("Message")
-                        .foregroundStyle(.placeholder)
-                        .padding(.leading, 12)
-                        .padding(.top, 10)
-                        .allowsHitTesting(false)
+                }
+                ComposeSendButton(isVisible: compose.hasContent) {
+                    Task { await onSend() }
                 }
             }
         }
@@ -238,7 +243,29 @@ private struct ComposeBarContent: View {
     }
 }
 
-/// The plus button on the right side of the compose bar, and the popovers it opens:
+/// The up-arrow button at the trailing end of the compose field.
+///
+/// It takes up its space even while hidden, so the text doesn't reflow when
+/// the first character is typed.
+private struct ComposeSendButton: View {
+    var isVisible: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button("Send", systemImage: "arrow.up", action: action)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.circle)
+            .opacity(isVisible ? 1 : 0)
+            .scaleEffect(isVisible ? 1 : 0.6)
+            .animation(.spring(duration: 0.25, bounce: 0.2), value: isVisible)
+            .disabled(!isVisible)
+            .accessibilityHidden(!isVisible)
+            .padding(.trailing, 8)
+    }
+}
+
+/// The plus button on the left side of the compose bar, and the popovers it opens:
 /// the attachment menu, then the GIF and sticker pickers it leads to.
 private struct ComposeBarActions: View {
     @Bindable var compose: ComposeViewModel
