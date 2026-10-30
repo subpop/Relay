@@ -14,6 +14,18 @@
 
 import SwiftUI
 
+/// The full-window progress indicator shown while the initial sync runs.
+private struct SyncingRoomsView: View {
+    var body: some View {
+        ProgressView {
+            Text("Syncing your rooms…")
+                .font(.title3)
+                .fontWeight(.bold)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// The root view that switches between login, loading, and main content based on auth state.
 struct ContentView: View {
     @Environment(RelayClient.self) private var client
@@ -40,13 +52,12 @@ struct ContentView: View {
             case .loggedIn:
                 switch client.syncState {
                 case .idle:
-                    ProgressView {
-                        Text("Syncing your rooms…")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .task { client.startSyncIfNeeded() }
+                    SyncingRoomsView()
+                        .task { client.startSyncIfNeeded() }
+                case .syncing where !client.hasLoadedRooms:
+                    // Rooms render from disk before the catch-up sync
+                    // finishes; hold the banner until it has completed.
+                    SyncingRoomsView()
                 case .syncing, .running, .offline:
                     MainView()
                 case .error:
