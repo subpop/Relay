@@ -23,8 +23,8 @@ import SwiftUI
 /// The image is not known when the message is parsed, so the attachment starts
 /// with a blank square and the text view fills it in once the media has loaded.
 /// The square is fixed up front, so a loaded image only redraws and never
-/// changes the layout. Like PillTextAttachment it carries a bitmap in
-/// `image`, which draws the same in every TextKit 2 context.
+/// changes the layout. The attachment carries a bitmap in `image`, which draws
+/// the same in every TextKit 2 context.
 nonisolated final class EmoticonTextAttachment: NSTextAttachment, @unchecked Sendable {
 
     /// The emoticon's height and width as a multiple of the font size.

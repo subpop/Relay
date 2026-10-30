@@ -23,7 +23,7 @@ extension MessageTextView {
     /// HTML-parsed and markdown-parsed attributed strings.
     ///
     /// Matrix mention links (`matrix.to` user and room links) are replaced with
-    /// inline ``PillTextAttachment`` images rendered from ``MentionPillView``.
+    /// inline ``PillTextAttachment`` pills.
     /// The `.link` attribute is preserved on the attachment character so that
     /// click-to-navigate still works via ``MessageTextContent``.
     ///

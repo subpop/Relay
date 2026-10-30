@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import AppKit
-import SwiftUI
 
 // MARK: - Custom Attribute Keys
 
@@ -25,6 +24,43 @@ extension NSAttributedString.Key {
     static let mentionDisplayName = NSAttributedString.Key("relay.mentionDisplayName")
 }
 
+// MARK: - PillTextAttachmentViewProvider
+
+/// Provides a live ``PillAttachmentView`` for inline rendering of mention
+/// pills in TextKit 2 text layouts.
+nonisolated final class PillTextAttachmentViewProvider: NSTextAttachmentViewProvider {
+
+    nonisolated override init(
+        textAttachment: NSTextAttachment,
+        parentView: NSView?,
+        textLayoutManager: NSTextLayoutManager?,
+        location: any NSTextLocation
+    ) {
+        super.init(
+            textAttachment: textAttachment,
+            parentView: parentView,
+            textLayoutManager: textLayoutManager,
+            location: location
+        )
+    }
+
+    override func loadView() {
+        // AppKit loads attachment views on the UI thread but its provider API
+        // is preconcurrency.
+        nonisolated(unsafe) let provider = self
+        MainActor.assumeIsolated {
+            guard let attachment = provider.textAttachment as? PillTextAttachment else { return }
+            provider.view = PillAttachmentView(
+                displayName: attachment.displayName,
+                userId: attachment.userId,
+                style: attachment.style,
+                prefixSigil: attachment.prefixSigil,
+                fontSize: attachment.pillFontSize
+            )
+        }
+    }
+}
+
 // MARK: - PillTextAttachment
 
 /// An `NSTextAttachment` subclass that represents an inline mention pill.
@@ -33,10 +69,14 @@ extension NSAttributedString.Key {
 /// character (`\u{FFFC}`) is atomically deletable — deleting any part of it
 /// removes the entire mention.
 ///
-/// The pill is rendered as a bitmap snapshot of ``MentionPillView`` (kept on
-/// ``image``), so it draws identically in every TextKit 2 context — display
-/// layouts, offscreen measurement stacks, and copy/paste — with no hosted
-/// view lifecycle to tear down on layout invalidation.
+/// The pill renders through ``PillTextAttachmentViewProvider`` as a live
+/// ``PillAttachmentView`` wherever TextKit hosts attachment views. Some
+/// contexts never host views — detached measurement stacks, copy/paste — and
+/// on macOS 27.2 `NSTextView` itself falls back to the attachment-image path
+/// even for view-backed attachments (Apple's own TextKit sample app exhibits
+/// the same). Those contexts rasterize the live view on demand via
+/// ``image(for:attributes:location:textContainer:)``, which AppKit re-invokes
+/// on each display pass, so dynamic colors re-resolve per render.
 nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendable {
 
     /// The Matrix user ID for this mention (e.g. `@alice:matrix.org`).
@@ -79,23 +119,26 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
     }
 
     init(userId: String, displayName: String, font: NSFont, style: MentionPillStyle, prefixSigil: Character?) {
+        let fontSize = font.pointSize
         self.userId = userId
         self.displayName = displayName
-        self.pillFontSize = font.pointSize
+        self.pillFontSize = fontSize
         self.style = style
         self.prefixSigil = prefixSigil
         super.init(data: nil, ofType: nil)
         self.attachmentCell = nil
 
-        let rendered = Self.renderPill(
-            userId: userId,
-            displayName: displayName,
-            fontSize: font.pointSize,
-            style: style,
-            prefixSigil: prefixSigil
-        )
-        self.image = rendered.image
-        self.bounds = Self.paddedBounds(pillSize: rendered.size, fontSize: font.pointSize)
+        // Measurement is MainActor-isolated (AppKit text APIs); the font is
+        // reduced to a point size first so nothing non-Sendable crosses the
+        // isolation boundary.
+        let pillSize = MainActor.assumeIsolated {
+            PillAttachmentView.measureSize(
+                displayName: displayName,
+                font: NSFont.systemFont(ofSize: fontSize),
+                prefixSigil: prefixSigil
+            )
+        }
+        self.bounds = Self.paddedBounds(pillSize: pillSize, fontSize: fontSize)
     }
 
     @available(*, unavailable)
@@ -103,43 +146,61 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         fatalError("PillTextAttachment does not support NSCoding")
     }
 
-    // MARK: - Image Rendering
+    // MARK: - Live View
 
-    /// Renders the ``MentionPillView`` to an `NSImage` at 2x resolution.
-    /// This bitmap is the pill's rendered form in every TextKit 2 context.
-    private static func renderPill(
-        userId: String, displayName: String, fontSize: CGFloat,
-        style: MentionPillStyle, prefixSigil: Character? = "@"
-    ) -> (image: NSImage, size: CGSize) {
-        MainActor.assumeIsolated {
-            let tintColor = Color(stableColorFor: userId)
-            let colorScheme: ColorScheme =
-                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? .dark : .light
-            let pillView = MentionPillView(
-                displayName: displayName, tintColor: tintColor, style: style,
-                prefixSigil: prefixSigil, fontSize: fontSize
-            )
-            .environment(\.colorScheme, colorScheme)
-            let renderer = ImageRenderer(content: pillView)
-            renderer.scale = 2
+    override var usesTextAttachmentView: Bool { true }
 
-            if let image = renderer.nsImage {
-                return (image, image.size)
-            }
-            let size = MentionPillView.measureSize(
-                displayName: displayName,
-                font: NSFont.systemFont(ofSize: fontSize),
-                prefixSigil: prefixSigil
-            )
-            return (NSImage(size: size), size)
+    @preconcurrency
+    override func viewProvider(
+        for parentView: NSView?,
+        location: any NSTextLocation,
+        textContainer: NSTextContainer?
+    ) -> NSTextAttachmentViewProvider? {
+        PillTextAttachmentViewProvider(
+            textAttachment: self,
+            parentView: parentView,
+            textLayoutManager: textContainer?.textLayoutManager,
+            location: location
+        )
+    }
+
+    /// Rasterizes the live ``PillAttachmentView`` for contexts where no
+    /// attachment view is installed: detached measurement stacks, copy/paste,
+    /// and `NSTextView`'s attachment-image path on macOS 27.2 (see the class
+    /// documentation). Rasterizing the live view — rather than rendering a
+    /// separate bitmap — guarantees this output is pixel-identical to the
+    /// hosted pill wherever TextKit does install the view.
+    @preconcurrency
+    override func image(
+        for bounds: CGRect,
+        attributes: [NSAttributedString.Key: Any] = [:],
+        location: any NSTextLocation,
+        textContainer: NSTextContainer?
+    ) -> NSImage? {
+        guard bounds.width > 0, bounds.height > 0,
+            let provider = viewProvider(for: nil, location: location, textContainer: textContainer)
+        else { return nil }
+
+        nonisolated(unsafe) let uiProvider = provider
+        return MainActor.assumeIsolated {
+            uiProvider.loadView()
+            guard let view = uiProvider.view else { return nil }
+            view.setFrameSize(bounds.size)
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let image = NSImage(size: bounds.size)
+            image.addRepresentation(bitmap)
+            return image
         }
     }
 
     // MARK: - Attachment Bounds
 
     /// Extra vertical padding (top + bottom) added to the pill's natural height
-    /// so that the line fragment expands and the image draws at full size
+    /// so that the line fragment expands and the pill draws at full size
     /// without being compressed.
     private static let verticalPadding: CGFloat = 2
 
@@ -155,7 +216,7 @@ nonisolated final class PillTextAttachment: NSTextAttachment, @unchecked Sendabl
         Self.paddedBounds(pillSize: bounds.size, fontSize: pillFontSize)
     }
 
-    /// Returns attachment bounds with vertical padding so the pill image draws
+    /// Returns attachment bounds with vertical padding so the pill draws
     /// at its natural size. The y origin centers the padded rect on the font's
     /// visual midline (midpoint between ascender and descender).
     private static func paddedBounds(pillSize: CGSize, fontSize: CGFloat) -> CGRect {

@@ -15,6 +15,31 @@
 import AppKit
 import SwiftUI
 
+extension NSColor {
+    /// Creates the dynamic `NSColor` behind ``Color/init(stableColorFor:)``,
+    /// with an alpha baked in.
+    ///
+    /// The alpha is applied inside the dynamic color's resolver rather than
+    /// via `withAlphaComponent`, which would resolve and flatten the
+    /// appearance-adaptive color into a fixed one.
+    convenience init(stableColorFor name: String, alpha: CGFloat) {
+        let hash = Color.djb2Hash(name)
+        let hueDegrees = Double(hash % 360)
+
+        self.init(name: nil) { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                // Dark mode: moderate lightness, slightly higher chroma.
+                let (r, g, b) = Color.oklchToSRGB(L: 0.55, C: 0.12, H: hueDegrees)
+                return NSColor(srgbRed: r, green: g, blue: b, alpha: alpha)
+            } else {
+                // Light mode: higher lightness, gentler chroma.
+                let (r, g, b) = Color.oklchToSRGB(L: 0.72, C: 0.11, H: hueDegrees)
+                return NSColor(srgbRed: r, green: g, blue: b, alpha: alpha)
+            }
+        }
+    }
+}
+
 extension Color {
     /// Creates a deterministic, appearance-adaptive color derived from the given string
     /// (e.g. a Matrix user ID or display name).
@@ -34,22 +59,7 @@ extension Color {
     ///
     /// The same input always produces the same hue, even across app restarts.
     init(stableColorFor name: String) {
-        let hash = Self.djb2Hash(name)
-        let hueDegrees = Double(hash % 360)
-
-        let nsColor = NSColor(name: nil) { appearance in
-            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-                // Dark mode: moderate lightness, slightly higher chroma.
-                let (r, g, b) = Self.oklchToSRGB(L: 0.55, C: 0.12, H: hueDegrees)
-                return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
-            } else {
-                // Light mode: higher lightness, gentler chroma.
-                let (r, g, b) = Self.oklchToSRGB(L: 0.72, C: 0.11, H: hueDegrees)
-                return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
-            }
-        }
-
-        self.init(nsColor: nsColor)
+        self.init(nsColor: NSColor(stableColorFor: name, alpha: 1))
     }
 
     // MARK: - OKLCH to sRGB Conversion
@@ -99,7 +109,7 @@ extension Color {
     }
 
     /// DJB2 hash — a simple, fast, deterministic string hash.
-    private static func djb2Hash(_ string: String) -> UInt {
+    fileprivate static func djb2Hash(_ string: String) -> UInt {
         var hash: UInt = 5381
         for byte in string.utf8 {
             hash = ((hash &<< 5) &+ hash) &+ UInt(byte)

@@ -17,8 +17,8 @@ import SwiftUI
 
 /// An `NSViewRepresentable` wrapping an `NSTextView` with inline mention pill support.
 ///
-/// ``ComposeTextView`` hosts ``PillTextAttachment`` pills rendered as inline
-/// bitmap images. It supports:
+/// ``ComposeTextView`` hosts ``PillTextAttachment`` pills rendered as live
+/// inline views. It supports:
 /// - Return to send, Shift+Return for newline
 /// - Arrow key / Tab / Escape navigation for mention suggestions
 /// - Atomic deletion of pill attachments
@@ -228,7 +228,7 @@ struct ComposeTextView: NSViewRepresentable {
         }
 
         /// Rebuilds any inline mention pills at the new base font size so typed
-        /// mentions scale with the zoom. A pill's attachment image is rendered
+        /// mentions scale with the zoom. A pill's attachment bounds are computed
         /// once at creation, so it doesn't otherwise resize.
         private func rescalePillAttachments(in storage: NSTextStorage) {
             let fullRange = NSRange(location: 0, length: storage.length)

@@ -163,6 +163,106 @@ struct TimelineHeightMeasurementTests {
         )
     }
 
+    /// A mention pill must render through TextKit's attachment-image path:
+    /// ``PillTextAttachment/image(for:attributes:location:textContainer:)``
+    /// rasterizes the live ``PillAttachmentView`` on demand. On macOS 27.2
+    /// `NSTextView` draws even view-backed attachments through this path
+    /// (view hosting does not engage — Apple's own TextKit sample app shows
+    /// the same), so this is the path every pill in the app renders through.
+    /// It exercises the full chain — view provider, `loadView`, pill view
+    /// construction, rasterization — so a #184-class wiring regression fails
+    /// here first.
+    @Test func mentionPillRendersViaAttachmentImageFallback() {
+        let resolved = resolvedIncoming(mentionSource(trailing: " wrote something"))
+
+        // Find the pill attachment and its character offset in the string.
+        var pill: PillTextAttachment?
+        var pillOffset = NSNotFound
+        resolved.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: resolved.length)
+        ) { value, range, _ in
+            if let attachment = value as? PillTextAttachment {
+                pill = attachment
+                pillOffset = range.location
+            }
+        }
+        #expect(pill != nil, "No PillTextAttachment in the resolved mention string.")
+
+        // Build a TextKit 2 stack so the attachment can be asked for its
+        // image with a real text location, as the layout manager would.
+        let contentStorage = NSTextContentStorage()
+        contentStorage.textStorage = NSTextStorage(attributedString: resolved)
+        let layoutManager = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(layoutManager)
+        let container = NSTextContainer(
+            size: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
+        )
+        container.lineFragmentPadding = 0
+        layoutManager.textContainer = container
+
+        guard let pill, pillOffset != NSNotFound,
+            let pillLocation = contentStorage.location(
+                contentStorage.documentRange.location, offsetBy: pillOffset
+            )
+        else {
+            Issue.record("Could not locate the pill character in the text content storage.")
+            return
+        }
+
+        let image = pill.image(
+            for: pill.bounds,
+            attributes: [.font: baseFont],
+            location: pillLocation,
+            textContainer: container
+        )
+        #expect(image != nil, "image(for:) returned no rasterization of the pill.")
+        if let image {
+            #expect(
+                image.size == pill.bounds.size,
+                "Rasterized pill size \(image.size) does not match attachment bounds \(pill.bounds.size)."
+            )
+        }
+    }
+
+    /// The pill's ``PillTextAttachmentViewProvider`` must load a live
+    /// ``PillAttachmentView``. Where TextKit hosts attachment views (macOS 26
+    /// behavior, and macOS 27.2 whenever the OS engages it again), this is
+    /// the object that lands in the text view.
+    @Test func mentionPillViewProviderLoadsPillView() {
+        let resolved = resolvedIncoming(mentionSource(trailing: " wrote something"))
+
+        var pill: PillTextAttachment?
+        resolved.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: resolved.length)
+        ) { value, _, _ in
+            if let attachment = value as? PillTextAttachment { pill = attachment }
+        }
+        guard let pill else {
+            #expect(pill != nil, "No PillTextAttachment in the resolved mention string.")
+            return
+        }
+
+        let contentStorage = NSTextContentStorage()
+        contentStorage.textStorage = NSTextStorage(attributedString: resolved)
+        let locationManager = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(locationManager)
+        let container = NSTextContainer(
+            size: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
+        )
+        locationManager.textContainer = container
+        let location = contentStorage.documentRange.location
+
+        let provider = pill.viewProvider(
+            for: nil, location: location, textContainer: container
+        )
+        #expect(provider is PillTextAttachmentViewProvider, "Attachment returned the wrong view provider.")
+        provider?.loadView()
+        #expect(
+            provider?.view is PillAttachmentView,
+            "View provider did not load a PillAttachmentView."
+        )
+    }
+
     // MARK: - Pasted URLs are not pills
 
     /// Whether the resolved string contains a mention pill attachment.
@@ -291,26 +391,31 @@ struct TimelineHeightMeasurementTests {
         )
     }
 
-    /// A pill's rendered glyphs must scale with the surrounding font size. If the
-    /// pill view is rendered at a fixed text style while its attachment bounds are
-    /// sized for a larger font, TextKit upscales the small bitmap into the large
-    /// bounds and the capsule reads as stretched/blurry — the defect that surfaces
-    /// once the timeline text-zoom enlarges the message font.
+    /// A pill's rendered glyphs must scale with the surrounding font size. The
+    /// pill view draws its label at `fontSize − 1`; rasterizing the view at two
+    /// font sizes must therefore produce proportionally taller output. If it
+    /// does not, the glyphs are drawn at a fixed size and stretch inside the
+    /// font-sized attachment bounds — the defect that surfaces once the
+    /// timeline text-zoom enlarges the message font.
     @Test func mentionPillContentScalesWithFontSize() {
         func renderedPixelHeight(fontSize: CGFloat) -> Int {
-            let view = MentionPillView(
-                displayName: "Sample User", style: .messageDefault, fontSize: fontSize
+            let view = PillAttachmentView(
+                displayName: "Sample User", userId: "@sample:matrix.org",
+                style: .messageDefault, prefixSigil: "@", fontSize: fontSize
             )
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            return renderer.cgImage?.height ?? 0
+            view.setFrameSize(view.intrinsicContentSize)
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return 0 }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return bitmap.pixelsHigh
         }
         let small = renderedPixelHeight(fontSize: NSFont.systemFontSize)
         let large = renderedPixelHeight(fontSize: NSFont.systemFontSize * 2)
         #expect(small > 0 && large > 0, "Pill failed to render.")
         #expect(
             Double(large) > Double(small) * 1.6,
-            "Pill render height barely grew (\(small)px → \(large)px): the glyphs are not drawn at the target font size, so the bitmap is upscaled into the font-sized bounds and reads as stretched."
+            "Pill render height barely grew (\(small)px → \(large)px): the glyphs are not drawn at the target font size, so the pill stretches inside the font-sized bounds and reads as distorted."
         )
     }
 
@@ -457,3 +562,4 @@ struct TimelineHeightMeasurementTests {
         return host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
     }
 }
+

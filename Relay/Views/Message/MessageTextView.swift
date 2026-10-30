@@ -152,8 +152,8 @@ struct MessageTextView: NSViewRepresentable {
         view.clipsToBounds = false
         // Prevent NSTextView from flattening subviews into its own layer.
         // (Historical fix for hosted attachment views rendering briefly
-        // then going blank; attachments now render as bitmap images, so
-        // this is retained only as defense.)
+        // then going blank — see #184. Mention pills are hosted views again,
+        // so this defense is load-bearing.)
         view.canDrawSubviewsIntoLayer = false
         view.isEditable = false
         view.isSelectable = true
