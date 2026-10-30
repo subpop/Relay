@@ -39,6 +39,7 @@ struct RelayApp: App {
     @State private var appActions = AppActions()
     @State private var composeDraftStore = ComposeDraftStore()
     @State private var showClearCacheConfirmation = false
+    @State private var shieldResizeGuard = ShieldResizeGuard()
 
     /// GIF search backend (GIPHY). Empty API keys fail gracefully in the picker.
     private var gifSearchService: any GIFSearchServiceProtocol {
@@ -149,6 +150,14 @@ struct RelayApp: App {
                         logger.info("Received share suggestion for room: \(roomId)")
                         UserDefaults.standard.set(roomId, forKey: "selectedRoomId")
                     }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
+                    guard let window = notification.object as? NSWindow, window.canBecomeMain else { return }
+                    shieldResizeGuard.windowDidResize(window)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { notification in
+                    guard let window = notification.object as? NSWindow, window.canBecomeMain else { return }
+                    shieldResizeGuard.windowDidChangeOcclusionState(window)
                 }
                 .task {
                     await setupNotifications()
