@@ -1279,7 +1279,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
         // Remove trailing / for self-closing tags.
         var cleaned = content
         if cleaned.hasSuffix("/") {
-            cleaned = String(cleaned.dropLast()).trimmingCharacters(in: .whitespaces)
+            cleaned = String(cleaned.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         // Split into parts: first is the tag name, rest are attributes.
@@ -1292,14 +1292,14 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
 
         // Parse attributes.
         var attributes: [String: String] = [:]
-        var remaining = cleaned[index...].trimmingCharacters(in: .whitespaces)
+        var remaining = cleaned[index...].trimmingCharacters(in: .whitespacesAndNewlines)
 
         while !remaining.isEmpty {
             // An attribute name runs to whitespace or `=`.
             let nameEnd = remaining.firstIndex(where: { $0.isWhitespace || $0 == "=" })
                 ?? remaining.endIndex
             let attrName = remaining[remaining.startIndex..<nameEnd].lowercased()
-            let afterName = remaining[nameEnd...].trimmingCharacters(in: .whitespaces)
+            let afterName = remaining[nameEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
             guard afterName.hasPrefix("=") else {
                 // Bare attribute (e.g. `data-mx-spoiler` or `data-mx-emoticon`),
                 // which may be followed by further attributes.
@@ -1309,7 +1309,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                 remaining = afterName
                 continue
             }
-            var afterEq = String(afterName.dropFirst()).trimmingCharacters(in: .whitespaces)
+            var afterEq = String(afterName.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
 
             let value: String
             if afterEq.hasPrefix("\"") {
@@ -1318,7 +1318,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                     value = String(afterEq[afterEq.startIndex..<closeQuote])
                     remaining = String(
                         afterEq[afterEq.index(after: closeQuote)...]
-                    ).trimmingCharacters(in: .whitespaces)
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
                 } else {
                     value = afterEq
                     remaining = ""
@@ -1329,7 +1329,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                     value = String(afterEq[afterEq.startIndex..<closeQuote])
                     remaining = String(
                         afterEq[afterEq.index(after: closeQuote)...]
-                    ).trimmingCharacters(in: .whitespaces)
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
                 } else {
                     value = afterEq
                     remaining = ""
@@ -1340,7 +1340,7 @@ private struct MatrixHTMLParser { // swiftlint:disable:this type_body_length
                     value = String(afterEq[afterEq.startIndex..<spaceIndex])
                     remaining = String(
                         afterEq[spaceIndex...]
-                    ).trimmingCharacters(in: .whitespaces)
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
                 } else {
                     value = afterEq
                     remaining = ""

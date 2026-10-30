@@ -525,6 +525,28 @@ struct MatrixHTMLParserTests {
         #expect(!traits(result, at: 5).contains(.bold))
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func newlineBetweenTagAttributesTerminates() {
+        // A newline between attributes must be consumed as a separator
+        // rather than stalling attribute parsing.
+        let result = NSAttributedString(
+            matrixHTML: "<span\ndata-mx-spoiler\ndata-mx-color=\"#ff0000\"\n>secret</span>"
+        )
+        #expect(result?.string == "secret")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func newlineAfterQuotedAttributeValueTerminates() {
+        let result = NSAttributedString(
+            matrixHTML: "<a href=\"https://example.com\"\nrel=\"noopener\">link</a>"
+        )
+        #expect(result?.string == "link")
+        #expect(
+            result.flatMap { attrs($0, at: 0)[.link] as? URL }
+                == URL(string: "https://example.com")
+        )
+    }
+
     // MARK: - NSColor Hex Initializer
 
     @Test func hexWithHash() {
