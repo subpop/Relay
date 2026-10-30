@@ -2547,33 +2547,24 @@ final class RelayClient {
         return try? await client.roomState.powerLevels(roomId)
     }
 
-    /// Start a poll (MSC3381 m.poll.start) in a room, with no local echo.
-    ///
-    /// Mirrors the plaintext/encrypted branching in MessageSender (which
-    /// has no poll-start API yet): encrypted rooms prepare the Megolm
-    /// session against the room's current members before sending
-    /// ciphertext, plaintext rooms send directly.
-    /// Move this into MessageSender once the SDK gains poll creation.
+    /// Start a poll (MSC3381 m.poll.start) in a room. The poll card appears
+    /// as a local echo before transport begins.
     func startPoll(
         roomId: RoomId, question: String, options: [String],
         maxSelections: Int, kind: PollKind
-    ) async throws {
-        guard let client else { throw MatrixError.notAuthenticated }
+    ) async {
         let answers = options.enumerated().map { index, text in
             PollStartContent.Answer(id: "\(index)", text: text)
         }
         let content = PollStartContent(
             question: question, kind: kind,
             maxSelections: max(1, maxSelections), answers: answers)
-        if rooms.first(where: { $0.roomId == roomId })?.isEncrypted == true {
-            try await client.sendEncryptedContent(
-                roomId, content, eventType: EventType.pollStart.rawValue)
-        } else {
-            try await client.messages.sendEvent(
-                roomId, eventType: EventType.pollStart.rawValue, content: content)
-        }
+        await messageSender?.startPoll(
+            roomId, content: content,
+            onEchoStaged: { [weak self] in
+                Task { @MainActor in self?.bumpRevision(roomId) }
+            })
     }
-
 
     /// Bump one room's revision so its timeline refreshes. Used after
     /// local-only store mutations (e.g. read markers) that change

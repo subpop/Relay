@@ -30,7 +30,7 @@ enum ImageAnimation {
 
     /// Whether encoded image data holds more than one frame, or nil when it
     /// can't be read as an image. Senders leave the flag unset in that case.
-    static func isAnimated(imageData data: Data) -> Bool? {
+    nonisolated static func isAnimated(imageData data: Data) -> Bool? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         // Data that isn't an image still yields a source, with no frames.
         let frames = CGImageSourceGetCount(source)

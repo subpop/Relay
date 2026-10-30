@@ -689,36 +689,29 @@ final class TimelineViewModel {
 
     // MARK: - Actions
 
-    /// Send a text message, optionally as a reply with mentions.
+    /// Send a text message, optionally as a reply with mentions. Returns
+    /// once the local echo is on screen; transport continues in the
+    /// background and marks the echo failed on error.
     func send(text: String, inReplyTo eventId: String?, mentionedUserIds: [String]) async {
         let mentions = mentionsParam(mentionedUserIds)
-        if let eventId {
-            do {
-                try await client.messageSender?.reply(
-                    roomID, to: EventId(unchecked: eventId), body: text,
-                    mentions: mentions)
-            } catch {
-                errorReporter.report(.messageSendFailed(error.localizedDescription))
-            }
-            return
-        }
+        let relatesTo = eventId.map { RelatesTo.reply(to: EventId(unchecked: $0)) }
         // `/me <action>` is sent as an `m.emote` with the command stripped.
         let emotePrefix = "/me "
-        let isEmote = text.hasPrefix(emotePrefix)
+        let isEmote = relatesTo == nil && text.hasPrefix(emotePrefix)
             && !text.dropFirst(emotePrefix.count).allSatisfy(\.isWhitespace)
         let body = isEmote ? String(text.dropFirst(emotePrefix.count)) : text
         let (echoStaged, continuation) = AsyncStream<Void>.makeStream()
-        let echoRefreshTask = Task { @MainActor in
-            for await _ in echoStaged {
-                await refreshForLocalEcho()
-            }
+        Task { @MainActor [client, roomID] in
+            await client.messageSender?.sendText(
+                roomID, body, relatesTo: relatesTo, mentions: mentions,
+                msgtype: isEmote ? .emote : .text,
+                onEchoStaged: { continuation.yield() })
+            continuation.finish()
         }
-        await client.messageSender?.sendText(
-            roomID, body, mentions: mentions,
-            msgtype: isEmote ? .emote : .text,
-            onEchoStaged: { continuation.yield() })
-        continuation.finish()
-        await echoRefreshTask.value
+        for await _ in echoStaged {
+            await refreshForLocalEcho()
+            break
+        }
     }
 
     /// The `m.sticker` content for a pack image, replying to `inReplyTo` when set.
@@ -752,12 +745,21 @@ final class TimelineViewModel {
     private func probeUpload(url: URL, filename: String, caption: String?) async
         -> MessageSender.GalleryUpload?
     {
+        let upload = await Self.readUpload(url: url, filename: filename, caption: caption)
+        if upload == nil {
+            errorReporter.report(.fileCopyFailed(filename: filename, reason: "Unreadable file"))
+        }
+        return upload
+    }
+
+    /// The file read, image decode, and thumbnailing behind ``probeUpload``,
+    /// kept off the main actor so large files don't stall the UI.
+    private nonisolated static func readUpload(
+        url: URL, filename: String, caption: String?
+    ) async -> MessageSender.GalleryUpload? {
         let utType = UTType(filenameExtension: url.pathExtension) ?? .data
         let mimeType = utType.preferredMIMEType ?? "application/octet-stream"
-        guard let data = try? Data(contentsOf: url) else {
-            errorReporter.report(.fileCopyFailed(filename: filename, reason: "Unreadable file"))
-            return nil
-        }
+        guard let data = try? Data(contentsOf: url) else { return nil }
         var upload = MessageSender.GalleryUpload(
             data: data, filename: filename, mimeType: mimeType, caption: caption)
         if utType.conforms(to: .image),
@@ -881,18 +883,28 @@ final class TimelineViewModel {
         }
     }
 
+    /// A callback for the SDK's `onEchoStaged` that refreshes the timeline
+    /// immediately, since a staged echo has no sync delta to announce it.
+    private func echoStagedRefresh() -> @Sendable () -> Void {
+        { [weak self] in
+            Task { @MainActor in await self?.refreshForLocalEcho() }
+        }
+    }
+
     /// Toggle an emoji reaction (removes the user's own reaction if present).
     /// The badge updates optimistically; sync confirms in the background.
     func toggleReaction(messageId: String, key: String) async {
         await client.messageSender?.toggleReaction(
-            roomID, target: EventId(unchecked: messageId), key: key)
+            roomID, target: EventId(unchecked: messageId), key: key,
+            onEchoStaged: echoStagedRefresh())
     }
 
     /// Cast, change, or retract (empty `answers`) a vote on a poll.
     /// The count updates optimistically; sync confirms in the background.
     func vote(pollId: String, answers: [String]) async {
         await client.messageSender?.vote(
-            roomID, poll: EventId(unchecked: pollId), answers: answers)
+            roomID, poll: EventId(unchecked: pollId), answers: answers,
+            onEchoStaged: echoStagedRefresh())
     }
 
     /// End a poll created by the local user. Failures surface through
@@ -906,16 +918,13 @@ final class TimelineViewModel {
         }
     }
 
-    /// Start a poll from the compose bar's poll composer. Failures surface
-    /// through the error reporter; sync confirms the event in the background.
+    /// Start a poll from the compose bar's poll composer. The poll card
+    /// appears as a local echo; failures mark the echo failed and sync
+    /// confirms the event in the background.
     func startPoll(question: String, options: [String], maxSelections: Int, kind: PollKind) async {
-        do {
-            try await client.startPoll(
-                roomId: roomID, question: question, options: options,
-                maxSelections: maxSelections, kind: kind)
-        } catch {
-            errorReporter.report(.messageSendFailed(error.localizedDescription))
-        }
+        await client.startPoll(
+            roomId: roomID, question: question, options: options,
+            maxSelections: maxSelections, kind: kind)
     }
 
     /// Edit own message text.
@@ -968,7 +977,7 @@ final class TimelineViewModel {
     }
 
     /// Downscaled JPEG thumbnail for image attachments.
-    private func jpegThumbnail(cgImage: CGImage, maxDimension: CGFloat) -> Data? {
+    private nonisolated static func jpegThumbnail(cgImage: CGImage, maxDimension: CGFloat) -> Data? {
         let width = CGFloat(cgImage.width)
         let height = CGFloat(cgImage.height)
         let scale = min(1, maxDimension / max(width, height))
