@@ -59,6 +59,9 @@ struct TimelineView: View {
 
     @State private var compose = ComposeViewModel()
     @State private var messageToDelete: ObservableTimelineEvent?
+    #if DEBUG
+    @State private var messageSource: MessageSource?
+    #endif
     @State private var isNearEnd = true
     @State private var lastBottomRowId: String?
     @State private var composeBarHeight: CGFloat = 0
@@ -427,6 +430,11 @@ struct TimelineView: View {
         } action: { frame in
             timelineFrame = frame
         }
+        #if DEBUG
+        .sheet(item: $messageSource) { source in
+            MessageSourceView(source: source)
+        }
+        #endif
         .overlay {
             TimelinePaginationOverlay(
                 isLoading: viewModel.isLoading,
@@ -673,6 +681,13 @@ struct TimelineView: View {
             }
         case .delete(let message):
             messageToDelete = message
+        #if DEBUG
+        case .showSource(let message):
+            messageSource = MessageSource(
+                id: message.eventId.value,
+                json: client.storedEventJSON(eventId: message.eventId)
+                    ?? "Event not found in the local store.")
+        #endif
         }
     }
 

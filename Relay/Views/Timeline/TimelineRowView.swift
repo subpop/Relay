@@ -269,6 +269,14 @@ struct TimelineRowView: View, Equatable {
             } label: {
                 Label("Delete Message", systemImage: "trash")
             }
+        #if DEBUG
+        case .showSource:
+            Button {
+                actions.contextAction(.showSource(message))
+            } label: {
+                Label("Show Message Source", systemImage: "curlybraces")
+            }
+        #endif
         }
     }
 

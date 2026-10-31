@@ -2130,6 +2130,15 @@ final class RelayClient {
         }.value
     }
 
+    #if DEBUG
+    /// The stored event as pretty-printed JSON, for the debug "Show Message
+    /// Source" action. Nil when the event isn't in the local store.
+    func storedEventJSON(eventId: EventId) -> String? {
+        guard let data = try? storeReader?.eventJSON(eventId) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+    #endif
+
     /// Server-side message search.
     func searchMessages(
         term: String, filter: MessageSearchFilter? = nil, from: String? = nil

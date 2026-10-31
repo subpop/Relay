@@ -555,6 +555,14 @@ final class MessageTextContent: NSTextView {
                 )
                 baseMenu.insertItem(item, at: insertIndex)
                 insertIndex += 1
+            #if DEBUG
+            case .showSource:
+                baseMenu.insertItem(
+                    menuItem(title: "Show Message Source", symbol: "curlybraces", action: #selector(contextShowSource)),
+                    at: insertIndex
+                )
+                insertIndex += 1
+            #endif
             }
         }
 
@@ -601,6 +609,13 @@ final class MessageTextContent: NSTextView {
         guard let message = contextMessage else { return }
         onMessageContextAction?(.copy(message))
     }
+
+    #if DEBUG
+    @objc private func contextShowSource() {
+        guard let message = contextMessage else { return }
+        onMessageContextAction?(.showSource(message))
+    }
+    #endif
 
     @objc private func contextSaveMedia() {
         guard let message = contextMessage else { return }

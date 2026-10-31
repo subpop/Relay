@@ -25,6 +25,9 @@ enum TimelineMessageContextMenuEntry: Equatable {
     case edit
     case separatorBeforeDelete
     case delete
+    #if DEBUG
+    case showSource
+    #endif
 }
 
 enum TimelineMessageContextMenu {
@@ -68,6 +71,9 @@ enum TimelineMessageContextMenu {
             result.append(.separatorBeforeDelete)
             result.append(.delete)
         }
+        #if DEBUG
+        result.append(.showSource)
+        #endif
         return result
     }
 
@@ -91,4 +97,7 @@ enum TimelineRowContextAction {
     case togglePin(String)
     case edit(ObservableTimelineEvent)
     case delete(ObservableTimelineEvent)
+    #if DEBUG
+    case showSource(ObservableTimelineEvent)
+    #endif
 }
