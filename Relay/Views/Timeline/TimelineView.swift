@@ -639,9 +639,8 @@ struct TimelineView: View {
                 compose.replyingTo = message
             }
             compose.shouldFocusTextField = true
-        case .copy(let text):
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+        case .copy(let message):
+            copyToPasteboard(message)
         case .react(let eventId, let key):
             QuickReactions.record(key)
             Task { await viewModel.toggleReaction(messageId: eventId, key: key) }
@@ -675,6 +674,54 @@ struct TimelineView: View {
         case .delete(let message):
             messageToDelete = message
         }
+    }
+
+    /// Copies an image message's pixels, a video or audio message's file, or
+    /// the message body for any other kind.
+    private func copyToPasteboard(_ message: ObservableTimelineEvent) {
+        guard let download = message.mediaDownload else {
+            copyText(message.body)
+            return
+        }
+        switch message.kind {
+        case .image:
+            Task {
+                guard let data = await MediaFileHelper.fetch(download: download, client: client),
+                      let image = NSImage(data: data)
+                else {
+                    reportCopyFailure(download)
+                    return
+                }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([image])
+            }
+        case .video, .audio:
+            Task {
+                do {
+                    let url = try await MediaFileHelper.downloadToTemporaryFile(
+                        download: download, client: client
+                    )
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.writeObjects([url as NSURL])
+                } catch {
+                    reportCopyFailure(download)
+                }
+            }
+        default:
+            copyText(message.body)
+        }
+    }
+
+    private func copyText(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func reportCopyFailure(_ download: MediaFileHelper.Download) {
+        errorReporter.report(.mediaSaveFailed(
+            filename: download.filename,
+            reason: MediaFileHelper.MediaFileError.downloadFailed.localizedDescription
+        ))
     }
 
     private static func contentTypes(for message: ObservableTimelineEvent) -> [UTType] {

@@ -599,7 +599,7 @@ final class MessageTextContent: NSTextView {
 
     @objc private func contextCopyMessage() {
         guard let message = contextMessage else { return }
-        onMessageContextAction?(.copy(message.body))
+        onMessageContextAction?(.copy(message))
     }
 
     @objc private func contextSaveMedia() {

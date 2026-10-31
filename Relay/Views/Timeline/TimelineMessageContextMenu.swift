@@ -85,7 +85,7 @@ enum TimelineMessageContextMenu {
 /// Actions that timeline rows request via ``TimelineRowView/onContextAction``.
 enum TimelineRowContextAction {
     case reply(ObservableTimelineEvent)
-    case copy(String)
+    case copy(ObservableTimelineEvent)
     case saveMedia(ObservableTimelineEvent)
     case react(eventId: String, key: String)
     case togglePin(String)

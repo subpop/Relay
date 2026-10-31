@@ -233,7 +233,7 @@ struct TimelineRowView: View, Equatable {
             }
         case .copyMessage:
             Button {
-                actions.contextAction(.copy(message.body))
+                actions.contextAction(.copy(message))
             } label: {
                 Label("Copy Message", systemImage: "doc.on.doc")
             }
