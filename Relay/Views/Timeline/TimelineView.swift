@@ -195,7 +195,14 @@ struct TimelineView: View {
                         roomId: roomId,
                         successorRoomId: successorRoomId,
                         onRoomTap: onRoomTap,
-                        onSendWillScroll: { pendingScrollToEnd = true },
+                        onSendWillScroll: {
+                            pendingScrollToEnd = true
+                            // Focused windows don't render the local echo;
+                            // rejoin the live window so the new send shows.
+                            if case .focused = viewModel.timelineFocus {
+                                Task { await viewModel.returnToLive() }
+                            }
+                        },
                         onHeightChanged: { height in
                             let previous = composeBarHeight
                             let changed = height != previous
