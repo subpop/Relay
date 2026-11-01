@@ -151,3 +151,17 @@ struct TimelineScrollAnchorTests {
         #expect(afterCooldown)
     }
 }
+
+/// At-bottom detection and focus-to-live handover decisions.
+@Suite("Timeline end detection")
+@MainActor
+struct TimelineEndDetectionTests {
+    @Test("Promotes only a focused window at its end while viewing the end")
+    func promotion() {
+        typealias VM = TimelineViewModel
+        #expect(VM.shouldPromoteToLive(isFocused: true, focusReachedEnd: true, isNearEnd: true))
+        #expect(!VM.shouldPromoteToLive(isFocused: true, focusReachedEnd: false, isNearEnd: true))
+        #expect(!VM.shouldPromoteToLive(isFocused: true, focusReachedEnd: true, isNearEnd: false))
+        #expect(!VM.shouldPromoteToLive(isFocused: false, focusReachedEnd: true, isNearEnd: true))
+    }
+}

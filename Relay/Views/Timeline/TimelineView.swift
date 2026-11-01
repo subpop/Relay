@@ -408,13 +408,18 @@ struct TimelineView: View {
             onNearEndChanged: { nearEnd in
                 isNearEnd = nearEnd
                 markAsReadIfNeeded()
+                Task { await viewModel.promoteToLiveIfAtEnd(isNearEnd: nearEnd) }
             }, onPaginateBackward: {
                 guard !viewModel.isLoadingMore, !viewModel.hasReachedStart else { return }
                 Task { await viewModel.loadMoreHistory() }
             },
             onPaginateForward: {
                 guard !viewModel.isLoadingMore, !viewModel.hasReachedEnd else { return }
-                Task { await viewModel.loadMoreFuture() } },
+                Task {
+                    await viewModel.loadMoreFuture()
+                    await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
+                }
+            },
             onBottomMostVisibleMessageChanged: { rowID in
                 lastBottomRowId = rowID
                 guard let rowID,

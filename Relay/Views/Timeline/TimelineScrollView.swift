@@ -41,7 +41,9 @@ struct TimelineScrollView: View {
     let onBottomMostVisibleMessageChanged: (String?) -> Void
 
     @State private var isUserScrolling = false
-    @State private var isNearEndLatched = true
+    /// Last near-end value reported to the parent. Starts `false` so the first
+    /// geometry pass at the live edge always reports, whatever the parent seeded.
+    @State private var isNearEndLatched = false
     @State private var visibleRowIDs: Set<String> = []
     /// Reading position captured when backward pagination fires. Consumed by
     /// the geometry handler once the page lands (or discarded when the user

@@ -657,6 +657,25 @@ final class TimelineViewModel {
         return states
     }
 
+    /// Whether a focus window that has paged to the live edge should hand
+    /// over to the live timeline because the user is viewing its end.
+    nonisolated static func shouldPromoteToLive(
+        isFocused: Bool, focusReachedEnd: Bool, isNearEnd: Bool
+    ) -> Bool {
+        isFocused && focusReachedEnd && isNearEnd
+    }
+
+    /// Leave the focus window for the live timeline once the user has
+    /// scrolled to its end and no newer history remains.
+    func promoteToLiveIfAtEnd(isNearEnd: Bool) async {
+        let isFocused: Bool
+        if case .focused = window { isFocused = true } else { isFocused = false }
+        guard Self.shouldPromoteToLive(
+            isFocused: isFocused, focusReachedEnd: focusReachedEnd, isNearEnd: isNearEnd)
+        else { return }
+        await returnToLive()
+    }
+
     /// Return to the live timeline.
     func returnToLive() async {
         focused = nil
