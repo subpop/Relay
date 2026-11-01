@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import CryptoKit
 import Foundation
 import MatrixKit
 import MatrixKitCrypto
@@ -397,6 +398,8 @@ final class RelayClient {
     /// test calling `logout()` would otherwise wipe the real session.
     private let keychain: any KeyStore
     private var sessionPersistenceGeneration = UUID()
+    /// Tail of the serialized keychain saves (see `persistSession`).
+    private var lastPersist: Task<Void, any Error>?
     private var syncTask: Task<Void, Never>?
     /// Watchdog for silent sync-loop death (see `startSyncWatchLoop`).
     private var syncWatchTask: Task<Void, Never>?
@@ -3358,14 +3361,33 @@ final class RelayClient {
         }
     }
 
+    /// Write the session to the keychain. Saves run one at a time and
+    /// each reads its credentials only once the previous save has
+    /// finished, so concurrent rotations can never leave an older
+    /// token pair as the last write.
     private func persistSession(
         for client: MatrixClient, generation: UUID? = nil
     ) async throws {
+        let previous = lastPersist
+        let save = Task { @MainActor in
+            _ = try? await previous?.value
+            try await self.writeSession(for: client, generation: generation)
+        }
+        lastPersist = save
+        try await save.value
+    }
+
+    private func writeSession(
+        for client: MatrixClient, generation: UUID?
+    ) async throws {
         guard
             let userId = client.userId?.value,
-            let deviceId = client.deviceId?.value,
-            let accessToken = await client.session.accessToken.nilIfEmpty
+            let deviceId = client.deviceId?.value
         else {
+            throw RelayError.notLoggedIn
+        }
+        let credentials = await client.session.credentials
+        guard let accessToken = credentials.accessToken.nilIfEmpty else {
             throw RelayError.notLoggedIn
         }
         let stored = StoredSession(
@@ -3373,9 +3395,9 @@ final class RelayClient {
             userId: userId,
             deviceId: deviceId,
             accessToken: accessToken,
-            refreshToken: await client.session.refreshToken,
-            oidcClientId: await client.session.oidcClientId,
-            oidcTokenEndpoint: await client.session.oidcTokenEndpoint)
+            refreshToken: credentials.refreshToken,
+            oidcClientId: credentials.oidcClientId,
+            oidcTokenEndpoint: credentials.oidcTokenEndpoint)
         let data = try JSONEncoder().encode(stored)
         if let generation, generation != sessionPersistenceGeneration {
             throw CancellationError()
@@ -3384,6 +3406,16 @@ final class RelayClient {
             data,
             for: KeyStoreKey(
                 service: Self.sessionService, account: Self.sessionAccount))
+        relayClientLogger.debug(
+            "Session persisted refreshToken=\(Self.fingerprint(of: credentials.refreshToken), privacy: .public)")
+    }
+
+    /// Short, non-reversible tag identifying a token in logs, so a
+    /// rotation can be traced without exposing the secret.
+    private static func fingerprint(of token: String?) -> String {
+        guard let token else { return "none" }
+        return SHA256.hash(data: Data(token.utf8)).prefix(4)
+            .map { ($0 < 16 ? "0" : "") + String($0, radix: 16) }.joined()
     }
 
     // MARK: - Normalized store
