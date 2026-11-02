@@ -52,8 +52,9 @@ actor RoomIndexBuilder {
     }
 
     /// Rebuild every room snapshot. Bounded queries only: full-table
-    /// room/member/edge fetches (small tables) plus one newest-event and
-    /// one newest-message row per room — never a full event-history scan.
+    /// room/member/edge fetches (small tables) plus one newest-event row
+    /// and one bounded newest-message window per room — never a full
+    /// event-history scan.
     func rebuild() -> (
         joined: [RelayRoom], invited: [RelayRoom],
         spaceChildren: [RoomId: Set<RoomId>]
@@ -288,11 +289,14 @@ actor RoomIndexBuilder {
         return events.reactionEvent(target: target, key: key, sender: sender)
     }
 
-    /// Newest message-like event for list previews.
+    /// Newest non-redacted message-like event for list previews.
+    /// Redactions prune the target's content, so a redacted newest
+    /// message would render a blank preview; walk back over a bounded
+    /// window of trailing rows to the last non-redacted one instead.
     private func newestMessage(roomId: String) -> MessageEvent? {
         let decoder = JSONDecoder()
-        for row in newestRows(roomId: roomId, messageLikeOnly: true, limit: 1) {
-            if let event = row.messageEvent(decoder: decoder) {
+        for row in newestRows(roomId: roomId, messageLikeOnly: true, limit: 30) {
+            if let event = row.messageEvent(decoder: decoder), !event.isRedacted {
                 return event
             }
         }

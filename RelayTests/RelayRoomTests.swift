@@ -403,6 +403,92 @@ struct RelayRoomTests {
         #expect(built.memberDetails[UserId(unchecked: "@alice:example.com")]?.displayname == "Alice")
     }
 
+    @Test func builderPreviewFallsBackPastRedactedNewestMessage() async throws {
+        // Regression: redacting the newest message blanked the room-list
+        // preview (pruned content decodes as no message). The index must
+        // walk back to the last non-redacted message instead.
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let room = SDRoom(
+            roomId: "!test:example.com", membership: Membership.join.rawValue,
+            name: "Test")
+        context.insert(room)
+        let encoder = JSONEncoder()
+        let first = SDRoomEvent(
+            roomId: "!test:example.com", eventId: "$m1", ts: 1_000,
+            type: "m.room.message", sender: "@alice:example.com",
+            content: try encoder.encode([
+                "msgtype": AnyCodable.string("m.text"),
+                "body": AnyCodable.string("First"),
+            ]),
+            isMessageLike: true)
+        first.room = room
+        context.insert(first)
+        // Redacted target as the store persists it: content pruned to the
+        // keep-list (empty for messages) plus the `redacted_because` stamp.
+        let redacted = SDRoomEvent(
+            roomId: "!test:example.com", eventId: "$m2", ts: 2_000,
+            type: "m.room.message", sender: "@alice:example.com",
+            content: try encoder.encode([String: AnyCodable]()),
+            unsigned: try encoder.encode([
+                "redacted_because": AnyCodable.object([
+                    "type": .string("m.room.redaction"),
+                    "event_id": .string("$r1"),
+                    "sender": .string("@alice:example.com"),
+                    "redacts": .string("$m2"),
+                ]),
+            ]),
+            isMessageLike: true)
+        redacted.room = room
+        context.insert(redacted)
+        try context.save()
+
+        let builder = RoomIndexBuilder(
+            container: container, localUser: UserId(unchecked: "@me:example.com"))
+        let result = await builder.rebuild()
+        let built = try #require(result.joined.first)
+        // Preview, author, and timestamp revert to the older message;
+        // the newest stored event of any type is unchanged.
+        #expect(built.latestMessage?.eventId.value == "$m1")
+        #expect(built.newestEventId == "$m2")
+        let row = RoomRowData.from(room: built, isMuted: false)
+        #expect(row.lastMessage == "First")
+        #expect(row.lastMessageTimestamp == Date(timeIntervalSince1970: 1))
+    }
+
+    @Test func builderPreviewNilWhenEveryMessageRedacted() async throws {
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let room = SDRoom(
+            roomId: "!test:example.com", membership: Membership.join.rawValue,
+            name: "Test")
+        context.insert(room)
+        let encoder = JSONEncoder()
+        let redacted = SDRoomEvent(
+            roomId: "!test:example.com", eventId: "$m1", ts: 1_000,
+            type: "m.room.message", sender: "@alice:example.com",
+            content: try encoder.encode([String: AnyCodable]()),
+            unsigned: try encoder.encode([
+                "redacted_because": AnyCodable.object([
+                    "type": .string("m.room.redaction"),
+                    "event_id": .string("$r1"),
+                    "sender": .string("@alice:example.com"),
+                    "redacts": .string("$m1"),
+                ]),
+            ]),
+            isMessageLike: true)
+        redacted.room = room
+        context.insert(redacted)
+        try context.save()
+
+        let builder = RoomIndexBuilder(
+            container: container, localUser: UserId(unchecked: "@me:example.com"))
+        let result = await builder.rebuild()
+        let built = try #require(result.joined.first)
+        #expect(built.latestMessage == nil)
+        #expect(RoomRowData.from(room: built, isMuted: false).lastMessage == nil)
+    }
+
     @Test func memberDetailsBuildsFromStoredRows() async throws {
         let container = try MatrixStore.makeInMemory()
         let context = ModelContext(container)

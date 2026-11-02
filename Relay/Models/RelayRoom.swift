@@ -50,7 +50,8 @@ struct RelayRoom: Identifiable, Hashable, Sendable {
     var successorRoomId: String?
     var inviterId: UserId?
     var pinnedEventIds: [String] = []
-    /// Newest message-like event, for list previews and read markers.
+    /// Newest non-redacted message-like event, for list previews and read
+    /// markers.
     var latestMessage: MessageEvent?
     /// Newest stored event ID of any type, for optimistic-read checks.
     var newestEventId: String?
