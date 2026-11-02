@@ -53,6 +53,7 @@ struct ComposeTextView: NSViewRepresentable {
         // (NSTextLayoutManager). This enables TextKit 2 attachment rendering
         // for inline pill images.
         let textView = ComposeInputTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 22))
+        textView.writingToolsBehavior = .none
         textView.textContainer?.lineFragmentPadding = 4
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.size = NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
