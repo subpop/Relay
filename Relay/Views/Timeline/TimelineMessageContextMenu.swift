@@ -63,7 +63,9 @@ enum TimelineMessageContextMenu {
         if (permissions?.canPin ?? false) && message.eventId.value.hasPrefix("$") {
             result.append(.togglePin)
         }
-        if isOutgoing, canSendMessages, case .text = message.kind {
+        if isOutgoing, canSendMessages,
+           message.eventId.value.hasPrefix("$"), case .text = message.kind
+        {
             result.append(.edit)
         }
         if (isOutgoing || (permissions?.canRedactOther ?? false))
