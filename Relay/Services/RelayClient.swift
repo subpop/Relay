@@ -400,6 +400,13 @@ final class RelayClient {
     private var sessionPersistenceGeneration = UUID()
     /// Tail of the serialized keychain saves (see `persistSession`).
     private var lastPersist: Task<Void, any Error>?
+    /// True when the newest session persist failed and still owes the
+    /// keychain a write (see `schedulePersistRetry`).
+    private var isSessionPersistPending = false
+    /// Periodic retry loop for a failed session persist. Deliberately
+    /// not cancelled by `stopTasks()`: a pending persist must survive
+    /// session-task teardowns and self-terminates once it resolves.
+    private var persistRetryTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
     /// Watchdog for silent sync-loop death (see `startSyncWatchLoop`).
     private var syncWatchTask: Task<Void, Never>?
@@ -456,8 +463,8 @@ final class RelayClient {
     /// reconverges every badge. The flow's own `startSyncLoop()` is the
     /// backstop, so skipping early monitor starts loses nothing.
     private var didFinishStartupSync = false
-    /// Retained block observers (app lifecycle → crypto flush;
-    /// sync-mode preference changes).
+    /// Retained block observers (app lifecycle, protected-data
+    /// availability, sync-mode preference changes).
     private var lifecycleObservers: [NSObjectProtocol] = []
 
     init(keychain: any KeyStore = KeychainKeyStore()) {
@@ -473,6 +480,15 @@ final class RelayClient {
                         // writes so a quit inside the loss window
                         // cannot drop ratchet state.
                         _ = Task { await self?.flushCryptoState() }
+                    } },
+            // The session keychain item is `WhenUnlocked…`: land any
+            // pending session persist once protected data (the
+            // keychain) becomes available again after a lock.
+            NotificationCenter.default.addObserver(
+                forName: Notification.Name.NSApplicationProtectedDataDidBecomeAvailable, object: nil,
+                queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        _ = Task { await self?.retryPendingSessionPersist() }
                     } },
             // The Labs sliding-sync toggle writes UserDefaults directly;
             // restart the loop when the preference changes mid-session.
@@ -3310,6 +3326,10 @@ final class RelayClient {
                 relayClientLogger.info("System woke")
                 recordActivity("System woke")
                 scheduleSyncRestart(reason: "system wake")
+                // The keychain may have just become writable again
+                // (it locks with the screen); land any pending
+                // session persist.
+                await retryPendingSessionPersist()
             }
         }
     }
@@ -3359,18 +3379,60 @@ final class RelayClient {
     /// Persist the session, logging loudly on failure. A rotation that
     /// succeeds server-side but never reaches the keychain strands the
     /// next launch with a consumed refresh token, so these failures
-    /// must never be silent.
+    /// must never be silent — and never final: a failed persist stays
+    /// pending (see `schedulePersistRetry`) until a retry lands.
+    @discardableResult
     private func persistSessionLoudly(
         for client: MatrixClient, context: String, generation: UUID? = nil
-    ) async {
+    ) async -> Bool {
         do {
             try await persistSession(for: client, generation: generation)
+            isSessionPersistPending = false
+            return true
         } catch is CancellationError {
-            return
+            return false
         } catch {
             relayClientLogger.error(
                 "Session persist failed (\(context, privacy: .public)): \(error.localizedDescription, privacy: .public)")
             recordActivity("Session persist failed (\(context))")
+            isSessionPersistPending = true
+            schedulePersistRetry()
+            return false
+        }
+    }
+
+    /// Retry a pending session persist now (wake, screen unlock, or
+    /// the periodic retry loop). Returns true when nothing is pending,
+    /// so the retry loop can stop.
+    private func retryPendingSessionPersist() async -> Bool {
+        guard isSessionPersistPending, let client else {
+            isSessionPersistPending = false
+            return true
+        }
+        relayClientLogger.debug("Retrying pending session persist")
+        // Pin the current generation so a retry racing a login or
+        // logout transition cancels instead of writing a stale (or
+        // just-deleted) session back over the keychain.
+        return await persistSessionLoudly(
+            for: client, context: "persist retry",
+            generation: sessionPersistenceGeneration)
+    }
+
+    /// Keep retrying a failed session persist on a fixed cadence until
+    /// one lands — typically once the keychain becomes writable again
+    /// (Mac awake, screen unlocked). Self-terminates when the persist
+    /// resolves or the client is gone, so `stopTasks()` deliberately
+    /// leaves it alone: a pending persist must survive session-task
+    /// teardowns (e.g. the remote-signout freeze).
+    private func schedulePersistRetry() {
+        guard persistRetryTask == nil else { return }
+        persistRetryTask = Task { [weak self] in
+            defer { self?.persistRetryTask = nil }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self else { return }
+                if await self.retryPendingSessionPersist() { return }
+            }
         }
     }
 
