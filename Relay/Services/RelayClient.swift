@@ -478,8 +478,12 @@ final class RelayClient {
                         relayClientLogger.debug("App will terminate")
                         // Best effort: settle any debounced crypto
                         // writes so a quit inside the loss window
-                        // cannot drop ratchet state.
-                        _ = Task { await self?.flushCryptoState() }
+                        // cannot drop ratchet state, and land any
+                        // session persist still owed to the keychain.
+                        _ = Task {
+                            await self?.persistSessionAtTermination()
+                            await self?.flushCryptoState()
+                        }
                     } },
             // The session keychain item is `WhenUnlocked…`: land any
             // pending session persist once protected data (the
@@ -3771,6 +3775,14 @@ final class RelayClient {
         roomRevisions = [:]
         typingRevisions = [:]
         spaceChildIds = [:]
+    }
+
+    /// Land any still-pending session persist before the process goes
+    /// away — a rotation whose keychain write failed may not have been
+    /// retried yet. Best-effort, like the crypto flush below.
+    private func persistSessionAtTermination() async {
+        guard let client else { return }
+        await persistSessionLoudly(for: client, context: "terminate")
     }
 
     /// Settle any debounced crypto-state writes immediately.
