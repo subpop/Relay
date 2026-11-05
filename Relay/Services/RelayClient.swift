@@ -468,6 +468,7 @@ final class RelayClient {
                 forName: NSApplication.willTerminateNotification, object: nil,
                 queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
+                        relayClientLogger.debug("App will terminate")
                         // Best effort: settle any debounced crypto
                         // writes so a quit inside the loss window
                         // cannot drop ratchet state.
@@ -529,6 +530,8 @@ final class RelayClient {
             authState = .loggedOut
             return
         }
+        relayClientLogger.debug(
+            "Session loaded refreshToken=\(Self.fingerprint(of: stored.refreshToken), privacy: .public)")
         let deviceId = DeviceId(stored.deviceId)
         let client = await MatrixClient.restore(
             homeserver: homeserver,
@@ -2893,14 +2896,20 @@ final class RelayClient {
         // retry. Persist here as well as in the scheduled refresh path below.
         await client.transport.setTokenRefresher { [weak self, weak client] in
             guard let client else { return nil }
+            let starting = await client.session.credentials
+            let startingFingerprint = await Self.fingerprint(of: starting.refreshToken)
+            relayClientLogger.debug(
+                "Reactive token refresh starting refreshToken=\(startingFingerprint, privacy: .public)")
             do {
                 try await client.auth.refresh()
                 if let self {
                     await self.persistRefreshedSession(for: client, generation: generation)
                 }
             } catch {
+                let rejected = await client.session.credentials
+                let rejectedFingerprint = await Self.fingerprint(of: rejected.refreshToken)
                 relayClientLogger.warning(
-                    "Automatic session token refresh failed: \(error.localizedDescription, privacy: .public)")
+                    "Automatic session token refresh failed refreshToken=\(rejectedFingerprint, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
             let token = await client.session.accessToken
             return token.isEmpty ? nil : token
@@ -2984,13 +2993,17 @@ final class RelayClient {
 
     private func refreshSessionTokens() async {
         guard let client else { return }
+        let starting = await client.session.credentials
+        relayClientLogger.debug(
+            "Scheduled token refresh starting refreshToken=\(Self.fingerprint(of: starting.refreshToken), privacy: .public)")
         do {
             try await client.auth.refresh()
             await persistSessionLoudly(for: client, context: "token refresh")
             relayClientLogger.debug("Session tokens refreshed")
         } catch {
+            let rejected = await client.session.credentials
             relayClientLogger.warning(
-                "Session token refresh failed: \(error.localizedDescription, privacy: .public)")
+                "Session token refresh failed refreshToken=\(Self.fingerprint(of: rejected.refreshToken), privacy: .public): \(error.localizedDescription, privacy: .public)")
             recordActivity("Session token refresh failed")
             if Self.isSessionInvalidation(error) {
                 // The refresh token is dead; the access token may still
