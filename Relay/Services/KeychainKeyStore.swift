@@ -23,8 +23,19 @@ import Security
 /// Keys map straight onto keychain (`service`, `account`) identity, in the
 /// app's access group so the share extension could read them if needed.
 struct KeychainKeyStore: KeyStore {
-    enum KeychainError: Error {
+    /// Names the failing `OSStatus` (e.g. `errSecInteractionNotAllowed`,
+    /// -25308) so keychain-unavailable failures are diagnosable in logs.
+    nonisolated enum KeychainError: LocalizedError {
         case saveFailed(OSStatus)
+
+        var errorDescription: String? {
+            guard case .saveFailed(let status) = self else { return nil }
+            var detail = ""
+            if let message = SecCopyErrorMessageString(status, nil) {
+                detail = message as String
+            }
+            return "Keychain save failed (OSStatus \(status)): \(detail)"
+        }
     }
 
     private static var servicePrefix: String {

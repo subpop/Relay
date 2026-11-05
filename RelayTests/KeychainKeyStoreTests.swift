@@ -75,4 +75,10 @@ struct KeychainKeyStoreTests {
         try await store.delete(key)
         #expect(try await store.load(key) == nil)
     }
+
+    @Test func saveFailedErrorNamesOSStatus() {
+        let description = KeychainKeyStore.KeychainError
+            .saveFailed(errSecInteractionNotAllowed).localizedDescription
+        #expect(description.contains("OSStatus -25308"))
+    }
 }
