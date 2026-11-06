@@ -247,6 +247,11 @@ final class RelayClient {
         var refreshToken: String?
         var oidcClientId: String?
         var oidcTokenEndpoint: String?
+        /// Absolute access-token expiry, so the first post-restore
+        /// refresh schedules from the token's real remaining lifetime
+        /// instead of the default cadence. Absent in blobs persisted
+        /// before this field existed.
+        var expiresAt: Date?
     }
 
     private static let sessionService = "session"
@@ -561,6 +566,7 @@ final class RelayClient {
             refreshToken: stored.refreshToken,
             oidcClientId: stored.oidcClientId,
             oidcTokenEndpoint: stored.oidcTokenEndpoint,
+            expiresAt: stored.expiresAt,
             keystore: keychain)
         await installTokenRefresher(on: client, generation: generation)
         // The stored MXID may differ from the server-assigned one (e.g.
@@ -2814,7 +2820,9 @@ final class RelayClient {
     /// Whether `error` is a dead or absent access token
     /// (`M_UNKNOWN_TOKEN`). MatrixKit surfaces this from any
     /// authenticated call: sync, token refresh, and one-shot fetches.
-    static func isSessionInvalidation(_ error: Error) -> Bool {
+    /// Nonisolated: also consulted from the `@Sendable` token
+    /// refresher installed on the transport.
+    nonisolated static func isSessionInvalidation(_ error: Error) -> Bool {
         guard let matrixError = error as? MatrixError else { return false }
         if case .unknownToken = matrixError { return true }
         return false
@@ -2915,7 +2923,7 @@ final class RelayClient {
         // MatrixKit invokes this on an authenticated request's unknown-token
         // retry. Persist here as well as in the scheduled refresh path below.
         await client.transport.setTokenRefresher { [weak self, weak client] in
-            guard let client else { return nil }
+            guard let client else { return .rejected }
             let starting = await client.session.credentials
             let startingFingerprint = await Self.fingerprint(of: starting.refreshToken)
             relayClientLogger.debug(
@@ -2930,9 +2938,13 @@ final class RelayClient {
                 let rejectedFingerprint = await Self.fingerprint(of: rejected.refreshToken)
                 relayClientLogger.warning(
                     "Automatic session token refresh failed refreshToken=\(rejectedFingerprint, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                // A rejected refresh token is dead server-side: report it so
+                // the transport fails fast instead of re-attempting. Anything
+                // else (e.g. a network failure) may recover on a later pass.
+                return Self.isSessionInvalidation(error) ? .rejected : .transient
             }
             let token = await client.session.accessToken
-            return token.isEmpty ? nil : token
+            return token.isEmpty ? .rejected : .refreshed(token)
         }
     }
 
@@ -2983,12 +2995,14 @@ final class RelayClient {
         }
     }
 
-    /// Proactively rotate tokens at two-thirds of their advertised
+    /// Proactively rotate tokens at two-thirds of the token's remaining
     /// lifetime and persist the rotation, so expiry never surfaces as a
-    /// sync failure. Unknown lifetimes (restored sessions) recheck every
-    /// minute. Transport-level retry covers races in between. Sessions
-    /// without a refresh token (servers that issue non-expiring access
-    /// tokens) have nothing to rotate, so no loop runs.
+    /// sync failure. Restored sessions carry their expiry (persisted as
+    /// an absolute date, since the advertised lifetime goes stale while
+    /// the app is quit); unknown lifetimes recheck every minute.
+    /// Transport-level retry covers races in between. Sessions without
+    /// a refresh token (servers that issue non-expiring access tokens)
+    /// have nothing to rotate, so no loop runs.
     private func scheduleTokenRefresh() {
         refreshTask?.cancel()
         refreshTask = Task {
@@ -3004,11 +3018,11 @@ final class RelayClient {
     private func tokenRefreshDelay() async -> Double {
         guard
             let client,
-            let ms = await client.session.expiresInMs, ms > 0
+            let expiresAt = await client.session.expiresAt
         else {
             return 60
         }
-        return max(60, Double(ms) / 1000 * 2 / 3)
+        return max(60, expiresAt.timeIntervalSinceNow * 2 / 3)
     }
 
     private func refreshSessionTokens() async {
@@ -3476,7 +3490,8 @@ final class RelayClient {
             accessToken: accessToken,
             refreshToken: credentials.refreshToken,
             oidcClientId: credentials.oidcClientId,
-            oidcTokenEndpoint: credentials.oidcTokenEndpoint)
+            oidcTokenEndpoint: credentials.oidcTokenEndpoint,
+            expiresAt: credentials.expiresAt)
         let data = try JSONEncoder().encode(stored)
         if let generation, generation != sessionPersistenceGeneration {
             throw CancellationError()
