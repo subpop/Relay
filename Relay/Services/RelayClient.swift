@@ -316,6 +316,9 @@ final class RelayClient {
         cachedInvitedRooms
     }
 
+    /// Number of older events to fetch after accepting an invite.
+    private static let inviteHistoryBackfillLimit = 50
+
     /// Whether the Labs sliding-sync experiment is enabled.
     var isSlidingSyncEnabled: Bool {
         UserDefaults.standard.bool(forKey: Self.slidingSyncLabsKey)
@@ -374,6 +377,10 @@ final class RelayClient {
     private var spaceChildIds: [RoomId: Set<RoomId>] = [:]
     /// Pending-invite snapshots, rebuilt alongside `cachedRooms`.
     private var cachedInvitedRooms: [RelayRoom] = []
+    /// Accepted invites awaiting their first joined sync history page.
+    @ObservationIgnored private var pendingInviteHistoryBackfills: Set<String> = []
+    /// In-flight one-page history fetches, keyed by room ID.
+    @ObservationIgnored private var inviteHistoryBackfillTasks: [String: Task<Void, Never>] = [:]
     /// Background builder for the cached snapshots. Owns the only
     /// off-main `ModelContext`, so room-list rebuilds never touch the
     /// main thread. Recreated per session in `openStore(for:)`.
@@ -682,6 +689,11 @@ final class RelayClient {
         cachedInvitedRooms = []
         roomRevisions = [:]
         typingRevisions = [:]
+        pendingInviteHistoryBackfills = []
+        for task in inviteHistoryBackfillTasks.values {
+            task.cancel()
+        }
+        inviteHistoryBackfillTasks = [:]
         await typingTracker.setLocalUser(nil)
         spaceChildIds = [:]
         roomIndex = nil
@@ -778,7 +790,13 @@ final class RelayClient {
             else { return false }
             return invited.memberDetails[localUser]?.isDirect == true
         }()
-        try await client.rooms.join(RoomId(unchecked: roomId))
+        pendingInviteHistoryBackfills.insert(roomId)
+        do {
+            try await client.rooms.join(RoomId(unchecked: roomId))
+        } catch {
+            pendingInviteHistoryBackfills.remove(roomId)
+            throw error
+        }
         if directInvite, let userId = client.userId {
             do {
                 try await client.accountData.setDirectRoom(
@@ -3132,6 +3150,12 @@ final class RelayClient {
         for roomId in delta.joined.keys {
             roomRevisions[roomId.value, default: 0] += 1
         }
+        for (roomId, joined) in delta.joined
+        where pendingInviteHistoryBackfills.contains(roomId.value)
+        {
+            guard let prevBatch = joined.prevBatch else { continue }
+            startInviteHistoryBackfill(roomId: roomId, from: prevBatch)
+        }
         for roomId in delta.invited.keys {
             roomRevisions[roomId.value, default: 0] += 1
         }
@@ -3176,6 +3200,38 @@ final class RelayClient {
     private func updateTyping(from delta: SyncDelta) async {
         for roomId in await typingTracker.update(from: delta) {
             typingRevisions[roomId.value, default: 0] += 1
+        }
+    }
+
+    /// Fetch one page before the first joined sync window for a room the
+    /// user accepted an invite to. The stored cursor remains available
+    /// for ordinary, on-demand timeline pagination afterwards.
+    private func startInviteHistoryBackfill(roomId: RoomId, from cursor: BatchToken) {
+        let roomKey = roomId.value
+        guard inviteHistoryBackfillTasks[roomKey] == nil,
+              let client,
+              let writer = storeWriter
+        else { return }
+        let messages = client.messages
+        inviteHistoryBackfillTasks[roomKey] = Task { [weak self] in
+            guard let self else { return }
+            defer { self.inviteHistoryBackfillTasks[roomKey] = nil }
+            do {
+                let page = try await messages.paginate(
+                    roomId, from: cursor, limit: Self.inviteHistoryBackfillLimit)
+                guard !Task.isCancelled else { return }
+                try await writer.prependHistory(
+                    page.chunk, roomId: roomId,
+                    prevBatch: page.end.map { BatchToken($0) })
+                guard !Task.isCancelled, self.storeWriter === writer else { return }
+                self.pendingInviteHistoryBackfills.remove(roomKey)
+                self.roomRevisions[roomKey, default: 0] += 1
+                self.scheduleRoomCacheRebuild()
+            } catch {
+                guard !Task.isCancelled else { return }
+                relayClientLogger.debug(
+                    "Invite history backfill failed room=\(roomKey, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
