@@ -239,7 +239,7 @@ struct SpaceDetailView: View {
                     Label("\(memberCount)", systemImage: "person.2")
                 }
                 if let childCount = viewModel?.directChildren.count, childCount > 0 {
-                    Label("\(childCount) rooms", systemImage: "number")
+                    Label("\(childCount) room", systemImage: "number")
                 }
             }
             .font(.caption)

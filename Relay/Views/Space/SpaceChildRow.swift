@@ -58,7 +58,7 @@ struct SpaceChildRow: View {
     private var subtitle: some View {
         Group {
             if child.roomType == .space, child.childrenCount > 0 {
-                Text("\(child.childrenCount) rooms")
+                Text("\(child.childrenCount) room")
             } else if let topic = child.topic, !topic.isEmpty {
                 Text(topic)
             } else if let alias = child.canonicalAlias {
