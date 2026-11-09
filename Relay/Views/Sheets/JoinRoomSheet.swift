@@ -67,8 +67,16 @@ struct JoinRoomSheet: View {
 
             Spacer()
 
-            Button("Join") {
+            Button {
                 joinRoom()
+            } label: {
+                HStack {
+                    if isJoining {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(isJoining ? "Joining…" : "Join")
+                }
             }
             .keyboardShortcut(.defaultAction)
             .disabled(!isValid || isJoining)
@@ -108,15 +116,8 @@ struct JoinRoomSheet: View {
 
         Task {
             do {
-                try await client.joinRoom(idOrAlias: identifier)
-
-                // Wait briefly for the room list to sync.
-                try? await Task.sleep(for: .milliseconds(500))
-                if let joined = client.rooms.first(where: {
-                    $0.roomId.value == identifier || $0.canonicalAlias == identifier
-                }) {
-                    selectedRoomId = joined.roomId.value
-                }
+                let joined = try await client.joinRoom(idOrAlias: identifier)
+                selectedRoomId = joined.value
                 dismiss()
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
