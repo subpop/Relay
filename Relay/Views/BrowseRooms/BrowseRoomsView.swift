@@ -249,24 +249,29 @@ struct BrowseRoomsView: View {
     // MARK: - Join
 
     private func joinRoom(_ room: PublicRoomEntry) {
-        joinRoom(idOrAlias: room.canonicalAlias ?? room.roomId.value, joiningId: room.roomId.value)
+        joinRoom(
+            idOrAlias: room.canonicalAlias ?? room.roomId.value,
+            joiningId: room.roomId.value,
+            name: room.name,
+            topic: room.topic,
+            avatarURL: room.avatarUrl.flatMap { try? MXCURI($0) },
+            canonicalAlias: room.canonicalAlias)
     }
 
-    private func joinRoom(idOrAlias: String, joiningId: String? = nil) {
+    private func joinRoom(
+        idOrAlias: String, joiningId: String? = nil, name: String? = nil,
+        topic: String? = nil, avatarURL: MXCURI? = nil, canonicalAlias: String? = nil
+    ) {
         guard !isJoining else { return }
         isJoining = true
         joiningRoomId = joiningId
 
         Task {
             do {
-                try await client.joinRoom(idOrAlias: idOrAlias)
-
-                try? await Task.sleep(for: .milliseconds(500))
-                if let joined = client.rooms.first(where: {
-                    $0.roomId.value == idOrAlias || $0.canonicalAlias == idOrAlias
-                }) {
-                    selectedRoomId = joined.roomId.value
-                }
+                let joined = try await client.joinRoom(
+                    idOrAlias: idOrAlias, name: name, topic: topic,
+                    avatarURL: avatarURL, canonicalAlias: canonicalAlias)
+                selectedRoomId = joined.value
                 dismiss()
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
