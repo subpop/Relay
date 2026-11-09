@@ -63,22 +63,34 @@ struct RoomListRow: View {
     }
 
     private var compactBody: some View {
-        AvatarView(name: room.name, mxcURL: room.avatarURL, size: 60)
-            .badge(at: .topTrailing) {
-                avatarStatusBadge
+        Group {
+            if room.isPendingJoin {
+                ProgressView()
+                    .frame(width: 60, height: 60)
+            } else {
+                AvatarView(name: room.name, mxcURL: room.avatarURL, size: 60)
+                    .badge(at: .topTrailing) {
+                        avatarStatusBadge
+                    }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .opacity(room.isArchived ? 0.5 : 1)
-            .help(room.name)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+        .opacity(room.isArchived ? 0.5 : 1)
+        .help(room.name)
     }
 
     private var fullBody: some View {
         HStack(spacing: 10) {
-            AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
-                .badge(at: .topTrailing) {
-                    avatarStatusBadge
-                }
+            if room.isPendingJoin {
+                ProgressView()
+                    .frame(width: 48, height: 48)
+            } else {
+                AvatarView(name: room.name, mxcURL: room.avatarURL, size: 48)
+                    .badge(at: .topTrailing) {
+                        avatarStatusBadge
+                    }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -119,9 +131,8 @@ struct RoomListRow: View {
         .opacity(room.isArchived ? 0.5 : 1)
     }
 
-    /// The avatar's top-trailing badge: a mute icon when the room is
-    /// muted, plus the compact row's unread dot, since a narrow row has
-    /// no trailing edge to carry the indicator.
+    /// The avatar's top-trailing badge: mute state or the compact row's
+    /// unread dot.
     @ViewBuilder
     private var avatarStatusBadge: some View {
         if room.isMuted {

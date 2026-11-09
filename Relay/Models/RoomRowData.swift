@@ -37,6 +37,7 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
     var isFavourite: Bool = false
     var isSpace: Bool = false
     var isArchived: Bool = false
+    var isPendingJoin: Bool = false
 
     /// Unread activity that specifically needs attention: a mention, `@room`
     /// ping, or keyword highlight, or any notification in a DM.
@@ -69,7 +70,8 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
             isMuted: isMuted,
             isFavourite: room.isFavourite,
             isSpace: room.isSpace,
-            isArchived: room.successorRoomId != nil)
+            isArchived: room.successorRoomId != nil,
+            isPendingJoin: room.isPendingJoin)
     }
 
     /// Room-list preview for the newest event: message bodies via msgtype,

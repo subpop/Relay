@@ -33,6 +33,7 @@ struct RelayRoom: Identifiable, Hashable, Sendable {
     var canonicalAlias: String?
     var altAliases: [String] = []
     var membership: Membership = .join
+    var isPendingJoin = false
     /// Display unread count: the writer-precomputed effective (client-
     /// estimated) unread, matching the old live `unreadCount` semantics.
     var unreadCount = 0

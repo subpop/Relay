@@ -301,9 +301,14 @@ final class RelayClient {
     /// Cached highlight keywords from push rules (fed to timelines).
     var notificationKeywords: [String] = []
 
-    /// Joined rooms (store-backed snapshots, rebuilt after sync).
+    /// Joined rooms, including accepted joins not yet present in sync storage.
     var rooms: [RelayRoom] {
-        cachedRooms
+        guard !pendingJoinedRooms.isEmpty else { return cachedRooms }
+        let cachedRoomIds = Set(cachedRooms.map(\.id))
+        let pendingOnly = pendingJoinedRooms.values.filter {
+            !cachedRoomIds.contains($0.id)
+        }
+        return Array(pendingOnly) + cachedRooms.map(mergedPendingJoin)
     }
 
     /// Joined top-level spaces for the space rail.
@@ -371,6 +376,10 @@ final class RelayClient {
     /// delta (see `scheduleRoomCacheRebuild()`); `@Observable`
     /// invalidation refreshes readers when it is reassigned.
     private var cachedRooms: [RelayRoom] = []
+    /// Server-accepted joins shown immediately until sync persists them.
+    private var pendingJoinedRooms: [String: RelayRoom] = [:]
+    /// Joined sync deltas not yet reflected in the room index.
+    private var syncJoinedRoomIds: Set<String> = []
     /// Parent-to-children space map driving hierarchy filters (room
     /// list, search). Built off-main alongside the room snapshots;
     /// read-only on the main actor thereafter.
@@ -686,6 +695,8 @@ final class RelayClient {
         notificationModeCache = [:]
         notificationKeywords = []
         cachedRooms = []
+        pendingJoinedRooms = [:]
+        syncJoinedRoomIds = []
         cachedInvitedRooms = []
         roomRevisions = [:]
         typingRevisions = [:]
@@ -809,9 +820,15 @@ final class RelayClient {
     }
 
     /// Join a room by ID (e.g. an upgrade successor).
-    func joinRoom(roomId: String) async throws {
-        guard let client else { return }
-        try await client.rooms.join(RoomId(unchecked: roomId))
+    @discardableResult
+    func joinRoom(
+        roomId: String, name: String? = nil, topic: String? = nil,
+        avatarURL: MXCURI? = nil, canonicalAlias: String? = nil,
+        isSpace: Bool = false
+    ) async throws -> RoomId {
+        try await joinRoom(
+            idOrAlias: roomId, name: name, topic: topic, avatarURL: avatarURL,
+            canonicalAlias: canonicalAlias, isSpace: isSpace)
     }
 
     /// Decline a pending invitation.
@@ -824,6 +841,8 @@ final class RelayClient {
     func leaveRoom(id: String) async throws {
         guard let client else { return }
         try await client.rooms.leave(RoomId(unchecked: id))
+        pendingJoinedRooms[id] = nil
+        syncJoinedRoomIds.remove(id)
     }
 
     /// Pin or unpin a room (`m.favourite` tag).
@@ -2052,13 +2071,61 @@ final class RelayClient {
     }
 
     /// Join a room by ID or alias.
-    func joinRoom(idOrAlias: String) async throws {
-        guard let client else { return }
+    @discardableResult
+    func joinRoom(
+        idOrAlias: String, name: String? = nil, topic: String? = nil,
+        avatarURL: MXCURI? = nil, canonicalAlias: String? = nil,
+        isSpace: Bool = false
+    ) async throws -> RoomId {
+        guard let client else { throw MatrixError.notAuthenticated }
+        let roomId: RoomId
         if idOrAlias.hasPrefix("!") {
-            try await client.rooms.join(RoomId(unchecked: idOrAlias))
+            roomId = try await client.joinRoom(RoomId(unchecked: idOrAlias))
         } else {
-            _ = try await client.rooms.join(RoomAlias(unchecked: idOrAlias))
+            roomId = try await client.joinRoom(RoomAlias(unchecked: idOrAlias))
         }
+        publishPendingJoinedRoom(
+            roomId, name: name, topic: topic, avatarURL: avatarURL,
+            canonicalAlias: canonicalAlias ?? (idOrAlias.hasPrefix("#") ? idOrAlias : nil),
+            isSpace: isSpace)
+        if usingSlidingSync {
+            let requiredState = SlidingSyncClient.defaultLists["main"]?.requiredState
+            await client.slidingSync.subscribe(roomId, requiredState: requiredState)
+        }
+        return roomId
+    }
+
+    private func publishPendingJoinedRoom(
+        _ roomId: RoomId, name: String? = nil, topic: String? = nil,
+        avatarURL: MXCURI? = nil, canonicalAlias: String? = nil,
+        isSpace: Bool = false
+    ) {
+        guard !cachedRooms.contains(where: { $0.roomId == roomId }) else { return }
+        var room = RelayRoom(
+            roomId: roomId,
+            displayName: name ?? canonicalAlias ?? roomId.value)
+        room.name = name
+        room.topic = topic
+        room.avatarURL = avatarURL
+        room.canonicalAlias = canonicalAlias
+        room.isSpace = isSpace
+        room.isPendingJoin = true
+        pendingJoinedRooms[roomId.value] = room
+    }
+
+    private func mergedPendingJoin(_ room: RelayRoom) -> RelayRoom {
+        guard let pending = pendingJoinedRooms[room.id] else { return room }
+        var room = room
+        if room.name == nil { room.name = pending.name }
+        if room.topic == nil { room.topic = pending.topic }
+        if room.avatarURL == nil { room.avatarURL = pending.avatarURL }
+        if room.canonicalAlias == nil { room.canonicalAlias = pending.canonicalAlias }
+        if room.displayName == room.roomId.value {
+            room.displayName = pending.displayName
+        }
+        room.isSpace = room.isSpace || pending.isSpace
+        room.isPendingJoin = true
+        return room
     }
 
     /// The image behind a custom emoticon in message text, as a scaled
@@ -2751,7 +2818,7 @@ final class RelayClient {
                 if useSliding {
                     try await client.startSlidingSync()
                 } else {
-                    try await client.startSync()
+                    try await client.startSync(filter: .leanInitial)
                 }
             } catch {
                 if Self.isSessionInvalidation(error) {
@@ -3146,8 +3213,8 @@ final class RelayClient {
         syncStats.record(delta: delta)
         // The writer persisted this delta before fanning it out, so the
         // cache rebuild below observes it. Revision bumps wake timelines.
-        scheduleRoomCacheRebuild()
         for roomId in delta.joined.keys {
+            syncJoinedRoomIds.insert(roomId.value)
             roomRevisions[roomId.value, default: 0] += 1
         }
         for (roomId, joined) in delta.joined
@@ -3160,8 +3227,11 @@ final class RelayClient {
             roomRevisions[roomId.value, default: 0] += 1
         }
         for roomId in delta.left.keys {
+            pendingJoinedRooms[roomId.value] = nil
+            syncJoinedRoomIds.remove(roomId.value)
             roomRevisions[roomId.value, default: 0] += 1
         }
+        scheduleRoomCacheRebuild()
         await updateTyping(from: delta)
         guard let client, let myId = client.userId else { return }
         logMembershipTransitions(delta)
@@ -3623,6 +3693,8 @@ final class RelayClient {
     private func scheduleRoomCacheRebuild() -> Task<Void, Never> {
         guard roomIndex != nil else {
             cachedRooms = []
+            pendingJoinedRooms = [:]
+            syncJoinedRoomIds = []
             cachedInvitedRooms = []
             return Task {}
         }
@@ -3635,6 +3707,12 @@ final class RelayClient {
                 roomRebuildRequested = false
                 if let index = roomIndex {
                     let result = await index.rebuild()
+                    let joinedRoomIds = Set(result.joined.map(\.id))
+                    let syncedPendingIds = syncJoinedRoomIds.intersection(joinedRoomIds)
+                    for roomId in syncedPendingIds {
+                        pendingJoinedRooms[roomId] = nil
+                    }
+                    syncJoinedRoomIds.subtract(syncedPendingIds)
                     // Sorting value snapshots is main-thread-cheap; the
                     // store I/O and decoding already happened off-thread.
                     cachedRooms = result.joined.sorted {
@@ -3748,7 +3826,7 @@ final class RelayClient {
 
     /// Cached snapshot for a room, if known.
     func storedRoom(_ roomId: RoomId) -> RelayRoom? {
-        cachedRooms.first(where: { $0.roomId == roomId })
+        rooms.first(where: { $0.roomId == roomId })
             ?? cachedInvitedRooms.first(where: { $0.roomId == roomId })
     }
 
@@ -3842,6 +3920,8 @@ final class RelayClient {
         storeReader = nil
         imagePackRefreshedRooms = []
         cachedRooms = []
+        pendingJoinedRooms = [:]
+        syncJoinedRoomIds = []
         cachedInvitedRooms = []
         roomRevisions = [:]
         typingRevisions = [:]

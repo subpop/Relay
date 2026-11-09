@@ -548,6 +548,9 @@ extension RoomListView {
     /// whenever timestamped and untimestamped rooms mix.
     private var roomComparator: (RoomRowData, RoomRowData) -> Bool {
         { lhs, rhs in
+            if lhs.isPendingJoin != rhs.isPendingJoin {
+                return lhs.isPendingJoin
+            }
             switch sortOrder {
             case .lastMessage:
                 switch (lhs.lastMessageTimestamp, rhs.lastMessageTimestamp) {
