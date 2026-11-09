@@ -163,11 +163,8 @@ struct TimelineBottomBar: View {
                 Task {
                     defer { isJoiningSuccessor = false }
                     do {
-                        try await client.joinRoom(roomId: successorRoomId)
-                        // Wait briefly for the room list to sync so the
-                        // successor appears in the sidebar before we navigate.
-                        try? await Task.sleep(for: .milliseconds(500))
-                        onRoomTap?(successorRoomId)
+                        let joined = try await client.joinRoom(roomId: successorRoomId)
+                        onRoomTap?(joined.value)
                     } catch {
                         errorReporter.report(.roomJoinFailed(error.localizedDescription))
                     }
