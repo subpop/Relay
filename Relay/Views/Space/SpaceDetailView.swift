@@ -44,6 +44,7 @@ struct SpaceDetailView: View {
     @State private var showAddRoomSheet = false
     @State private var childToRemove: SpaceChild?
     @State private var showCreateSubSpaceSheet = false
+    @State private var joiningRoomId: String?
 
     /// The space ID currently being displayed (last in path, or root).
     private var currentSpaceId: String {
@@ -107,6 +108,7 @@ struct SpaceDetailView: View {
                     ForEach(viewModel.directChildren) { child in
                         SpaceChildRow(
                             child: child,
+                            isJoining: joiningRoomId == child.roomId.value,
                             onJoin: !child.isJoined ? { joinChild(child, viewModel: viewModel) } : nil,
                             onTap: { handleChildTap(child) }
                         )
@@ -260,12 +262,23 @@ struct SpaceDetailView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     } else {
-                        Button("Join Space", systemImage: "plus.circle") {
+                        Button {
                             joinCurrentSpace()
+                        } label: {
+                            HStack {
+                                if joiningRoomId == currentSpaceId {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "plus.circle")
+                                }
+                                Text(joiningRoomId == currentSpaceId ? "Joining…" : "Join Space")
+                            }
                         }
                         .buttonStyle(.bordered)
                         .tint(.accentColor)
                         .controlSize(.small)
+                        .disabled(joiningRoomId != nil)
                     }
                 }
                 .padding(.top, 4)
@@ -315,10 +328,18 @@ struct SpaceDetailView: View {
     // MARK: - Actions
 
     private func joinCurrentSpace() {
-        guard let viewModel else { return }
+        guard let viewModel, joiningRoomId == nil else { return }
+        let roomId = currentSpaceId
+        joiningRoomId = roomId
         Task {
+            defer { joiningRoomId = nil }
             do {
-                try await viewModel.joinRoom(roomId: currentSpaceId)
+                _ = try await viewModel.joinRoom(
+                    roomId: roomId, name: viewModel.spaceName,
+                    topic: viewModel.spaceTopic,
+                    avatarURL: viewModel.spaceAvatarURL.flatMap { try? MXCURI($0) },
+                    isSpace: true)
+                viewModel.isJoined = true
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
             }
@@ -368,15 +389,20 @@ struct SpaceDetailView: View {
     }
 
     private func joinChild(_ child: SpaceChild, viewModel: SpaceHierarchyViewModel) {
+        guard joiningRoomId == nil else { return }
+        joiningRoomId = child.roomId.value
         Task {
+            defer { joiningRoomId = nil }
             do {
-                try await viewModel.joinRoom(roomId: child.roomId.value)
-                try? await Task.sleep(for: .milliseconds(500))
+                let joinedRoomId = try await viewModel.joinRoom(
+                    roomId: child.roomId.value, name: child.name, topic: child.topic,
+                    avatarURL: child.avatarURL, canonicalAlias: child.canonicalAlias,
+                    isSpace: child.roomType == .space)
                 if child.roomType == .space {
                     // Browse into the newly joined sub-space
-                    path.append(SpaceBreadcrumb(spaceId: child.roomId.value, name: child.name))
+                    path.append(SpaceBreadcrumb(spaceId: joinedRoomId.value, name: child.name))
                 } else {
-                    selectedRoomId = child.roomId.value
+                    selectedRoomId = joinedRoomId.value
                 }
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
@@ -415,4 +441,3 @@ struct SpaceDetailView: View {
     .environment(PreviewFixtures.previewClient())
     .frame(width: 600, height: 600)
 }
-

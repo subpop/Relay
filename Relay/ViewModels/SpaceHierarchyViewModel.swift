@@ -343,8 +343,14 @@ final class SpaceHierarchyViewModel {
     }
 
     /// Join a room or sub-space by ID.
-    func joinRoom(roomId: String) async throws {
-        try await client.joinRoom(idOrAlias: roomId)
+    func joinRoom(
+        roomId: String, name: String? = nil, topic: String? = nil,
+        avatarURL: MXCURI? = nil, canonicalAlias: String? = nil,
+        isSpace: Bool = false
+    ) async throws -> RoomId {
+        try await client.joinRoom(
+            idOrAlias: roomId, name: name, topic: topic, avatarURL: avatarURL,
+            canonicalAlias: canonicalAlias, isSpace: isSpace)
     }
 
     private func refreshMetadata() async {

@@ -19,6 +19,7 @@ import SwiftUI
 /// with an avatar, name, subtitle, and a trailing chevron or join button.
 struct SpaceChildRow: View {
     let child: SpaceChild
+    var isJoining = false
     var onJoin: (() -> Void)?
     var onTap: (() -> Void)?
 
@@ -104,10 +105,18 @@ struct SpaceChildRow: View {
     }
 
     private func joinButton(action: @escaping () -> Void) -> some View {
-        Button(child.joinRule == .knock ? "Request" : "Join", action: action)
-            .buttonStyle(.bordered)
-            .tint(.accentColor)
-            .controlSize(.small)
+        Button(action: action) {
+            if isJoining {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Text(child.joinRule == .knock ? "Request" : "Join")
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(.accentColor)
+        .controlSize(.small)
+        .disabled(isJoining)
     }
 }
 
