@@ -322,31 +322,6 @@ struct RelayRoomTests {
         #expect(TimelineViewModel.grownWindowSize(current: 2000, fetched: 50) == 2000)
     }
 
-    @Test func descendantsSpanMultipleHops() {
-        // Fedora → Project Teams → #room: the room matches the Fedora
-        // filter despite no direct edge.
-        let fedora = RoomId(unchecked: "!fedora:example.com")
-        let teams = RoomId(unchecked: "!teams:example.com")
-        let room = RoomId(unchecked: "!room:example.com")
-        let children: [RoomId: Set<RoomId>] = [
-            fedora: [teams],
-            teams: [room],
-        ]
-        let found = RelayClient.descendants(of: fedora, children: children)
-        // Intermediate subspaces included; the room list drops them via
-        // its own isSpace filter.
-        #expect(found == [teams.value, room.value])
-    }
-
-    @Test func descendantsAreCycleSafeAndExcludeSelf() {
-        let a = RoomId(unchecked: "!a:example.com")
-        let b = RoomId(unchecked: "!b:example.com")
-        let children: [RoomId: Set<RoomId>] = [a: [b], b: [a]]
-        #expect(RelayClient.descendants(of: a, children: children) == [b.value])
-        #expect(RelayClient.descendants(
-            of: RoomId(unchecked: "!empty:example.com"), children: children) == [])
-    }
-
     @Test func spaceChildrenUnionEdgesAndHierarchyBlobs() async throws {
         let fedora = SDRoom(roomId: "!fedora:example.com", membership: "join")
         let teams = RoomId(unchecked: "!teams:example.com")

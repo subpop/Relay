@@ -86,7 +86,39 @@ enum PreviewFixtures {
             isFavourite: false,
             isSpace: false,
             isArchived: false),
+        RoomRowData(
+            roomId: "!backend:example.com",
+            name: "Backend",
+            parentSpaceIds: ["!space:example.com"],
+            lastMessageTimestamp: nil,
+            notificationCount: 0,
+            highlightCount: 0,
+            isSpace: true,
+            isArchived: false),
+        RoomRowData(
+            roomId: "!api:example.com",
+            name: "API",
+            parentSpaceIds: ["!backend:example.com"],
+            lastMessageTimestamp: nil,
+            notificationCount: 0,
+            highlightCount: 0,
+            isSpace: true,
+            isArchived: false),
     ]
+
+    /// The space graph for previews, derived from fixture parents, so the
+    /// rail flattens depth-3 chains the way the real ``RelayClient``
+    /// graph does.
+    static var spaceChildren: [RoomId: Set<RoomId>] {
+        var map: [RoomId: Set<RoomId>] = [:]
+        for room in rooms {
+            for parent in room.parentSpaceIds {
+                map[RoomId(unchecked: parent), default: []].insert(
+                    RoomId(unchecked: room.roomId))
+            }
+        }
+        return map
+    }
 
     /// A sample invite row.
     static let invite = InviteRowData(

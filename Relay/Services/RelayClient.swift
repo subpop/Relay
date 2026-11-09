@@ -381,9 +381,9 @@ final class RelayClient {
     /// Joined sync deltas not yet reflected in the room index.
     private var syncJoinedRoomIds: Set<String> = []
     /// Parent-to-children space map driving hierarchy filters (room
-    /// list, search). Built off-main alongside the room snapshots;
-    /// read-only on the main actor thereafter.
-    private var spaceChildIds: [RoomId: Set<RoomId>] = [:]
+    /// list, search) and rail flattening. Built off-main alongside the
+    /// room snapshots; read-only on the main actor thereafter.
+    var spaceChildIds: [RoomId: Set<RoomId>] = [:]
     /// Pending-invite snapshots, rebuilt alongside `cachedRooms`.
     private var cachedInvitedRooms: [RelayRoom] = []
     /// Accepted invites awaiting their first joined sync history page.
@@ -3754,24 +3754,21 @@ final class RelayClient {
     /// parents. Cycle-safe BFS; unjoined never-browsed branches are
     /// absent by construction (no local data — see `spaceChildIds`).
     func descendantRoomIds(of spaceId: RoomId) -> Set<String> {
-        Self.descendants(of: spaceId, children: spaceChildIds)
+        Set(
+            SpacesClient.descendantIds(of: spaceId, children: spaceChildIds)
+                .map(\.value))
     }
 
-    /// Transitive closure over a parent-to-children map. Pure so the
-    /// traversal stays unit-tested.
-    static nonisolated func descendants(
-        of spaceId: RoomId, children: [RoomId: Set<RoomId>]
-    ) -> Set<String> {
-        var seen: Set<RoomId> = [spaceId]
-        var queue = [spaceId]
-        var out = Set<String>()
-        while let current = queue.popLast() {
-            for child in children[current] ?? [] where seen.insert(child).inserted {
-                out.insert(child.value)
-                queue.append(child)
-            }
-        }
-        return out
+    /// The space ancestor chain of a room, in breadcrumb order
+    /// (`[topmost ancestor, …, direct parent]`, excluding the room
+    /// itself). Walks the live ``spaceChildIds`` graph, preferring a
+    /// chain whose top is one of the joined top-level spaces the rail
+    /// shows, so the bar matches the rail's expanded group. Empty when
+    /// the room has no known ancestors.
+    func ancestorChain(of spaceId: RoomId) -> [RoomId] {
+        let roots = Set(spaces.filter(\.parentSpaceIds.isEmpty).map(\.roomId))
+        return SpacesClient.ancestorPath(
+            of: spaceId, children: spaceChildIds, rootedIn: roots)
     }
 
     /// Map one store row to its room snapshot. Pure (over the row and

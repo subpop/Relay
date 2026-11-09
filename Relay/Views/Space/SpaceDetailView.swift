@@ -57,7 +57,9 @@ struct SpaceDetailView: View {
                 spaceHeader
             }
 
-            if path.count > 0 {
+            // The trail always ends with the current level; the bar only
+            // matters when there are ancestors to navigate back up to.
+            if path.count > 1 {
                 Section {
                     breadcrumbBar
                 }
@@ -171,9 +173,18 @@ struct SpaceDetailView: View {
             await vm.load()
             hasLoaded = true
         }
+        .onAppear {
+            // First mount: derive the trail from the stored graph so a
+            // sub-space opened directly via the rail still shows its
+            // full ancestor chain.
+            if path.isEmpty {
+                path = derivedPath(to: spaceId)
+            }
+        }
         .onChange(of: spaceId) {
-            // Reset path when a different top-level space is selected in the rail
-            path = []
+            // Re-derive synchronously so the currentSpaceId-driven level
+            // task below never sees the previous space's stale trail.
+            path = derivedPath(to: spaceId)
         }
         .sheet(item: $leaveSpaceItem) { item in
             LeaveSpaceSheet(spaceName: item.name, spaceId: item.id, children: item.children)
@@ -297,23 +308,19 @@ struct SpaceDetailView: View {
 
     private var breadcrumbBar: some View {
         HStack(spacing: 4) {
-            Button(spaceSummary.name) {
-                navigateToLevel(0)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.tint)
-
             ForEach(path.indices, id: \.self) { index in
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if index > 0 {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
 
                 if index == path.count - 1 {
                     Text(path[index].name ?? path[index].spaceId)
                         .foregroundStyle(.primary)
                 } else {
                     Button(path[index].name ?? path[index].spaceId) {
-                        navigateToLevel(index + 1)
+                        navigateUp(to: index)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
@@ -325,7 +332,70 @@ struct SpaceDetailView: View {
         .font(.subheadline)
     }
 
-    // MARK: - Actions
+    // MARK: - Navigation
+
+    /// The breadcrumb trail for `targetId`, derived from the stored
+    /// space graph (`root → … → direct parent → target`), so the bar
+    /// shows the true hierarchy regardless of how the user arrived.
+    /// Crumb names resolve from live room snapshots, falling back to the
+    /// parent level's cached hierarchy rows for browsed-but-unjoined
+    /// spaces. Empty when the graph knows no ancestors.
+    @MainActor
+    private func derivedPath(
+        to targetId: String, name targetName: String? = nil
+    ) -> [SpaceBreadcrumb] {
+        let id = RoomId(unchecked: targetId)
+        let chain = client.ancestorChain(of: id)
+        guard !chain.isEmpty else { return [] }
+
+        var crumbs: [SpaceBreadcrumb] = []
+        for (index, ancestor) in chain.enumerated() {
+            let name = client.rooms.first(where: { $0.roomId == ancestor })?.displayName
+                ?? (index > 0 ? cachedHierarchyName(of: ancestor, in: chain[index - 1]) : nil)
+            crumbs.append(SpaceBreadcrumb(spaceId: ancestor.value, name: name))
+        }
+        crumbs.append(SpaceBreadcrumb(
+            spaceId: targetId,
+            name: targetName ?? displayName(of: id, parent: chain.last)))
+        return crumbs
+    }
+
+    /// Display name for a hierarchy crumb: live room snapshot first, then
+    /// the rows of the parent's last-fetched hierarchy (which persist for
+    /// unjoined branches the user has browsed).
+    @MainActor
+    private func displayName(of id: RoomId, parent: RoomId?) -> String? {
+        if let room = client.rooms.first(where: { $0.roomId == id }) {
+            return room.displayName
+        }
+        guard let parent else { return nil }
+        return cachedHierarchyName(of: id, in: parent)
+    }
+
+    @MainActor
+    private func cachedHierarchyName(of child: RoomId, in parent: RoomId) -> String? {
+        client.cachedSpaceHierarchy(spaceId: parent.value).children
+            .first(where: { $0.roomId == child })?
+            .name
+    }
+
+    /// Navigate down into (or land in) a sub-space by deriving its chain.
+    /// If the graph hasn't mapped it yet (fresh join, first browse within
+    /// this session), keep the tapped trail instead of hiding the bar.
+    private func navigate(to targetId: String, name: String? = nil) {
+        let derived = derivedPath(to: targetId, name: name)
+        if derived.isEmpty {
+            path += [SpaceBreadcrumb(spaceId: targetId, name: name)]
+        } else {
+            path = derived
+        }
+    }
+
+    /// Navigate up to a crumb already in the trail: the derived chain is
+    /// a prefix of itself, so truncating preserves the correct ancestors.
+    private func navigateUp(to index: Int) {
+        path = Array(path.prefix(index + 1))
+    }
 
     private func joinCurrentSpace() {
         guard let viewModel, joiningRoomId == nil else { return }
@@ -374,17 +444,9 @@ struct SpaceDetailView: View {
     private func handleChildTap(_ child: SpaceChild) {
         if child.roomType == .space {
             // Always allow browsing into sub-spaces, joined or not
-            path.append(SpaceBreadcrumb(spaceId: child.roomId.value, name: child.name))
+            navigate(to: child.roomId.value, name: child.name)
         } else if child.isJoined {
             selectedRoomId = child.roomId.value
-        }
-    }
-
-    private func navigateToLevel(_ level: Int) {
-        if level == 0 {
-            path = []
-        } else {
-            path = Array(path.prefix(level))
         }
     }
 
@@ -400,7 +462,7 @@ struct SpaceDetailView: View {
                     isSpace: child.roomType == .space)
                 if child.roomType == .space {
                     // Browse into the newly joined sub-space
-                    path.append(SpaceBreadcrumb(spaceId: joinedRoomId.value, name: child.name))
+                    navigate(to: joinedRoomId.value, name: child.name)
                 } else {
                     selectedRoomId = joinedRoomId.value
                 }

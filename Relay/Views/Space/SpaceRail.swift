@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import MatrixKit
 import SwiftUI
 
 /// A vertical icon rail on the leading edge of the sidebar for switching between spaces.
@@ -27,6 +28,10 @@ struct SpaceRail: View {
     var spaces: [RoomRowData] = []
     /// All joined rooms (for space unread badges).
     var rooms: [RoomRowData] = []
+    /// The full space graph (parent → children), covering synced state
+    /// edges and fetched hierarchy blobs alike. Flattening walks it
+    /// transitively so depth-3+ chains still appear under their root.
+    var spaceChildren: [RoomId: Set<RoomId>] = [:]
     @Binding var selectedSpaceId: String?
     var onSpaceTapped: (() -> Void)?
     var onCreateSpace: (() -> Void)?
@@ -37,14 +42,17 @@ struct SpaceRail: View {
         spaces.filter { $0.parentSpaceIds.isEmpty }
     }
 
-    /// All joined sub-spaces that belong to the given top-level space, at any depth.
+    /// All joined sub-spaces that belong to the given top-level space, at any
+    /// depth.
     ///
     /// This flattens the hierarchy so that a chain like Work → Engineering → Backend
-    /// shows Engineering and Backend as peers under Work in the rail.
+    /// shows Engineering and Backend as peers under Work in the rail. The walk is
+    /// over ``spaceChildren`` rather than row `parentSpaceIds` (which hold only
+    /// direct parents — a depth-3 child names no top-level space).
     private func subSpaces(of parentId: String) -> [RoomRowData] {
-        spaces.filter {
-            !$0.parentSpaceIds.isEmpty && $0.parentSpaceIds.contains(parentId)
-        }
+        let descendants = SpacesClient.descendantIds(
+            of: RoomId(unchecked: parentId), children: spaceChildren)
+        return spaces.filter { descendants.contains(RoomId(unchecked: $0.id)) }
     }
 
     /// Whether a top-level space should show its sub-spaces (the space itself or any
@@ -171,9 +179,14 @@ struct SpaceRail: View {
 
     // MARK: - Helpers
 
+    /// Whether the space (or any sub-space at any depth) contains
+    /// unread rooms. Counts against the transitive descendant set so a
+    /// deep unread room still lights the top-level icon.
     private func spaceHasUnread(_ space: RoomRowData) -> Bool {
-        rooms.contains { room in
-            room.parentSpaceIds.contains(space.id)
+        let descendants = SpacesClient.descendantIds(
+            of: RoomId(unchecked: space.id), children: spaceChildren)
+        return rooms.contains { room in
+            descendants.contains(RoomId(unchecked: room.id))
                 && room.notificationCount > 0
                 && !room.isMuted
         }
@@ -194,14 +207,17 @@ struct SpaceRail: View {
 
     /// The badge color for unread activity in a space, or `nil` when there are no unreads.
     ///
-    /// Returns red when any child room has unread mentions, keyword
-    /// highlights, or is a DM with unread messages. Returns blue for plain
-    /// unread messages in group rooms.
+    /// Returns red when any descendant room (in the space or any of its
+    /// sub-spaces at any depth) has unread mentions, keyword highlights,
+    /// or is a DM with unread messages. Returns blue for plain unread
+    /// messages in group rooms.
     private func spaceUnreadColor(_ space: RoomRowData) -> Color? {
+        let descendants = SpacesClient.descendantIds(
+            of: RoomId(unchecked: space.id), children: spaceChildren)
         var hasUnread = false
         var hasHighPriority = false
 
-        for room in rooms where room.parentSpaceIds.contains(space.id) && !room.isMuted {
+        for room in rooms where descendants.contains(RoomId(unchecked: room.id)) && !room.isMuted {
             if room.needsAttention {
                 hasHighPriority = true
                 break
@@ -256,6 +272,7 @@ struct SpaceRailDivider: View {
     SpaceRail(
         spaces: PreviewFixtures.rooms.filter(\.isSpace),
         rooms: PreviewFixtures.rooms,
+        spaceChildren: PreviewFixtures.spaceChildren,
         selectedSpaceId: $selectedSpace
     )
     .environment(PreviewFixtures.previewClient())

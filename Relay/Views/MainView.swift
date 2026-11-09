@@ -222,6 +222,7 @@ struct MainView: View {
         SpaceRail(
             spaces: spaceRows,
             rooms: roomRows,
+            spaceChildren: client.spaceChildIds,
             selectedSpaceId: $selectedSpaceId,
             onSpaceTapped: {
                 selectedRoomId = nil
