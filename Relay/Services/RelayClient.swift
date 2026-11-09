@@ -790,8 +790,9 @@ final class RelayClient {
     // MARK: - Rooms
 
     /// Accept a pending invitation.
-    func acceptInvite(roomId: String) async throws {
-        guard let client else { return }
+    @discardableResult
+    func acceptInvite(roomId: String) async throws -> RoomId {
+        guard let client else { throw MatrixError.notAuthenticated }
         // Spec invitee behavior: an invite carrying `is_direct` auto-marks
         // the room in our own `m.direct`. Best effort so a bookkeeping
         // failure can never reject an accepted invite.
@@ -803,19 +804,36 @@ final class RelayClient {
         }()
         pendingInviteHistoryBackfills.insert(roomId)
         do {
-            try await client.rooms.join(RoomId(unchecked: roomId))
+            let joinedRoomId = try await client.joinRoom(RoomId(unchecked: roomId))
+            if let invited = invitedRooms.first(where: { $0.roomId.value == roomId }) {
+                publishPendingJoinedRoom(
+                    joinedRoomId, name: invited.name, topic: invited.topic,
+                    avatarURL: invited.avatarURL, canonicalAlias: invited.canonicalAlias,
+                    isSpace: invited.isSpace)
+            } else {
+                publishPendingJoinedRoom(joinedRoomId)
+            }
+            cachedInvitedRooms.removeAll { $0.roomId == joinedRoomId }
+            if usingSlidingSync {
+                let requiredState = SlidingSyncClient.defaultLists["main"]?.requiredState
+                await client.slidingSync.subscribe(joinedRoomId, requiredState: requiredState)
+            }
+            if directInvite, let userId = client.userId {
+                let accountData = client.accountData
+                Task {
+                    do {
+                        try await accountData.setDirectRoom(
+                            joinedRoomId, for: userId, isDirect: true)
+                    } catch {
+                        relayClientLogger.warning(
+                            "m.direct auto-mark failed for \(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            }
+            return joinedRoomId
         } catch {
             pendingInviteHistoryBackfills.remove(roomId)
             throw error
-        }
-        if directInvite, let userId = client.userId {
-            do {
-                try await client.accountData.setDirectRoom(
-                    RoomId(unchecked: roomId), for: userId, isDirect: true)
-            } catch {
-                relayClientLogger.warning(
-                    "m.direct auto-mark failed for \(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
         }
     }
 

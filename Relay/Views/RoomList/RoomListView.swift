@@ -398,12 +398,8 @@ extension RoomListView {
     private func acceptInvite(_ invite: InviteRowData) {
         Task {
             do {
-                try await client.acceptInvite(roomId: invite.id)
-                // Wait briefly for the room list to sync, then select the room.
-                try? await Task.sleep(for: .milliseconds(500))
-                if client.rooms.contains(where: { $0.roomId.value == invite.id }) {
-                    selectedRoomId = invite.id
-                }
+                let joined = try await client.acceptInvite(roomId: invite.id)
+                selectedRoomId = joined.value
             } catch {
                 errorReporter.report(.roomJoinFailed(error.localizedDescription))
             }
