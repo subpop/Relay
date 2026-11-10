@@ -70,6 +70,7 @@ struct TimelineScrollView: View {
                         uploadProgress: row.message.sendState == .pending && row.message.mediaDownload == nil
                             ? config.uploadProgress : nil
                     )
+                    .equatable()
                     .id(row.id)
                     .onContinuousHover { phase in
                         switch phase {

@@ -93,6 +93,9 @@ struct TimelineRowView: View, Equatable {
             && lhs.row.isPaginationTrigger == rhs.row.isPaginationTrigger
             && lhs.row.decryptionFailure == rhs.row.decryptionFailure
             && lhs.row.message.kind == rhs.row.message.kind
+            && hasSameProfilePresentation(lhs.row.message, rhs.row.message)
+            && hasSameProfilePresentation(
+                lhs.row.collapsedSystemEvents, rhs.row.collapsedSystemEvents)
             && lhs.row.message.isEdited == rhs.row.message.isEdited
             && lhs.row.message.sendState == rhs.row.message.sendState
             && lhs.row.message.reactions == rhs.row.message.reactions
@@ -103,6 +106,31 @@ struct TimelineRowView: View, Equatable {
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.isUnreadDivider == rhs.isUnreadDivider
             && lhs.showURLPreviews == rhs.showURLPreviews
+    }
+
+    private static func hasSameProfilePresentation(
+        _ lhs: ObservableTimelineEvent, _ rhs: ObservableTimelineEvent
+    ) -> Bool {
+        lhs.senderDisplayName == rhs.senderDisplayName
+            && lhs.senderAvatarURL?.value == rhs.senderAvatarURL?.value
+            && lhs.targetDisplayName == rhs.targetDisplayName
+    }
+
+    private static func hasSameProfilePresentation(
+        _ lhs: [ObservableTimelineEvent]?, _ rhs: [ObservableTimelineEvent]?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            true
+        case let (lhs?, rhs?):
+            lhs.count == rhs.count
+                && zip(lhs, rhs).allSatisfy { left, right in
+                    left.eventId == right.eventId
+                        && hasSameProfilePresentation(left, right)
+                }
+        default:
+            false
+        }
     }
 
     private var message: ObservableTimelineEvent { row.message }
