@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A sheet for creating a new Matrix room, space, or sub-space.
 ///
@@ -46,7 +47,15 @@ struct CreateEntitySheet: View {
     @State private var isPublic = false
     @State private var isEncrypted = true
     @State private var isCreating = false
+    @State private var selectedAvatar: SelectedAvatar?
+    @State private var isChoosingAvatar = false
     @FocusState private var focusedField: Field?
+
+    private struct SelectedAvatar {
+        let data: Data
+        let mimeType: String
+        let image: NSImage
+    }
 
     private enum Field: Hashable {
         case name, topic, address
@@ -129,9 +138,9 @@ struct CreateEntitySheet: View {
 
     private var frameHeight: CGFloat {
         switch kind {
-        case .room: 420
-        case .space: 360
-        case .subSpace: 380
+        case .room: 520
+        case .space: 460
+        case .subSpace: 480
         }
     }
 
@@ -141,10 +150,27 @@ struct CreateEntitySheet: View {
         VStack(spacing: 0) {
             header
             Divider()
+            CreateEntityPreviewCard(
+                name: name,
+                topic: topic,
+                isSpace: isSpace,
+                avatarImage: selectedAvatar?.image
+            ) {
+                isChoosingAvatar = true
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
             formContent
         }
         .frame(width: 420, height: frameHeight)
         .onAppear { focusedField = .name }
+        .fileImporter(
+            isPresented: $isChoosingAvatar,
+            allowedContentTypes: [.png, .jpeg, .gif],
+            allowsMultipleSelection: false
+        ) { result in
+            handleAvatarSelection(result)
+        }
     }
 
     // MARK: - Header
@@ -242,7 +268,9 @@ struct CreateEntitySheet: View {
                     isPublic: isPublic,
                     isEncrypted: isSpace ? false : isEncrypted,
                     isSpace: isSpace,
-                    parentSpaceId: subSpaceParentId
+                    parentSpaceId: subSpaceParentId,
+                    avatarData: selectedAvatar?.data,
+                    avatarMimeType: selectedAvatar?.mimeType
                 )
 
                 if case .subSpace(let parentId, _) = kind {
@@ -259,6 +287,20 @@ struct CreateEntitySheet: View {
                 isCreating = false
             }
         }
+    }
+
+    private func handleAvatarSelection(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+        guard let data = try? Data(contentsOf: url), let image = NSImage(data: data) else { return }
+
+        let mimeType: String = switch url.pathExtension.lowercased() {
+        case "png": "image/png"
+        case "gif": "image/gif"
+        default: "image/jpeg"
+        }
+        selectedAvatar = SelectedAvatar(data: data, mimeType: mimeType, image: image)
     }
 }
 

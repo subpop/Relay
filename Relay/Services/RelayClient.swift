@@ -2301,12 +2301,20 @@ final class RelayClient {
     func createRoom(
         name: String, topic: String? = nil, address: String? = nil,
         isPublic: Bool = false, isEncrypted: Bool = true, isSpace: Bool = false,
-        parentSpaceId: String? = nil, isDirect: Bool = false
+        parentSpaceId: String? = nil, isDirect: Bool = false,
+        avatarData: Data? = nil, avatarMimeType: String? = nil
     ) async throws -> String {
         guard let client else { throw RelayError.notLoggedIn }
         var request = CreateRoomRequest(
             visibility: isPublic ? .public : .private,
             name: name, topic: topic)
+        var initialState: [InitialStateEvent] = []
+        if let avatarData, let avatarMimeType {
+            let mxc = try await client.media.upload(avatarData, mimeType: avatarMimeType)
+            initialState.append(InitialStateEvent(
+                type: "m.room.avatar",
+                content: ["url": .string(mxc.value)]))
+        }
         if isDirect {
             request.isDirect = true
         }
@@ -2316,21 +2324,20 @@ final class RelayClient {
         if isSpace {
             request.creationContent = ["type": .string("m.space")]
             if parentSpaceId != nil, let via = localServerName {
-                request.initialState = [
-                    InitialStateEvent(
-                        type: "m.space.parent",
-                        content: [
-                            "canonical": .bool(true),
-                            "via": .array([.string(via)]),
-                        ])
-                ]
+                initialState.append(InitialStateEvent(
+                    type: "m.space.parent",
+                    content: [
+                        "canonical": .bool(true),
+                        "via": .array([.string(via)]),
+                    ]))
             }
         } else if isEncrypted {
-            request.initialState = [
-                InitialStateEvent(
-                    type: "m.room.encryption",
-                    content: ["algorithm": .string("m.megolm.v1.aes-sha2")])
-            ]
+            initialState.append(InitialStateEvent(
+                type: "m.room.encryption",
+                content: ["algorithm": .string("m.megolm.v1.aes-sha2")]))
+        }
+        if !initialState.isEmpty {
+            request.initialState = initialState
         }
         if !isSpace {
             // Let ordinary members publish `m.call.member` state so anyone
