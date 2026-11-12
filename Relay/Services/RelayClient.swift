@@ -676,6 +676,7 @@ final class RelayClient {
         sessionPersistenceGeneration = UUID()
         stopTasks()
         let client = self.client
+        let userId = client?.userId
         self.client = nil
         authState = .loggedOut
         remoteSignOutNoticed = false
@@ -713,6 +714,12 @@ final class RelayClient {
         storeWriter = nil
         storeReader = nil
         imagePackRefreshedRooms = []
+        if let userId,
+           let file = MatrixStore.databaseURL(for: userId)
+        {
+            MatrixStore.removeStoreFiles(file: file)
+        }
+        UserDefaults.standard.removeObject(forKey: "selectedRoomId")
         relayClientLogger.info("Signed out (reason: \(reason, privacy: .public))")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
