@@ -19,7 +19,7 @@ import SwiftUI
 /// encryption status, and history visibility.
 ///
 /// When the current user has sufficient power level, the join rule, history visibility,
-/// and directory visibility become editable. Each section is gated by the corresponding
+/// guest access, and directory visibility become editable. Each section is gated by the corresponding
 /// fine-grained permission from ``RoomPermissions``.
 struct InspectorSecurityTab: View {
     let viewModel: TimelineInspectorViewModel
@@ -30,6 +30,7 @@ struct InspectorSecurityTab: View {
     private var canEditVisibility: Bool { viewModel.isCurrentUserAdmin }
     private var canEditJoinRules: Bool { viewModel.canEditJoinRules }
     private var canEditHistoryVisibility: Bool { viewModel.canEditHistoryVisibility }
+    private var canEditGuestAccess: Bool { viewModel.canEditGuestAccess }
 
     var body: some View {
         ScrollView {
@@ -39,6 +40,7 @@ struct InspectorSecurityTab: View {
                     visibilitySection(details)
                     joinRuleSection(details)
                     historySection(details)
+                    guestAccessSection(details)
                 } else if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -59,6 +61,55 @@ struct InspectorSecurityTab: View {
             .padding(.vertical)
             .disabled(isSaving)
         }
+    }
+
+    // MARK: - Guest Access
+
+    private func guestAccessSection(_ details: RoomDetails) -> some View {
+        GroupBox {
+            if canEditGuestAccess {
+                VStack(alignment: .leading, spacing: 8) {
+                    Picker("Guest Access", selection: Binding(
+                        get: { details.guestAccess ?? "forbidden" },
+                        set: { newValue in
+                            performUpdate { try await viewModel.updateGuestAccess(newValue) }
+                        }
+                    )) {
+                        Label("Guests Cannot Join", systemImage: "person.slash").tag("forbidden")
+                        Label("Guests Can Join", systemImage: "person.badge.plus").tag("can_join")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.radioGroup)
+
+                    Text(RoomAccessLabels.guestAccessDescription(details.guestAccess))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 24)
+
+                    Text("This setting requires guest account support on the homeserver.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 24)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 2)
+            } else {
+                SecurityStatusRow(
+                    icon: RoomAccessLabels.guestAccessIcon(details.guestAccess),
+                    color: .secondary,
+                    title: RoomAccessLabels.guestAccessLabel(details.guestAccess),
+                    detail: RoomAccessLabels.guestAccessDescription(details.guestAccess)
+                )
+                .padding(.vertical, 2)
+            }
+        } label: {
+            Label("Guest Access", systemImage: "person.slash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
     }
 
     // MARK: - Encryption
@@ -266,4 +317,3 @@ struct SecurityStatusRow: View {
         .environment(PreviewFixtures.previewClient())
         .frame(width: 280, height: 600)
 }
-

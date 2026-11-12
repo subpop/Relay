@@ -2020,6 +2020,15 @@ final class RelayClient {
             content: ["history_visibility": .string(visibility)])
     }
 
+    /// Change a room's guest access (`forbidden` or `can_join`).
+    func updateGuestAccess(roomId: String, access: String) async throws {
+        guard let client else { return }
+        try await client.roomState.setGuestAccess(
+            RoomId(unchecked: roomId),
+            access: RoomGuestAccess(rawValue: access)
+        )
+    }
+
     /// Publish or hide a room in the public directory.
     func updateRoomVisibility(roomId: String, isPublic: Bool) async throws {
         guard let client else { return }

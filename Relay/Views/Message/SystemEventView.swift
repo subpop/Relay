@@ -93,6 +93,8 @@ struct SystemEventView: View {
                 "person.badge.key"
             case "m.room.history_visibility":
                 "clock.arrow.circlepath"
+            case "m.room.guest_access":
+                "person.slash"
             case "m.room.server_acl":
                 "server.rack"
             default:

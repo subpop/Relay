@@ -94,4 +94,30 @@ enum RoomAccessLabels {
         default: String(localized: "History visibility is not configured.", comment: "History visibility description shown when the setting is missing")
         }
     }
+
+    // MARK: - Guest Access
+
+    static func guestAccessLabel(_ access: String?) -> String {
+        switch access {
+        case "can_join": String(localized: "Guests Can Join", comment: "Guest access label: guest users may join the room")
+        case "forbidden": String(localized: "Guests Cannot Join", comment: "Guest access label: guest users cannot join the room")
+        default: String(localized: "Unknown", comment: "Guest access label shown when guest access is missing or unrecognized")
+        }
+    }
+
+    static func guestAccessIcon(_ access: String?) -> String {
+        switch access {
+        case "can_join": "person.badge.plus"
+        case "forbidden": "person.slash"
+        default: "questionmark.circle"
+        }
+    }
+
+    static func guestAccessDescription(_ access: String?) -> String {
+        switch access {
+        case "can_join": String(localized: "Guest users are allowed to join this room when guest accounts are enabled on the homeserver.", comment: "Guest access description for can_join")
+        case "forbidden": String(localized: "Guest users cannot join this room.", comment: "Guest access description for forbidden")
+        default: String(localized: "Guest access is not configured.", comment: "Guest access description shown when guest access is missing")
+        }
+    }
 }

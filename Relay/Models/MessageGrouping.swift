@@ -240,8 +240,7 @@ extension ObservableTimelineEvent {
 
     /// Plain-text body carried by the kind: message text, media filename,
     /// poll question, or state description. Redacted events report the
-    /// deletion placeholder (matching the previous model's body contract);
-    /// unknown events are empty.
+    /// deletion placeholder (matching the previous model's body contract).
     var body: String {
         switch kind {
         case .text(let body), .emote(let body), .notice(let body),
@@ -262,8 +261,11 @@ extension ObservableTimelineEvent {
             return "This message was deleted"
         case .unableToDecrypt:
             return "Unable to decrypt"
-        case .unknown:
-            return ""
+        case .unknown(let type):
+            return String(
+                localized: "Unsupported event type: \(type)",
+                comment: "Shown for unrecognized timeline events; includes the raw Matrix event type."
+            )
         }
     }
 

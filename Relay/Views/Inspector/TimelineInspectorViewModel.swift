@@ -187,6 +187,12 @@ final class TimelineInspectorViewModel {
         await reload()
     }
 
+    func updateGuestAccess(_ access: String) async throws {
+        guard let client else { return }
+        try await client.updateGuestAccess(roomId: roomId, access: access)
+        await reload()
+    }
+
     func updateRoomVisibility(isPublic: Bool) async throws {
         guard let client else { return }
         try await client.updateRoomVisibility(roomId: roomId, isPublic: isPublic)
@@ -245,6 +251,7 @@ final class TimelineInspectorViewModel {
                 pinnedEventIds: current.pinnedEventIds,
                 joinRule: current.joinRule,
                 historyVisibility: current.historyVisibility,
+                guestAccess: current.guestAccess,
                 permissions: current.permissions,
                 powerLevelSettings: current.powerLevelSettings
             )
@@ -302,11 +309,14 @@ final class TimelineInspectorViewModel {
     /// Whether the current user can change the room's history visibility.
     var canEditHistoryVisibility: Bool { permissions?.canEditHistoryVisibility ?? false }
 
+    /// Whether the current user can change the room's guest access.
+    var canEditGuestAccess: Bool { permissions?.canEditGuestAccess ?? false }
+
     /// Whether the current user can edit the room's canonical alias and alternative aliases.
     var canEditCanonicalAlias: Bool { permissions?.canEditCanonicalAlias ?? false }
 
-    /// Whether the current user can edit any room access setting (join rules or history visibility).
-    var canEditAccess: Bool { canEditJoinRules || canEditHistoryVisibility }
+    /// Whether the current user can edit any room access setting.
+    var canEditAccess: Bool { canEditJoinRules || canEditHistoryVisibility || canEditGuestAccess }
 
     // MARK: - Helpers
 
@@ -349,6 +359,7 @@ final class TimelineInspectorViewModel {
             canInvite: true, canKick: true, canBan: true,
             canRedactOther: true, canChangePermissions: true,
             canPin: true, canEditJoinRules: true, canEditHistoryVisibility: true,
+            canEditGuestAccess: true,
             canEditCanonicalAlias: true, canSendMessages: true
         ) : RoomPermissions()
         let previewPowerLevelSettings: RoomPowerLevelSettings? = asAdmin
@@ -389,6 +400,7 @@ final class TimelineInspectorViewModel {
             pinnedEventIds: ["$pinned1", "$pinned2"],
             joinRule: "invite",
             historyVisibility: "shared",
+            guestAccess: "forbidden",
             permissions: previewPermissions,
             powerLevelSettings: previewPowerLevelSettings
         )
