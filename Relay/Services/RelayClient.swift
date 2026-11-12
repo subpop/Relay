@@ -1923,6 +1923,7 @@ final class RelayClient {
             isEncrypted: room.isEncrypted,
             isPublic: false,
             isDirect: room.presentsAsDirect,
+            roomVersion: room.roomVersion,
             canonicalAlias: room.canonicalAlias,
             alternativeAliases: room.altAliases,
             memberCount: room.memberCount,
@@ -3812,6 +3813,7 @@ final class RelayClient {
         room.topic = row.topic
         room.avatarURL = row.avatarURL.flatMap { try? MXCURI($0) }
         room.canonicalAlias = row.canonicalAlias
+        room.roomVersion = row.roomVersion
         room.firstUnreadEventId = row.firstUnreadEventId.map { EventId(unchecked: $0) }
         room.prevBatch = row.prevBatch.map { BatchToken($0) }
         room.fullyReadEventId = row.fullyRead.map { EventId(unchecked: $0) }

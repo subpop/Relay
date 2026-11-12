@@ -559,7 +559,7 @@ private struct InspectorAboutSection: View {
                 }
 
                 Divider().padding(.vertical, 4)
-                InspectorInfoRow(label: "Room Version", value: details.roomVersion)
+                InspectorInfoRow(label: "Room Version", value: details.roomVersion ?? "—")
             }
             .padding(.vertical, 2)
         } label: {

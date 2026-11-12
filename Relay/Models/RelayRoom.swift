@@ -31,6 +31,7 @@ struct RelayRoom: Identifiable, Hashable, Sendable {
     var topic: String?
     var avatarURL: MXCURI?
     var canonicalAlias: String?
+    var roomVersion: String?
     var altAliases: [String] = []
     var membership: Membership = .join
     var isPendingJoin = false
