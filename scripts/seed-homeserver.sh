@@ -367,6 +367,39 @@ invite_and_join() {
         -d '{}' >/dev/null
 }
 
+# Have a joined user leave a room, then re-join it publicly by room ID.
+# Usage: leave_and_rejoin_public <room_key> <username>
+leave_and_rejoin_public() {
+    local room_key="$1"
+    local username="$2"
+    local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
+    local token="${TOKENS[$username]}"
+
+    curl -s -X POST "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/leave" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d '{}' >/dev/null
+
+    curl -s -X POST "${SERVER_URL}/_matrix/client/v3/join/${room_id}" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d '{}' >/dev/null
+}
+
+# Have a joined user leave a room.
+# Usage: leave_room <room_key> <username>
+leave_room() {
+    local room_key="$1"
+    local username="$2"
+    local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
+    local token="${TOKENS[$username]}"
+
+    curl -s -X POST "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/leave" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d '{}' >/dev/null
+}
+
 # Add a child room or space to a parent space.
 # Usage: add_space_child <parent_space_key> <child_key> <order> <creator_username>
 # child_key is looked up in ROOMS first, then SPACES.
@@ -417,6 +450,51 @@ promote_to_admin() {
         -H "Authorization: Bearer ${token}" \
         -H "Content-Type: application/json" \
         -d "$updated" >/dev/null
+}
+
+# Make a room read-only for regular members.
+# This keeps room join/leave behavior intact while restricting message and
+# reaction events to moderators/admins (power level 50+).
+# Usage: set_room_read_only <room_key> <editor_username>
+set_room_read_only() {
+    local room_key="$1"
+    local editor="$2"
+
+    local room_id="${ROOMS[$room_key]:-${SPACES[$room_key]:-}}"
+    local token="${TOKENS[$editor]}"
+
+    local current
+    current=$(curl -s -X GET "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/state/m.room.power_levels" \
+        -H "Authorization: Bearer ${token}")
+
+    local updated
+    updated=$(echo "$current" | jq '.events = ((.events // {}) + {"m.room.message": 50, "m.reaction": 50})')
+
+    curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${room_id}/state/m.room.power_levels" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d "$updated" >/dev/null
+}
+
+# Mark a room as replaced by another room (continuation / upgrade-style marker).
+# Usage: set_room_tombstone <old_room_key> <editor_username> <replacement_room_key> <body>
+set_room_tombstone() {
+    local old_room_key="$1"
+    local editor="$2"
+    local replacement_room_key="$3"
+    local body="$4"
+
+    local old_room_id="${ROOMS[$old_room_key]:-${SPACES[$old_room_key]:-}}"
+    local replacement_room_id="${ROOMS[$replacement_room_key]:-${SPACES[$replacement_room_key]:-}}"
+    local token="${TOKENS[$editor]}"
+
+    local escaped_body
+    escaped_body=$(echo -n "$body" | jq -Rs '.')
+
+    curl -s -X PUT "${SERVER_URL}/_matrix/client/v3/rooms/${old_room_id}/state/m.room.tombstone" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d "{\"body\": ${escaped_body}, \"replacement_room\": \"${replacement_room_id}\"}" >/dev/null
 }
 
 # Send a text message to a room.
@@ -777,7 +855,8 @@ step 5 7 "Creating rooms..."
 # General channels
 create_room "general"       "morgan" "General"        "Company-wide discussion"
 create_room "random"        "morgan" "Random"         "Watercooler, off-topic, and fun"
-create_room "announcements" "morgan" "Announcements"  "Company news and updates"
+create_room "announcements-legacy" "morgan" "Announcements (Legacy)" "Legacy announcements room (replaced)." "public_chat"
+create_room "announcements" "morgan" "Announcements"  "Continuation of legacy company news room. Read-only for members." "public_chat"
 
 # Engineering channels
 create_room "backend"       "priya"  "Backend"        "Backend services, APIs, and infrastructure"
@@ -831,7 +910,6 @@ add_space_child "product" "roadmap"      "b" "casey"
 # General space contains general rooms
 add_space_child "general" "general"       "a" "morgan"
 add_space_child "general" "random"        "b" "morgan"
-add_space_child "general" "announcements" "c" "morgan"
 
 # -- Invite everyone to the top-level space and general channels --
 # morgan created pebble-hq and general channels, so they're already in.
@@ -911,6 +989,21 @@ invite_and_join "roadmap" "casey" "alex"
 promote_to_admin "random"      "morgan" "alex"
 promote_to_admin "code-review" "morgan" "alex"
 
+# -- Mark #announcements as continuation of a legacy room --
+set_room_tombstone "announcements-legacy" "morgan" "announcements" "This room has been replaced. Please use #announcements."
+
+# -- Churn public-room membership for #announcements --
+# Repeated leave/rejoin cycles create many membership events while keeping
+# the room timeline empty of chat messages.
+for _ in {1..5}; do
+    for user in priya alex jordan sam riley casey taylor; do
+        leave_and_rejoin_public "announcements" "$user"
+    done
+done
+
+# Leave alex out of #announcements so joining can be tested after login.
+leave_room "announcements" "alex"
+
 step_done
 
 # ---- Step 7: Send messages --------------------------------------------------
@@ -921,43 +1014,7 @@ step 7 7 "Sending messages..."
 # #announcements
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-send_message "announcements" "morgan" "Welcome to Pebble's internal chat! This is our space for company-wide announcements. Please keep discussion in #general and save this channel for important updates."
-
-send_message "announcements" "morgan" "Team, I'm thrilled to announce that Taylor Okafor is joining us as our new QA Engineer starting today. Taylor comes from Stripe and brings a ton of experience in automated testing and CI pipelines. Please give them a warm welcome!"
-
-send_message "announcements" "casey" "Q3 goals are now posted in the Product space. The big themes this quarter are: improving onboarding, launching the Teams feature, and cutting p95 API latency by 40%. Reach out if you have questions about how your work fits in."
-
-send_message "announcements" "morgan" "Reminder: Engineering office hours are every Thursday at 2pm PT. Bring your cross-team questions, architecture proposals, or anything you want to discuss. No agenda required."
-
-send_message "announcements" "casey" "We just crossed 10,000 active users on the platform. Huge milestone for the team. Thank you all for the incredible work this quarter."
-EVT_10K="$LAST_EVENT_ID"
-send_reaction "announcements" "morgan" "🎉" "$EVT_10K"
-send_reaction "announcements" "priya"  "🎉" "$EVT_10K"
-send_reaction "announcements" "alex"   "🚀" "$EVT_10K"
-send_reaction "announcements" "jordan" "❤️" "$EVT_10K"
-send_reaction "announcements" "sam"    "🎉" "$EVT_10K"
-send_reaction "announcements" "taylor" "🔥" "$EVT_10K"
-
-send_message "announcements" "morgan" "Heads up: we're upgrading our CI infrastructure this weekend (Saturday 10pm - Sunday 6am PT). Expect intermittent build failures during that window. Sam will post updates in #devops."
-
-send_message "announcements" "casey" "Product update: the Teams feature is officially in internal beta. If you'd like early access, reach out to me or Morgan. We're targeting a public launch in mid-July."
-
-send_message "announcements" "morgan" "Quick process change: starting next week, all PRs will require at least one approval before merging. This applies to all repos. Details in #code-review."
-
-send_message "announcements" "morgan" "Please welcome Casey Brooks, who just celebrated 2 years at Pebble this week. Casey, thank you for everything you do to keep us focused and shipping. We're lucky to have you."
-
-send_message "announcements" "casey" "We're hosting a design sprint next Wednesday and Thursday. Jordan will be leading sessions on the onboarding redesign. Calendar invites are going out today — please make it a priority."
-
-send_message "announcements" "morgan" "Security reminder: please enable 2FA on your GitHub accounts if you haven't already. Sam is auditing access this week and accounts without 2FA will be flagged."
-
-send_message "announcements" "casey" "NPS scores are in from the latest survey: we jumped from 42 to 58 this quarter. Biggest driver was performance improvements. Shoutout to the entire engineering team."
-send_reaction "announcements" "sam"    "💪"
-send_reaction "announcements" "alex"   "🙌"
-send_reaction "announcements" "priya"  "🙌"
-
-send_message "announcements" "morgan" "The office will be closed Monday for the holiday. Enjoy the long weekend, everyone. If anything urgent comes up, the on-call rotation is in PagerDuty."
-
-send_message "announcements" "casey" "Reminder that Q3 OKR self-assessments are due by end of day Friday. Please update your progress in Lattice. Reach out to your manager if you need help."
+# Intentionally no timeline messages in #announcements.
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # #general
@@ -1376,6 +1433,9 @@ send_message "dm-alex-morgan" "alex"   "On track. All the room list changes are 
 send_message "dm-alex-morgan" "morgan" "Perfect. Let me know if anything comes up. I want this beta release to be really solid."
 send_message "dm-alex-morgan" "alex"   "Will do. I'm feeling good about this one."
 
+# Keep #announcements public and joinable, but read-only for regular users.
+set_room_read_only "announcements" "morgan"
+
 step_done
 
 # =============================================================================
@@ -1394,4 +1454,3 @@ echo ""
 echo "  To stop the server:   ${RUNTIME} stop ${CONTAINER_NAME}"
 echo "  To remove all data:   ${RUNTIME} rm ${CONTAINER_NAME} && ${RUNTIME} volume rm ${VOLUME_NAME}"
 echo ""
-
