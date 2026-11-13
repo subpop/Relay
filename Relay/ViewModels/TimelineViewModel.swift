@@ -379,6 +379,23 @@ final class TimelineViewModel {
         return nil
     }
 
+    /// Candidate event IDs for anchoring the live timeline near the user's
+    /// reading position. Prefer the fully-read marker, then fall back to the
+    /// first unread marker when they differ.
+    nonisolated static func liveAnchorCandidates(
+        fullyReadEventId: String?, firstUnreadEventId: String?
+    ) -> [String] {
+        var candidates: [String] = []
+        if let fullyReadEventId {
+            candidates.append(fullyReadEventId)
+        }
+        if let firstUnreadEventId,
+           firstUnreadEventId != fullyReadEventId {
+            candidates.append(firstUnreadEventId)
+        }
+        return candidates
+    }
+
     /// Watch the room's revision counters. Timeline revisions refresh
     /// the live window (coalesced); typing revisions only bump an
     /// invalidation counter so the indicator re-reads without a full
@@ -452,6 +469,50 @@ final class TimelineViewModel {
             hasMoreHistory = false
         }
         isLoading = false
+    }
+
+    /// Try to place the live timeline around the user's reading position,
+    /// returning the anchor event ID when one can be surfaced locally.
+    func alignLiveTimelineToReadMarker() async -> String? {
+        let room = client.storedRoom(roomID)
+        let candidates = Self.liveAnchorCandidates(
+            fullyReadEventId: room?.fullyReadEventId?.value,
+            firstUnreadEventId: room?.firstUnreadEventId?.value)
+        for eventId in candidates {
+            if await ensureEventVisibleInLiveWindow(eventId: eventId) {
+                return eventId
+            }
+        }
+        return nil
+    }
+
+    /// Ensure a message event is present in the current live window,
+    /// back-paginating older history when needed.
+    func ensureEventVisibleInLiveWindow(eventId: String, maxPages: Int = 8) async -> Bool {
+        guard case .live = window else {
+            await returnToLive()
+            return await ensureEventVisibleInLiveWindow(eventId: eventId, maxPages: maxPages)
+        }
+        if renderedEvents.contains(where: { $0.eventId.value == eventId }) {
+            return true
+        }
+
+        var pagesLoaded = 0
+        while pagesLoaded < maxPages,
+              hasMoreHistory,
+              !Task.isCancelled
+        {
+            let previousCount = renderedEvents.count
+            await loadMoreHistory()
+            pagesLoaded += 1
+            if renderedEvents.contains(where: { $0.eventId.value == eventId }) {
+                return true
+            }
+            if renderedEvents.count == previousCount {
+                break
+            }
+        }
+        return renderedEvents.contains(where: { $0.eventId.value == eventId })
     }
 
     /// Load a thread-scoped timeline for a thread root.
@@ -694,6 +755,8 @@ final class TimelineViewModel {
             // Local-only store mutation: wake the timeline now rather
             // than waiting for the next sync delta.
             client.bumpRevision(roomID)
+            timelineLogger.debug(
+                "Fully-read advanced room=\(self.roomId, privacy: .public) upTo=\(eventId, privacy: .public)")
         } catch {
             timelineLogger.debug(
                 "Fully-read marker send failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")

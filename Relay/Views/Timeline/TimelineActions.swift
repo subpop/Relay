@@ -152,6 +152,7 @@ final class TimelineActions: Equatable {
         onRoomTap: ((String) -> Void)?,
         scrollToRow: @escaping (String) -> Void,
         setHighlightedMessage: @escaping (String?) -> Void,
+        setAnchoredMessage: @escaping (String?) -> Void,
         setFocusedMessage: @escaping (String?) -> Void,
         handleContextAction: @escaping (TimelineRowContextAction) -> Void,
         presentReactionPicker: @escaping (String, CGRect, Bool) -> Void,
@@ -172,7 +173,7 @@ final class TimelineActions: Equatable {
                 scrollToRow(message.eventId.value)
                 setHighlightedMessage(eventID)
             } else {
-                setFocusedMessage(eventID)
+                setAnchoredMessage(eventID)
             }
         }
         self.reply = { message in

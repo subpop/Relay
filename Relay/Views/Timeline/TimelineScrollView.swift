@@ -36,9 +36,13 @@ struct TimelineScrollView: View {
     let onNearEndChanged: (Bool) -> Void
     let onPaginateBackward: () -> Void
     let onPaginateForward: () -> Void
+    /// Fires when the user begins direct scroll interaction.
+    let onUserScrollInteractionBegan: () -> Void
     /// The ID of the bottom-most (newest) message currently visible, or `nil`.
     /// Reported whenever the visible set changes.
     let onBottomMostVisibleMessageChanged: (String?) -> Void
+    /// Whether the unread-divider row is currently visible.
+    let onUnreadMarkerVisibilityChanged: (Bool) -> Void
 
     @State private var isUserScrolling = false
     /// Last near-end value reported to the parent. Starts `false` so the first
@@ -147,7 +151,7 @@ struct TimelineScrollView: View {
                         isNearEndLatched = true
                         onNearEndChanged(true)
                     }
-                } else if isUserScrolling {
+                } else {
                     if isNearEndLatched {
                         isNearEndLatched = false
                         onNearEndChanged(false)
@@ -191,6 +195,7 @@ struct TimelineScrollView: View {
             Task { @MainActor in
                 isUserScrolling = newPhase == .interacting || newPhase == .decelerating
                 if newPhase == .interacting, oldPhase != .interacting {
+                    onUserScrollInteractionBegan()
                     // The user grabbed control; any pending re-anchor targets
                     // a stale reading position.
                     pendingAnchor = nil
@@ -199,6 +204,11 @@ struct TimelineScrollView: View {
         }
         .onChange(of: visibleRowIDs) { _, newIDs in
             onBottomMostVisibleMessageChanged(rows.last(where: { newIDs.contains($0.id) })?.id)
+            if let unreadID = config.firstUnreadMessageID {
+                onUnreadMarkerVisibilityChanged(newIDs.contains(unreadID))
+            } else {
+                onUnreadMarkerVisibilityChanged(false)
+            }
         }
         .onChange(of: bottomInset) { _, newInset in
             scroller.updateMetrics(

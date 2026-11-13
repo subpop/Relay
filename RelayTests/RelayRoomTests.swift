@@ -312,6 +312,20 @@ struct RelayRoomTests {
         #expect(TimelineViewModel.windowAnchor(snapshot: [], storedAnchor: "$a") == nil)
     }
 
+    @Test func liveAnchorCandidatesPreferFullyReadThenUnread() {
+        #expect(TimelineViewModel.liveAnchorCandidates(
+            fullyReadEventId: "$fr", firstUnreadEventId: "$u") == ["$fr", "$u"])
+    }
+
+    @Test func liveAnchorCandidatesDeduplicateAndDropNils() {
+        #expect(TimelineViewModel.liveAnchorCandidates(
+            fullyReadEventId: "$same", firstUnreadEventId: "$same") == ["$same"])
+        #expect(TimelineViewModel.liveAnchorCandidates(
+            fullyReadEventId: nil, firstUnreadEventId: "$u") == ["$u"])
+        #expect(TimelineViewModel.liveAnchorCandidates(
+            fullyReadEventId: nil, firstUnreadEventId: nil).isEmpty)
+    }
+
     @Test func windowSizeGrowsByFetchedPages() {
         #expect(TimelineViewModel.grownWindowSize(current: 500, fetched: 50) == 550)
         #expect(TimelineViewModel.grownWindowSize(current: 500, fetched: 0) == 500)

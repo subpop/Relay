@@ -14,6 +14,10 @@
 
 import MatrixKit
 import Observation
+import OSLog
+
+private nonisolated let readTrackerLogger = Logger(
+    subsystem: "app.subpop.Relay", category: "Timeline")
 
 /// Tracks how far through the timeline the user has read and issues read
 /// receipts.
@@ -26,6 +30,7 @@ import Observation
 @Observable
 final class TimelineReadReceiptTracker {
     private var lastFullyReadEventId: String?
+    private var lastSentFullyReadEventId: String?
     private var fullyReadDebounceTask: Task<Void, Never>?
     private var markReadDebounceTask: Task<Void, Never>?
 
@@ -51,11 +56,44 @@ final class TimelineReadReceiptTracker {
 
         lastFullyReadEventId = eventId
         fullyReadDebounceTask?.cancel()
-        guard isActive() else { return }
+        guard isActive() else {
+            readTrackerLogger.debug(
+                "Track fully-read without send (inactive) upTo=\(eventId, privacy: .public)")
+            return
+        }
+        readTrackerLogger.debug(
+            "Schedule fully-read debounce upTo=\(eventId, privacy: .public)")
         fullyReadDebounceTask = Task {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, isActive() else { return }
             await sendReceipt(eventId)
+            lastSentFullyReadEventId = eventId
+            readTrackerLogger.debug(
+                "Sent fully-read (debounced) upTo=\(eventId, privacy: .public)")
+        }
+    }
+
+    /// Immediately flushes the latest tracked fully-read high-water mark,
+    /// bypassing debounce. Used when leaving a room so the return anchor
+    /// preserves the user's current reading position.
+    func flushHighWaterMarkIfNeeded(
+        isActive: @escaping () -> Bool,
+        sendReceipt: @escaping (String) async -> Void
+    ) {
+        fullyReadDebounceTask?.cancel()
+        guard isActive(),
+              let eventId = lastFullyReadEventId,
+              eventId != lastSentFullyReadEventId
+        else {
+            return
+        }
+        readTrackerLogger.debug(
+            "Flush fully-read on room leave upTo=\(eventId, privacy: .public)")
+        Task {
+            await sendReceipt(eventId)
+            lastSentFullyReadEventId = eventId
+            readTrackerLogger.debug(
+                "Sent fully-read (flush) upTo=\(eventId, privacy: .public)")
         }
     }
 
@@ -67,11 +105,14 @@ final class TimelineReadReceiptTracker {
     /// call's values win, so scrolling away cancels a pending mark.
     func markReadIfNeeded(isNearEnd: Bool, isActive: @escaping () -> Bool, markAsRead: @escaping () async -> Void) {
         markReadDebounceTask?.cancel()
+        readTrackerLogger.debug(
+            "Schedule mark-as-read debounce nearEnd=\(isNearEnd, privacy: .public)")
         markReadDebounceTask = Task {
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             guard isNearEnd, isActive() else { return }
             await markAsRead()
+            readTrackerLogger.debug("Sent mark-as-read (debounced)")
         }
     }
 }
