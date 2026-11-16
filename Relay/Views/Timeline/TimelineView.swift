@@ -295,7 +295,11 @@ struct TimelineView: View {
 
                 if !readOnly, !alwaysLoadNewest,
                    let anchorEventId = await viewModel.alignLiveTimelineToReadMarker() {
-                    await scrollToEventWhenAvailable(anchorEventId, highlight: false)
+                    await scrollToEventWhenAvailable(
+                        anchorEventId,
+                        highlight: false,
+                        animated: false,
+                        settleDelay: nil)
                 }
 
                 timelineInitialLoadComplete = true
@@ -582,10 +586,17 @@ struct TimelineView: View {
 
     // MARK: - Scroll Management
 
-    private func scrollToEventWhenAvailable(_ eventId: String, highlight: Bool = true) async {
+    private func scrollToEventWhenAvailable(
+        _ eventId: String,
+        highlight: Bool = true,
+        animated: Bool = true,
+        settleDelay: Duration? = .milliseconds(100)
+    ) async {
         if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
-            try? await Task.sleep(for: .milliseconds(100))
-            scroller.scrollToRow(id: message.eventId.value)
+            if let settleDelay {
+                try? await Task.sleep(for: settleDelay)
+            }
+            scroller.scrollToRow(id: message.eventId.value, animated: animated)
             if highlight {
                 highlightedMessageId = eventId
             }
@@ -603,8 +614,10 @@ struct TimelineView: View {
             }
             guard found else { break }
             if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
-                try? await Task.sleep(for: .milliseconds(100))
-                scroller.scrollToRow(id: message.eventId.value)
+                if let settleDelay {
+                    try? await Task.sleep(for: settleDelay)
+                }
+                scroller.scrollToRow(id: message.eventId.value, animated: animated)
                 if highlight {
                     highlightedMessageId = eventId
                 }
@@ -613,7 +626,7 @@ struct TimelineView: View {
         }
 
         if let message = viewModel.events.first(where: { $0.eventId.value == eventId }) {
-            scroller.scrollToRow(id: message.eventId.value)
+            scroller.scrollToRow(id: message.eventId.value, animated: animated)
         }
         if highlight {
             highlightedMessageId = eventId

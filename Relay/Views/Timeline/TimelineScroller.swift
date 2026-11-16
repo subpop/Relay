@@ -104,12 +104,16 @@ final class TimelineScroller {
     ///
     /// The actual `ScrollPosition` mutation is always deferred to the next
     /// main-actor turn, matching ``scrollToEnd``.
-    func scrollToRow(id: String) {
+    func scrollToRow(id: String, animated: Bool = true) {
         guard !isInitialLoad || isScrollable else { return }
         let completedInitialLoad = isInitialLoad
         Task {
             if completedInitialLoad { isInitialLoad = false }
-            withAnimation(.easeOut(duration: scrollDuration)) {
+            if animated {
+                withAnimation(.easeOut(duration: scrollDuration)) {
+                    position.scrollTo(id: id, anchor: .center)
+                }
+            } else {
                 position.scrollTo(id: id, anchor: .center)
             }
         }

@@ -380,18 +380,19 @@ final class TimelineViewModel {
     }
 
     /// Candidate event IDs for anchoring the live timeline near the user's
-    /// reading position. Prefer the fully-read marker, then fall back to the
-    /// first unread marker when they differ.
+    /// reading position. Prefer the first unread marker so the unread divider
+    /// is visible on first paint; fall back to the fully-read marker when they
+    /// differ.
     nonisolated static func liveAnchorCandidates(
         fullyReadEventId: String?, firstUnreadEventId: String?
     ) -> [String] {
         var candidates: [String] = []
-        if let fullyReadEventId {
-            candidates.append(fullyReadEventId)
-        }
-        if let firstUnreadEventId,
-           firstUnreadEventId != fullyReadEventId {
+        if let firstUnreadEventId {
             candidates.append(firstUnreadEventId)
+        }
+        if let fullyReadEventId,
+           fullyReadEventId != firstUnreadEventId {
+            candidates.append(fullyReadEventId)
         }
         return candidates
     }

@@ -312,9 +312,9 @@ struct RelayRoomTests {
         #expect(TimelineViewModel.windowAnchor(snapshot: [], storedAnchor: "$a") == nil)
     }
 
-    @Test func liveAnchorCandidatesPreferFullyReadThenUnread() {
+    @Test func liveAnchorCandidatesPreferUnreadThenFullyRead() {
         #expect(TimelineViewModel.liveAnchorCandidates(
-            fullyReadEventId: "$fr", firstUnreadEventId: "$u") == ["$fr", "$u"])
+            fullyReadEventId: "$fr", firstUnreadEventId: "$u") == ["$u", "$fr"])
     }
 
     @Test func liveAnchorCandidatesDeduplicateAndDropNils() {
