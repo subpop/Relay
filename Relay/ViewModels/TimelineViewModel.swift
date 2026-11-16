@@ -472,15 +472,25 @@ final class TimelineViewModel {
         isLoading = false
     }
 
-    /// Try to place the live timeline around the user's reading position,
-    /// returning the anchor event ID when one can be surfaced locally.
+    /// Try to place the timeline around the user's reading position,
+    /// returning the anchor event ID when one can be surfaced.
+    ///
+    /// First attempts to align the live window by back-paginating. If the
+    /// anchor still can't be surfaced there, falls back to focused mode so room
+    /// open lands at the unread/read position instead of newest.
     func alignLiveTimelineToReadMarker() async -> String? {
         let room = client.storedRoom(roomID)
         let candidates = Self.liveAnchorCandidates(
             fullyReadEventId: room?.fullyReadEventId?.value,
             firstUnreadEventId: room?.firstUnreadEventId?.value)
         for eventId in candidates {
-            if await ensureEventVisibleInLiveWindow(eventId: eventId) {
+            if await ensureEventVisibleInLiveWindow(eventId: eventId, maxPages: 24) {
+                return eventId
+            }
+        }
+        for eventId in candidates {
+            await focusOnEvent(eventId: eventId)
+            if renderedEvents.contains(where: { $0.eventId.value == eventId }) {
                 return eventId
             }
         }
