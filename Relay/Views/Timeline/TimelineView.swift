@@ -651,7 +651,6 @@ struct TimelineView: View {
     private func markAsReadIfNeeded() {
         guard !readOnly else { return }
         let canAutoMarkFromVisibility = isLatestMessageVisible
-            && (displayedUnreadMessageId == nil || isUnreadMarkerVisible)
         guard allowMarkAsRead || canAutoMarkFromVisibility else { return }
         readReceiptTracker.markReadIfNeeded(
             isNearEnd: isNearEnd || canAutoMarkFromVisibility,
