@@ -66,6 +66,9 @@ final class TimelineViewModel {
     /// per-refresh render work bounded for marathon scrollers while
     /// staying far above the base window.
     private static let maxWindowSize = 2000
+    /// Initial store-backed slice size around the unread/read anchor.
+    private static let anchoredOlderLimit = 220
+    private static let anchoredNewerLimit = 280
 
     private nonisolated let timelineLogger = Logger(
         subsystem: "app.subpop.Relay", category: "Timeline")
@@ -472,12 +475,53 @@ final class TimelineViewModel {
         isLoading = false
     }
 
-    /// Try to place the timeline around the user's reading position,
-    /// returning the anchor event ID when one can be surfaced.
-    ///
-    /// First attempts to align the live window by back-paginating. If the
-    /// anchor still can't be surfaced there, falls back to focused mode so room
-    /// open lands at the unread/read position instead of newest.
+    /// Load the timeline from local SwiftData around the room's unread/read
+    /// anchor when available. Returns true when anchored load succeeded.
+    func loadTimelineAnchoredToReadMarker() async -> Bool {
+        isLoading = true
+        windowSize = Self.liveLimit
+        if client.localUserId == nil {
+            timelineLogger.warning("Local user ID unavailable; own messages render as incoming")
+        }
+        let room = client.storedRoom(roomID)
+        let candidates = Self.liveAnchorCandidates(
+            fullyReadEventId: room?.fullyReadEventId?.value,
+            firstUnreadEventId: room?.firstUnreadEventId?.value)
+        for eventId in candidates {
+            guard let payload = await client.timelinePayloadAround(
+                roomId: roomID,
+                anchorEventId: eventId,
+                olderLimit: Self.anchoredOlderLimit,
+                newerLimit: Self.anchoredNewerLimit)
+            else { continue }
+            let nextMembers = await client.roomMembersMap(roomId: roomID)
+            let nextRenderedEvents = ObservableTimelineEvent.render(
+                payload.snapshot,
+                members: nextMembers,
+                localUser: client.localUserId,
+                highlightKeywords: highlights,
+                sendStates: payload.sendStates)
+            let nextDecryptionFailures = await decryptionFailureMap(for: nextRenderedEvents)
+            snapshot = payload.snapshot
+            members = nextMembers
+            sendStates = payload.sendStates
+            renderedEvents = nextRenderedEvents
+            decryptionFailures = nextDecryptionFailures
+            firstUnreadMessageId = Self.windowAnchor(
+                snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
+            historyCursor = payload.prevBatch.map { BatchToken($0) }
+            historyGapEventId = payload.historyGapEventId.map { EventId(unchecked: $0) }
+            hasMoreHistory = historyCursor != nil || historyGapEventId != nil
+            await refreshTypingUsers()
+            isLoading = false
+            return true
+        }
+        isLoading = false
+        return false
+    }
+
+    /// Try to place the live timeline around the user's reading position,
+    /// returning the anchor event ID when one can be surfaced locally.
     func alignLiveTimelineToReadMarker() async -> String? {
         let room = client.storedRoom(roomID)
         let candidates = Self.liveAnchorCandidates(
@@ -485,12 +529,6 @@ final class TimelineViewModel {
             firstUnreadEventId: room?.firstUnreadEventId?.value)
         for eventId in candidates {
             if await ensureEventVisibleInLiveWindow(eventId: eventId, maxPages: 24) {
-                return eventId
-            }
-        }
-        for eventId in candidates {
-            await focusOnEvent(eventId: eventId)
-            if renderedEvents.contains(where: { $0.eventId.value == eventId }) {
                 return eventId
             }
         }

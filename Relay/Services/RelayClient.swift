@@ -3918,6 +3918,22 @@ final class RelayClient {
         return await index.timelinePayload(roomId: roomId.value, limit: limit)
     }
 
+    /// Store-backed payload centered on one anchor event. Returns nil when the
+    /// anchor is not available in local SwiftData.
+    func timelinePayloadAround(
+        roomId: RoomId,
+        anchorEventId: String,
+        olderLimit: Int,
+        newerLimit: Int
+    ) async -> TimelinePayload? {
+        guard let index = roomIndex else { return nil }
+        return await index.timelinePayloadAround(
+            roomId: roomId.value,
+            anchorEventId: anchorEventId,
+            olderLimit: olderLimit,
+            newerLimit: newerLimit)
+    }
+
     /// Marker and pagination-cursor columns for a room, fetched off the
     /// main actor. For detached windows that don't need the event window.
     func markerSummary(roomId: RoomId) async -> (

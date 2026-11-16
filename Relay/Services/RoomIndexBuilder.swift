@@ -237,6 +237,60 @@ actor RoomIndexBuilder {
         return payload
     }
 
+    /// Store-backed payload centered on one anchor event ID.
+    ///
+    /// Returns nil when the anchor is not present in local SwiftData.
+    func timelinePayloadAround(
+        roomId: String,
+        anchorEventId: String,
+        olderLimit: Int,
+        newerLimit: Int
+    ) -> TimelinePayload? {
+        let state = roomIndexSignposter.beginInterval(
+            "fetchTimelinePayloadAround", id: roomIndexSignposter.makeSignpostID(),
+            "older \(olderLimit) newer \(newerLimit)")
+        guard let anchor = eventRow(roomId: roomId, eventId: anchorEventId) else {
+            roomIndexSignposter.endInterval("fetchTimelinePayloadAround", state, "anchor missing")
+            return nil
+        }
+
+        let olderRowsDesc = olderRows(roomId: roomId, beforeTs: anchor.ts, limit: olderLimit)
+        let newerRowsAsc = newerRows(roomId: roomId, afterTs: anchor.ts, limit: newerLimit)
+        var rows = Array(olderRowsDesc.reversed())
+        rows.append(anchor)
+        rows.append(contentsOf: newerRowsAsc)
+
+        let decoder = JSONDecoder()
+        var snapshot: [MessageEvent] = []
+        snapshot.reserveCapacity(rows.count)
+        var sendStates: [EventId: SendState] = [:]
+        for row in rows {
+            if let event = row.messageEvent(decoder: decoder) {
+                snapshot.append(event)
+            }
+            switch row.sendState {
+            case "pending":
+                sendStates[EventId(unchecked: row.eventId)] = .pending
+            case "failed":
+                sendStates[EventId(unchecked: row.eventId)] = .failed(
+                    row.sendFailureReason ?? "Send failed")
+            default:
+                break
+            }
+        }
+
+        let marker = markerSummary(roomId: roomId)
+        let payload = TimelinePayload(
+            snapshot: snapshot,
+            sendStates: sendStates,
+            firstUnreadEventId: marker.firstUnreadEventId,
+            prevBatch: marker.prevBatch,
+            historyGapEventId: marker.historyGapEventId)
+        roomIndexSignposter.endInterval(
+            "fetchTimelinePayloadAround", state, "stored rows \(rows.count)")
+        return payload
+    }
+
     /// Marker and pagination-cursor columns for one room (single indexed
     /// row fetch, for detached windows that don't need the event window).
     func markerSummary(roomId: String) -> (
@@ -266,6 +320,37 @@ actor RoomIndexBuilder {
                 sortBy: [SortDescriptor(\.ts, order: .reverse)])
         }
         descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// One stored event row by room+event ID.
+    private func eventRow(roomId: String, eventId: String) -> SDRoomEvent? {
+        let id = roomId
+        let target = eventId
+        let descriptor = FetchDescriptor<SDRoomEvent>(
+            predicate: #Predicate { $0.roomId == id && $0.eventId == target })
+        return try? context.fetch(descriptor).first
+    }
+
+    /// Older rows than one timestamp, newest first (bounded).
+    private func olderRows(roomId: String, beforeTs: Int, limit: Int) -> [SDRoomEvent] {
+        let id = roomId
+        let ts = beforeTs
+        var descriptor = FetchDescriptor<SDRoomEvent>(
+            predicate: #Predicate { $0.roomId == id && $0.ts < ts },
+            sortBy: [SortDescriptor(\.ts, order: .reverse)])
+        descriptor.fetchLimit = max(limit, 0)
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Newer rows than one timestamp, oldest first (bounded).
+    private func newerRows(roomId: String, afterTs: Int, limit: Int) -> [SDRoomEvent] {
+        let id = roomId
+        let ts = afterTs
+        var descriptor = FetchDescriptor<SDRoomEvent>(
+            predicate: #Predicate { $0.roomId == id && $0.ts > ts },
+            sortBy: [SortDescriptor(\.ts, order: .forward)])
+        descriptor.fetchLimit = max(limit, 0)
         return (try? context.fetch(descriptor)) ?? []
     }
 

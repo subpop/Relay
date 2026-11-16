@@ -287,19 +287,17 @@ struct TimelineView: View {
 
                 let loadTimelineState = timelineViewSignposter.beginInterval(
                     "loadStoredTimeline", id: timelineViewSignposter.makeSignpostID())
-                await viewModel.loadTimeline()
+                if !readOnly, !alwaysLoadNewest {
+                    let anchored = await viewModel.loadTimelineAnchoredToReadMarker()
+                    if !anchored {
+                        await viewModel.loadTimeline()
+                    }
+                } else {
+                    await viewModel.loadTimeline()
+                }
                 timelineViewSignposter.endInterval("loadStoredTimeline", loadTimelineState)
                 if !readOnly {
                     stickyUnreadMessageId = viewModel.firstUnreadMessageId
-                }
-
-                if !readOnly, !alwaysLoadNewest,
-                   let anchorEventId = await viewModel.alignLiveTimelineToReadMarker() {
-                    await scrollToEventWhenAvailable(
-                        anchorEventId,
-                        highlight: false,
-                        animated: false,
-                        settleDelay: nil)
                 }
 
                 timelineInitialLoadComplete = true
