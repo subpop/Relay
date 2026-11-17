@@ -36,8 +36,6 @@ struct TimelineScrollView: View {
     let onNearEndChanged: (Bool) -> Void
     let onPaginateBackward: () -> Void
     let onPaginateForward: () -> Void
-    /// Fires when the user begins direct scroll interaction.
-    let onUserScrollInteractionBegan: () -> Void
     /// The ID of the bottom-most (newest) message currently visible, or `nil`.
     /// Reported whenever the visible set changes.
     let onBottomMostVisibleMessageChanged: (String?) -> Void
@@ -189,13 +187,12 @@ struct TimelineScrollView: View {
                 }
             }
         }
-        .onScrollPhaseChange { oldPhase, newPhase in
+        .onScrollPhaseChange { _, newPhase in
             // Ensure scroll state mutation callbacks are deferred until the
             // next main actor pass.
             Task { @MainActor in
                 isUserScrolling = newPhase == .interacting || newPhase == .decelerating
-                if newPhase == .interacting, oldPhase != .interacting {
-                    onUserScrollInteractionBegan()
+                if newPhase == .interacting {
                     // The user grabbed control; any pending re-anchor targets
                     // a stale reading position.
                     pendingAnchor = nil

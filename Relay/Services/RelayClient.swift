@@ -3934,6 +3934,35 @@ final class RelayClient {
             newerLimit: newerLimit)
     }
 
+    /// Persist context or forward-page events without changing the room's
+    /// backward-history cursor.
+    func insertTimelineHistory(_ events: [MessageEvent], roomId: RoomId) async {
+        guard !events.isEmpty, let writer = storeWriter else { return }
+        do {
+            try await writer.insertHistory(events, roomId: roomId)
+            await scheduleRoomCacheRebuild().value
+            bumpRevision(roomId)
+        } catch {
+            relayClientLogger.debug(
+                "Timeline context insert failed room=\(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Persist an older history page and adopt its backward cursor.
+    func prependTimelineHistory(
+        _ events: [MessageEvent], roomId: RoomId, prevBatch: BatchToken?
+    ) async {
+        guard let writer = storeWriter else { return }
+        do {
+            try await writer.prependHistory(events, roomId: roomId, prevBatch: prevBatch)
+            await scheduleRoomCacheRebuild().value
+            bumpRevision(roomId)
+        } catch {
+            relayClientLogger.debug(
+                "Timeline history insert failed room=\(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Marker and pagination-cursor columns for a room, fetched off the
     /// main actor. For detached windows that don't need the event window.
     func markerSummary(roomId: RoomId) async -> (

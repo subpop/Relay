@@ -31,6 +31,9 @@ struct TimelinePayload: Sendable {
     /// trimmed range: back-pagination resumes before this event via
     /// `/context` instead.
     var historyGapEventId: String? = nil
+    /// Whether more locally stored events exist beyond the slice on each side.
+    var hasOlderStoredEvents = false
+    var hasNewerStoredEvents = false
 }
 
 /// Background builder for store-backed UI snapshots.
@@ -254,11 +257,17 @@ actor RoomIndexBuilder {
             return nil
         }
 
-        let olderRowsDesc = olderRows(roomId: roomId, beforeTs: anchor.ts, limit: olderLimit)
-        let newerRowsAsc = newerRows(roomId: roomId, afterTs: anchor.ts, limit: newerLimit)
-        var rows = Array(olderRowsDesc.reversed())
+        let olderRowsDesc = olderRows(
+            roomId: roomId, before: anchor, limit: max(olderLimit, 0) + 1)
+        let newerRowsAsc = newerRows(
+            roomId: roomId, after: anchor, limit: max(newerLimit, 0) + 1)
+        let hasOlderStoredEvents = olderRowsDesc.count > olderLimit
+        let hasNewerStoredEvents = newerRowsAsc.count > newerLimit
+        let olderRows = Array(olderRowsDesc.prefix(max(olderLimit, 0)))
+        let newerRows = Array(newerRowsAsc.prefix(max(newerLimit, 0)))
+        var rows = Array(olderRows.reversed())
         rows.append(anchor)
-        rows.append(contentsOf: newerRowsAsc)
+        rows.append(contentsOf: newerRows)
 
         let decoder = JSONDecoder()
         var snapshot: [MessageEvent] = []
@@ -285,7 +294,9 @@ actor RoomIndexBuilder {
             sendStates: sendStates,
             firstUnreadEventId: marker.firstUnreadEventId,
             prevBatch: marker.prevBatch,
-            historyGapEventId: marker.historyGapEventId)
+            historyGapEventId: marker.historyGapEventId,
+            hasOlderStoredEvents: hasOlderStoredEvents,
+            hasNewerStoredEvents: hasNewerStoredEvents)
         roomIndexSignposter.endInterval(
             "fetchTimelinePayloadAround", state, "stored rows \(rows.count)")
         return payload
@@ -313,11 +324,17 @@ actor RoomIndexBuilder {
         if messageLikeOnly {
             descriptor = FetchDescriptor<SDRoomEvent>(
                 predicate: #Predicate { $0.roomId == id && $0.isMessageLike },
-                sortBy: [SortDescriptor(\.ts, order: .reverse)])
+                sortBy: [
+                    SortDescriptor(\.ts, order: .reverse),
+                    SortDescriptor(\.eventId, order: .reverse),
+                ])
         } else {
             descriptor = FetchDescriptor<SDRoomEvent>(
                 predicate: #Predicate { $0.roomId == id },
-                sortBy: [SortDescriptor(\.ts, order: .reverse)])
+                sortBy: [
+                    SortDescriptor(\.ts, order: .reverse),
+                    SortDescriptor(\.eventId, order: .reverse),
+                ])
         }
         descriptor.fetchLimit = limit
         return (try? context.fetch(descriptor)) ?? []
@@ -332,24 +349,36 @@ actor RoomIndexBuilder {
         return try? context.fetch(descriptor).first
     }
 
-    /// Older rows than one timestamp, newest first (bounded).
-    private func olderRows(roomId: String, beforeTs: Int, limit: Int) -> [SDRoomEvent] {
+    /// Rows before an event in stable `(timestamp, event ID)` order, newest first.
+    private func olderRows(roomId: String, before event: SDRoomEvent, limit: Int) -> [SDRoomEvent] {
         let id = roomId
-        let ts = beforeTs
+        let ts = event.ts
+        let eventId = event.eventId
         var descriptor = FetchDescriptor<SDRoomEvent>(
-            predicate: #Predicate { $0.roomId == id && $0.ts < ts },
-            sortBy: [SortDescriptor(\.ts, order: .reverse)])
+            predicate: #Predicate {
+                $0.roomId == id && ($0.ts < ts || ($0.ts == ts && $0.eventId < eventId))
+            },
+            sortBy: [
+                SortDescriptor(\.ts, order: .reverse),
+                SortDescriptor(\.eventId, order: .reverse),
+            ])
         descriptor.fetchLimit = max(limit, 0)
         return (try? context.fetch(descriptor)) ?? []
     }
 
-    /// Newer rows than one timestamp, oldest first (bounded).
-    private func newerRows(roomId: String, afterTs: Int, limit: Int) -> [SDRoomEvent] {
+    /// Rows after an event in stable `(timestamp, event ID)` order, oldest first.
+    private func newerRows(roomId: String, after event: SDRoomEvent, limit: Int) -> [SDRoomEvent] {
         let id = roomId
-        let ts = afterTs
+        let ts = event.ts
+        let eventId = event.eventId
         var descriptor = FetchDescriptor<SDRoomEvent>(
-            predicate: #Predicate { $0.roomId == id && $0.ts > ts },
-            sortBy: [SortDescriptor(\.ts, order: .forward)])
+            predicate: #Predicate {
+                $0.roomId == id && ($0.ts > ts || ($0.ts == ts && $0.eventId > eventId))
+            },
+            sortBy: [
+                SortDescriptor(\.ts, order: .forward),
+                SortDescriptor(\.eventId, order: .forward),
+            ])
         descriptor.fetchLimit = max(limit, 0)
         return (try? context.fetch(descriptor)) ?? []
     }

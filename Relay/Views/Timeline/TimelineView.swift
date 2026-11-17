@@ -75,9 +75,6 @@ struct TimelineView: View {
     @State private var stickyUnreadMessageId: String?
     @State private var hasSeenUnreadMarker = false
     @State private var hideUnreadMarker = false
-    @State private var allowMarkAsRead = true
-    @State private var allowFullyReadTracking = true
-    @State private var isUnreadMarkerVisible = false
     @State private var memberRefreshTask: Task<Void, Never>?
     @State private var memberSnapshotTask: Task<Void, Never>?
     @State private var anchoredMessageId: String?
@@ -172,14 +169,9 @@ struct TimelineView: View {
         self.onRoomTap = onRoomTap
         self.readOnly = readOnly
 
-        // When the room will open focused on the unread spot rather than
-        // the live tail (`behavior.alwaysLoadNewest` off), seed `isNearEnd`
-        // to false so the unread-divider gate doesn't briefly think we're
-        // at the bottom before the first real scroll-position report.
+        // Do not treat the initial unread-context window as the live edge.
         let alwaysLoadNewest = UserDefaults.standard.object(forKey: "behavior.alwaysLoadNewest") as? Bool ?? true
         _isNearEnd = State(wrappedValue: alwaysLoadNewest)
-        _allowMarkAsRead = State(wrappedValue: false)
-        _allowFullyReadTracking = State(wrappedValue: false)
     }
 
     var body: some View {
@@ -206,12 +198,13 @@ struct TimelineView: View {
                         onSendWillScroll: {
                             pendingScrollToEnd = true
                             hideUnreadMarker = true
-                            allowMarkAsRead = true
-                            allowFullyReadTracking = true
                             // Focused windows don't render the local echo;
                             // rejoin the live window so the new send shows.
-                            if case .focused = viewModel.timelineFocus {
+                            switch viewModel.timelineFocus {
+                            case .focused, .unread:
                                 Task { await viewModel.returnToLive() }
+                            case .live, .thread:
+                                break
                             }
                         },
                         onHeightChanged: { height in
@@ -249,6 +242,13 @@ struct TimelineView: View {
             .task {
                 let initialLoadState = timelineViewSignposter.beginInterval(
                     "roomTimelineInitialLoad", id: timelineViewSignposter.makeSignpostID())
+                timelineInitialLoadComplete = false
+                stickyUnreadMessageId = nil
+                hasSeenUnreadMarker = false
+                hideUnreadMarker = false
+                lastBottomRowId = nil
+                isLatestMessageVisible = false
+                isNearEnd = alwaysLoadNewest
                 if !readOnly {
                     compose = composeDraftStore.draft(for: roomId)
                 }
@@ -287,9 +287,10 @@ struct TimelineView: View {
 
                 let loadTimelineState = timelineViewSignposter.beginInterval(
                     "loadStoredTimeline", id: timelineViewSignposter.makeSignpostID())
+                var initialAnchorEventId: String?
                 if !readOnly, !alwaysLoadNewest {
-                    let anchored = await viewModel.loadTimelineAnchoredToReadMarker()
-                    if !anchored {
+                    initialAnchorEventId = await viewModel.loadTimelineAnchoredToReadMarker()
+                    if initialAnchorEventId == nil {
                         await viewModel.loadTimeline()
                     }
                 } else {
@@ -300,6 +301,13 @@ struct TimelineView: View {
                     stickyUnreadMessageId = viewModel.firstUnreadMessageId
                 }
 
+                if let initialAnchorEventId,
+                   viewModel.events.contains(where: {
+                       $0.eventId.value == initialAnchorEventId
+                   }) {
+                    scroller.positionAtRowInitially(id: initialAnchorEventId)
+                    await Task.yield()
+                }
                 timelineInitialLoadComplete = true
                 scroller.didCompleteInitialLoad()
                 timelineViewSignposter.endInterval("roomTimelineInitialLoad", initialLoadState)
@@ -333,6 +341,7 @@ struct TimelineView: View {
                 }
             }
             .onDisappear {
+                viewModel.cancelUnreadContextWarmup()
                 if !readOnly, sendTypingNotifications {
                     Task { await viewModel.setTyping(false) }
                 }
@@ -444,39 +453,34 @@ struct TimelineView: View {
             onNearEndChanged: { nearEnd in
                 isNearEnd = nearEnd
                 markAsReadIfNeeded()
+                guard timelineInitialLoadComplete else { return }
                 Task { await viewModel.promoteToLiveIfAtEnd(isNearEnd: nearEnd) }
             }, onPaginateBackward: {
-                guard !viewModel.isLoadingMore, !viewModel.hasReachedStart else { return }
+                guard timelineInitialLoadComplete,
+                      !viewModel.isLoadingMore,
+                      !viewModel.hasReachedStart
+                else { return }
                 Task { await viewModel.loadMoreHistory() }
             },
             onPaginateForward: {
-                guard !viewModel.isLoadingMore, !viewModel.hasReachedEnd else { return }
+                guard timelineInitialLoadComplete,
+                      !viewModel.isLoadingMore,
+                      !viewModel.hasReachedEnd
+                else { return }
                 Task {
                     await viewModel.loadMoreFuture()
                     await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
+                    markAsReadIfNeeded()
                 }
-            },
-            onUserScrollInteractionBegan: {
-                allowMarkAsRead = true
-                allowFullyReadTracking = true
             },
             onBottomMostVisibleMessageChanged: { rowID in
                 lastBottomRowId = rowID
-                isLatestMessageVisible = rowID == viewModel.messageRows.last?.id
-                guard allowFullyReadTracking else { return }
-                if displayedUnreadMessageId != nil,
-                   !hasSeenUnreadMarker {
-                    // Ignore transient bottom flashes before the unread marker
-                    // has ever been visible in this room session.
-                    return
-                }
-                guard let rowID,
-                      let row = viewModel.messageRows.first(where: { $0.id == rowID })
-                else { return }
-                advanceFullyReadMarker(to: row.message.eventId.value)
+                isLatestMessageVisible = TimelineViewModel.shouldMarkReadAtLatest(
+                    latestRowVisible: rowID == viewModel.messageRows.last?.id,
+                    timelineReachedLatest: viewModel.isAtLatestEdge)
+                markAsReadIfNeeded()
             },
             onUnreadMarkerVisibilityChanged: { visible in
-                isUnreadMarkerVisible = visible
                 if visible {
                     hasSeenUnreadMarker = true
                 } else if hasSeenUnreadMarker {
@@ -484,6 +488,7 @@ struct TimelineView: View {
                 }
             }
         )
+        .opacity(timelineInitialLoadComplete ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "timeline")
         .onGeometryChange(for: CGRect.self) { proxy in
@@ -497,19 +502,23 @@ struct TimelineView: View {
         }
         #endif
         .overlay {
-            TimelinePaginationOverlay(
-                isLoading: viewModel.isLoading,
-                isLoadingMore: viewModel.isLoadingMore,
-                isEmpty: viewModel.messageRows.isEmpty,
-                isLive: viewModel.timelineFocus == .live,
-                isNearEnd: isNearEnd,
-                onScrollToEnd: {
-                    allowMarkAsRead = true
-                    allowFullyReadTracking = true
-                    scroller.scrollToEnd()
-                },
-                onReturnToLive: { Task { await viewModel.returnToLive() } }
-            )
+            if timelineInitialLoadComplete {
+                TimelinePaginationOverlay(
+                    isLoading: viewModel.isLoading,
+                    isLoadingMore: viewModel.isLoadingMore,
+                    isEmpty: viewModel.messageRows.isEmpty,
+                    isLive: viewModel.timelineFocus == .live,
+                    isNearEnd: isNearEnd,
+                    onScrollToEnd: {
+                        scroller.scrollToEnd()
+                    },
+                    onReturnToLive: { Task { await viewModel.returnToLive() } }
+                )
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .overlay {
             TimelineReactionPickerOverlay(
@@ -549,6 +558,9 @@ struct TimelineView: View {
                 markAsReadIfNeeded()
             }
         }
+        .onChange(of: viewModel.hasReachedEnd) {
+            markAsReadIfNeeded()
+        }
         .task {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 isAppActive = true
@@ -565,7 +577,7 @@ struct TimelineView: View {
             // catch up the fully-read marker to the last visible row (its
             // change handler doesn't refire on reactivation alone).
             markAsReadIfNeeded()
-            if allowFullyReadTracking,
+            if isLatestMessageVisible,
                let rowID = lastBottomRowId,
                let row = viewModel.messageRows.first(where: { $0.id == rowID }) {
                 advanceFullyReadMarker(to: row.message.eventId.value)
@@ -649,11 +661,17 @@ struct TimelineView: View {
     // MARK: - Read Receipts
 
     private func markAsReadIfNeeded() {
-        guard !readOnly else { return }
-        let canAutoMarkFromVisibility = isLatestMessageVisible
-        guard allowMarkAsRead || canAutoMarkFromVisibility else { return }
+        guard !readOnly, timelineInitialLoadComplete else { return }
+        isLatestMessageVisible = TimelineViewModel.shouldMarkReadAtLatest(
+            latestRowVisible: lastBottomRowId == viewModel.messageRows.last?.id,
+            timelineReachedLatest: viewModel.isAtLatestEdge)
+        guard isLatestMessageVisible else { return }
+        if let lastBottomRowId,
+           let row = viewModel.messageRows.first(where: { $0.id == lastBottomRowId }) {
+            advanceFullyReadMarker(to: row.message.eventId.value)
+        }
         readReceiptTracker.markReadIfNeeded(
-            isNearEnd: isNearEnd || canAutoMarkFromVisibility,
+            isNearEnd: true,
             isActive: { [self] in isForeground },
             markAsRead: { [self] in
                 await client.markAsRead(roomId: roomId, sendReceipt: sendReadReceipts)

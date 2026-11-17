@@ -119,6 +119,16 @@ final class TimelineScroller {
         }
     }
 
+    /// Positions the first loaded window before the timeline is revealed.
+    ///
+    /// Called from the initial-load task, not from a view-graph callback, so
+    /// the initial unread anchor can be set without an animation or a tail
+    /// frame first appearing.
+    func positionAtRowInitially(id: String) {
+        position.scrollTo(id: id, anchor: .center)
+        isInitialLoad = false
+    }
+
     /// Re-pins a row to the viewport top after older history prepends above it.
     ///
     /// Unlike ``scrollToRow``, this is non-animated: position preservation

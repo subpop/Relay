@@ -546,4 +546,75 @@ struct RelayRoomTests {
         #expect(marker.firstUnreadEventId == "$m2")
         #expect(marker.prevBatch == "s1")
     }
+
+    @Test func anchoredTimelineSliceIncludesTimestampTiesInStableOrder() async throws {
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let room = SDRoom(
+            roomId: "!test:example.com", membership: Membership.join.rawValue,
+            firstUnreadEventId: "$b", prevBatch: "older")
+        context.insert(room)
+        for (id, body) in [("$a", "A"), ("$b", "B"), ("$c", "C")] {
+            let event = textEvent(
+                id: id, sender: "@alice:example.com", body: body, ts: 1_000)
+            let row = SDRoomEvent(
+                roomId: "!test:example.com",
+                eventId: event.eventId.value,
+                ts: event.originServerTs,
+                type: event.type,
+                sender: event.sender.value,
+                content: try JSONEncoder().encode(event.content),
+                searchableText: body,
+                isMessageLike: true)
+            row.room = room
+            context.insert(row)
+        }
+        try context.save()
+
+        let builder = RoomIndexBuilder(container: container, localUser: nil)
+        let payload = try #require(await builder.timelinePayloadAround(
+            roomId: "!test:example.com",
+            anchorEventId: "$b",
+            olderLimit: 1,
+            newerLimit: 1))
+
+        #expect(payload.snapshot.map(\.eventId.value) == ["$a", "$b", "$c"])
+        #expect(!payload.hasOlderStoredEvents)
+        #expect(!payload.hasNewerStoredEvents)
+        #expect(payload.firstUnreadEventId == "$b")
+        #expect(payload.prevBatch == "older")
+    }
+
+    @Test func anchoredTimelineSliceReportsMoreStoredEvents() async throws {
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let room = SDRoom(roomId: "!test:example.com", membership: Membership.join.rawValue)
+        context.insert(room)
+        for (id, ts) in [("$a", 1_000), ("$b", 2_000), ("$c", 3_000)] {
+            let event = textEvent(
+                id: id, sender: "@alice:example.com", body: id, ts: ts)
+            let row = SDRoomEvent(
+                roomId: "!test:example.com",
+                eventId: event.eventId.value,
+                ts: event.originServerTs,
+                type: event.type,
+                sender: event.sender.value,
+                content: try JSONEncoder().encode(event.content),
+                isMessageLike: true)
+            row.room = room
+            context.insert(row)
+        }
+        try context.save()
+
+        let builder = RoomIndexBuilder(container: container, localUser: nil)
+        let payload = try #require(await builder.timelinePayloadAround(
+            roomId: "!test:example.com",
+            anchorEventId: "$b",
+            olderLimit: 0,
+            newerLimit: 0))
+
+        #expect(payload.snapshot.map(\.eventId.value) == ["$b"])
+        #expect(payload.hasOlderStoredEvents)
+        #expect(payload.hasNewerStoredEvents)
+    }
 }
