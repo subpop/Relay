@@ -14,9 +14,6 @@
 
 import AppKit
 import os
-
-private let logger = Logger(subsystem: "app.subpop.Relay", category: "ShieldResizeGuard")
-
 /// Restores a window's frame after macOS shrinks it for the Downtime shield.
 ///
 /// When Downtime turns on, the system resizes a blocked app's windows to the
@@ -49,7 +46,7 @@ final class ShieldResizeGuard {
         else { return }
         shrunkWindows.remove(id)
         guard let frame = lastFrames[id] else { return }
-        logger.info("Restoring window frame \(NSStringFromRect(frame), privacy: .public) after shield resize")
+        RelayLog.app.info("Restoring window frame=\(NSStringFromRect(frame), privacy: .public) after shield resize")
         window.setFrame(frame, display: true)
     }
 }

@@ -26,8 +26,6 @@ import RelayShared
 import SwiftData
 import UserNotifications
 
-private nonisolated let relayClientLogger = Logger(
-    subsystem: "app.subpop.Relay", category: "RelayClient")
 private nonisolated let syncSignposter = OSSignposter(
     subsystem: "app.subpop.Relay.performance", category: "SyncStore")
 
@@ -496,7 +494,7 @@ final class RelayClient {
                 forName: NSApplication.willTerminateNotification, object: nil,
                 queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
-                        relayClientLogger.debug("App will terminate")
+                        RelayLog.app.debug("App will terminate")
                         // Best effort: settle any debounced crypto
                         // writes so a quit inside the loss window
                         // cannot drop ratchet state, and land any
@@ -553,13 +551,13 @@ final class RelayClient {
         do {
             data = try await keychain.load(sessionKey)
         } catch {
-            relayClientLogger.error(
-                "Saved session unreadable (keychain load failed); staying logged out: \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.error(
+                "Saved session unreadable (keychain load failed); staying logged out: \(error.localizedDescription, privacy: .private)")
             authState = .loggedOut
             return
         }
         guard let data else {
-            relayClientLogger.info("No saved session in keychain")
+            RelayLog.session.info("No saved session in keychain")
             authState = .loggedOut
             return
         }
@@ -567,11 +565,11 @@ final class RelayClient {
             let stored = try? JSONDecoder().decode(StoredSession.self, from: data),
             let homeserver = URL(string: stored.homeserver)
         else {
-            relayClientLogger.error("Saved session present but undecodable; staying logged out")
+            RelayLog.session.error("Saved session present but undecodable; staying logged out")
             authState = .loggedOut
             return
         }
-        relayClientLogger.debug(
+        RelayLog.session.debug(
             "Session loaded refreshToken=\(Self.fingerprint(of: stored.refreshToken), privacy: .public)")
         let deviceId = DeviceId(stored.deviceId)
         let client = await MatrixClient.restore(
@@ -595,8 +593,8 @@ final class RelayClient {
             await persistSessionLoudly(
                 for: client, context: "reconcile", generation: generation)
         } catch {
-            relayClientLogger.warning(
-                "Identity reconciliation failed, using stored user ID: \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.warning(
+                "Identity reconciliation failed, using stored user ID: \(error.localizedDescription, privacy: .private)")
         }
         await adopt(client: client, userId: client.userId?.value ?? stored.userId)
     }
@@ -620,11 +618,11 @@ final class RelayClient {
                 return
             }
             try await persistSession(for: client, generation: generation)
-            relayClientLogger.info("Signed in as \(userId, privacy: .public)")
+            RelayLog.session.info("Signed in as \(userId, privacy: .private(mask: .hash))")
             await adopt(client: client, userId: userId)
         } catch {
-            relayClientLogger.error(
-                "Sign-in failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.error(
+                "Sign-in failed: \(error.localizedDescription, privacy: .private)")
             authState = .error(error.localizedDescription)
         }
     }
@@ -720,7 +718,7 @@ final class RelayClient {
             MatrixStore.removeStoreFiles(file: file)
         }
         UserDefaults.standard.removeObject(forKey: "selectedRoomId")
-        relayClientLogger.info("Signed out (reason: \(reason, privacy: .public))")
+        RelayLog.session.info("Signed out (reason: \(reason, privacy: .public))")
         if let client {
             // Wipe first: `logout()` clears the user ID the wipe needs.
             await client.deleteLocalCryptoMaterial()
@@ -751,8 +749,8 @@ final class RelayClient {
             didFinishStartupSync = true
             startSyncLoop()
         } catch {
-            relayClientLogger.error(
-                "Resync after cache clear failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.sync.error(
+                "Resync after cache clear failed: \(error.localizedDescription, privacy: .private)")
             if Self.isSessionInvalidation(error) {
                 handleRemoteSignOut(softLogout: Self.softLogoutHint(error), source: "cache resync")
             } else {
@@ -832,8 +830,8 @@ final class RelayClient {
                         try await accountData.setDirectRoom(
                             joinedRoomId, for: userId, isDirect: true)
                     } catch {
-                        relayClientLogger.warning(
-                            "m.direct auto-mark failed for \(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        RelayLog.messaging.warning(
+                            "m.direct auto-mark failed for \(roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
                     }
                 }
             }
@@ -914,16 +912,16 @@ final class RelayClient {
                 receiptType: Self.receiptType(sendReceipt: sendReceipt))
             receiptSent = true
         } catch {
-            relayClientLogger.warning(
-                "Read receipt send failed room=\(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Read receipt send failed room=\(roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
         var fullyReadSent = false
         do {
             try await client.accountData.setFullyRead(matrixRoomId, eventId: latestEventId)
             fullyReadSent = true
         } catch {
-            relayClientLogger.warning(
-                "Fully-read marker send failed room=\(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Fully-read marker send failed room=\(roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
         // Record only on success: a failed mark must stay retryable, or the
         // dedupe above suppresses it until a new message arrives and the
@@ -1102,8 +1100,8 @@ final class RelayClient {
         guard !loggedMediaFailures.contains(key) else { return }
         loggedMediaFailures.insert(key)
         Task {
-            relayClientLogger.debug(
-                "Media \(operation, privacy: .public) failed for \(mxcURL, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.media.debug(
+                "Media \(operation, privacy: .public) failed for \(mxcURL, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -1273,8 +1271,8 @@ final class RelayClient {
         do {
             snapshot = try await client.notifications.notificationModeSnapshot()
         } catch {
-            relayClientLogger.warning(
-                "Push-rules fetch failed; falling back to defaults: \(error.localizedDescription, privacy: .public)")
+            RelayLog.app.warning(
+                "Push-rules fetch failed; falling back to defaults: \(error.localizedDescription, privacy: .private)")
             snapshot = nil
         }
         notificationKeywords = snapshot?.keywords ?? []
@@ -1403,8 +1401,8 @@ final class RelayClient {
         do {
             advertisedUploadLimit = try await client.media.config().uploadSize
         } catch {
-            relayClientLogger.warning(
-                "Media config lookup failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.media.warning(
+                "Media config lookup failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -1454,8 +1452,8 @@ final class RelayClient {
             activeVerificationSession = try await acceptVerificationRequest(request)
             shouldPresentVerificationSheet = true
         } catch {
-            relayClientLogger.error(
-                "Verification accept failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.error(
+                "Verification accept failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -1498,15 +1496,15 @@ final class RelayClient {
             guard let peerDevice = await session.peerDeviceId else { return .verified }
             try await client.crossSigning.signDevice(
                 userId: userId, deviceId: DeviceId(peerDevice))
-            relayClientLogger.info(
-                "Signed peer device \(userId, privacy: .public):\(peerDevice, privacy: .public)")
+            RelayLog.session.info(
+                "Signed peer device \(userId, privacy: .private(mask: .hash)):\(peerDevice, privacy: .private(mask: .hash))")
             return .verified
         }
         let peerDevice = await session.peerDeviceId
         _ = try await client.secrets.requestSecrets(
             from: userId, deviceId: peerDevice)
-        relayClientLogger.info(
-            "Requested cross-signing secrets: approve key sharing on \(peerDevice ?? "your other device", privacy: .public)")
+        RelayLog.session.info(
+            "Requested cross-signing secrets: approve key sharing on \(peerDevice ?? "your other device", privacy: .private(mask: .hash))")
         return .waitingForKeyShare
     }
 
@@ -1873,8 +1871,8 @@ final class RelayClient {
         do {
             joined = try await session.join(roomId: matrixRoomId)
         } catch {
-            relayClientLogger.error(
-                "Call join failed room=\(roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.calls.error(
+                "Call join failed room=\(roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             throw error
         }
         guard let userId = client.userId else { throw RelayError.notLoggedIn }
@@ -1911,8 +1909,8 @@ final class RelayClient {
                 joinedMemberCount: details.memberCount)
             return details
         } catch {
-            relayClientLogger.warning(
-                "Full room details failed, using cached store rows: \(error.localizedDescription, privacy: .public)")
+            RelayLog.store.warning(
+                "Full room details failed, using cached store rows: \(error.localizedDescription, privacy: .private)")
             return await cachedRoomDetails(roomId: roomId)
         }
     }
@@ -2201,8 +2199,8 @@ final class RelayClient {
                 try await writer.refreshImagePacks(roomId: roomId, state: state)
             } catch {
                 imagePackRefreshedRooms.remove(roomId)
-                relayClientLogger.warning(
-                    "Image pack refresh failed: \(error.localizedDescription, privacy: .public)")
+                RelayLog.store.warning(
+                    "Image pack refresh failed: \(error.localizedDescription, privacy: .private)")
             }
         }
         let packs = try? await Task.detached(priority: .userInitiated) {
@@ -2373,8 +2371,8 @@ final class RelayClient {
                 try await client.accountData.setDirectRoom(
                     roomId, for: userId, isDirect: true)
             } catch {
-                relayClientLogger.warning(
-                    "m.direct record failed for \(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                RelayLog.messaging.warning(
+                    "m.direct record failed for \(roomId.value, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             }
         }
         return roomId.value
@@ -2420,8 +2418,8 @@ final class RelayClient {
                 try await client.accountData.setDirectRoom(
                     roomId, for: selfId, isDirect: true)
             } catch {
-                relayClientLogger.warning(
-                    "m.direct record failed for \(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                RelayLog.messaging.warning(
+                    "m.direct record failed for \(roomId.value, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             }
         }
         return roomId.value
@@ -2654,12 +2652,12 @@ final class RelayClient {
                 bumpRevision(roomId)
             }
             scheduleRoomCacheRebuild()
-            relayClientLogger.info(
+            RelayLog.store.info(
                 "Retention trim (\(retention.rawValue, privacy: .public)) pruned \(trimmed.count) rooms")
             recordActivity("Trimmed cached messages in \(trimmed.count) rooms")
         } catch {
-            relayClientLogger.error(
-                "Retention trim failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.store.error(
+                "Retention trim failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -2750,7 +2748,7 @@ final class RelayClient {
         resetActivityState()
         let isOIDC = await client.session.isOIDC
         let hasRefreshToken = await client.session.refreshToken != nil
-        relayClientLogger.debug(
+        RelayLog.session.debug(
             "Session adopted oidc=\(isOIDC, privacy: .public) hasRefreshToken=\(hasRefreshToken, privacy: .public)")
         startNetworkMonitor()
         // Publish device keys + one-time keys so peers can resolve this
@@ -2761,11 +2759,11 @@ final class RelayClient {
             try await RelayClient.bootstrapEncryption(
                 on: client, keystore: keychain)
             await client.secrets.autoload()
-            relayClientLogger.debug("Device keys published")
+            RelayLog.session.debug("Device keys published")
             recordActivity("Device keys published")
         } catch {
-            relayClientLogger.warning(
-                "Encryption bootstrap failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.warning(
+                "Encryption bootstrap failed: \(error.localizedDescription, privacy: .private)")
             recordActivity("Encryption bootstrap failed")
         }
         await client.setRoomKeySharingPolicy(.crossSignedOnly)
@@ -2776,12 +2774,12 @@ final class RelayClient {
         // immediately (see `scheduleRoomCacheRebuild()`), before sync completes.
         await openStore(for: client)
         scheduleRoomCacheRebuild()
-        relayClientLogger.debug("Store attached")
+        RelayLog.store.debug("Store attached")
         syncState = .syncing
         do {
-            relayClientLogger.debug("Starting initial sync")
+            RelayLog.sync.debug("Starting initial sync")
             try await initialSyncRoundTrip()
-            relayClientLogger.debug("Initial sync request done")
+            RelayLog.sync.debug("Initial sync request done")
             await scheduleRoomCacheRebuild().value
             // Heal rooms whose avatar update sync missed (e.g. delivered
             // only inside a timeline window): one cheap state-event fetch
@@ -2790,14 +2788,14 @@ final class RelayClient {
                 where room.avatarURL == nil && !room.presentsAsDirect
             {
                 if await healMissingAvatar(roomId: room.roomId) {
-                    relayClientLogger.info(
-                        "Healed missing room avatar room=\(room.roomId.value, privacy: .public)")
+                    RelayLog.store.info(
+                        "Healed missing room avatar room=\(room.roomId.value, privacy: .private(mask: .hash))")
                 }
             }
             await persistSessionLoudly(for: client, context: "initial sync")
             hasLoadedRooms = true
             syncState = .running
-            relayClientLogger.info("Initial sync completed")
+            RelayLog.sync.info("Initial sync completed")
             recordActivity("Initial sync completed")
             startVerificationMonitor()
             startSecretsMonitor()
@@ -2812,7 +2810,7 @@ final class RelayClient {
                     self.bumpRevision(room.roomId)
                 }
                 self.scheduleRoomCacheRebuild()
-                relayClientLogger.info(
+                RelayLog.store.info(
                     "Startup retry decrypted \(count, privacy: .public) stored events")
                 self.recordActivity("Retried decryption for stored messages")
             }
@@ -2820,11 +2818,11 @@ final class RelayClient {
             // The caller went away mid-sync (e.g. a torn-down view task),
             // not a sync failure: leave state alone, the live loop starting
             // below takes over.
-            relayClientLogger.debug("Initial sync cancelled by caller")
+            RelayLog.sync.debug("Initial sync cancelled by caller")
             recordActivity("Initial sync cancelled")
         } catch {
-            relayClientLogger.error(
-                "Initial sync failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.sync.error(
+                "Initial sync failed: \(error.localizedDescription, privacy: .private)")
             if Self.isSessionInvalidation(error) {
                 await confirmSessionInvalidation(
                     source: "initial sync", softLogout: Self.softLogoutHint(error))
@@ -2873,8 +2871,8 @@ final class RelayClient {
                             source: "sync loop", softLogout: hint)
                     }
                 } else {
-                    relayClientLogger.error(
-                        "Sync loop stopped: \(error.localizedDescription, privacy: .public)")
+                    RelayLog.sync.error(
+                        "Sync loop stopped: \(error.localizedDescription, privacy: .private)")
                     if syncState == .running {
                         syncState = .error(error.localizedDescription)
                         syncStats.recordError(error.localizedDescription)
@@ -2927,7 +2925,7 @@ final class RelayClient {
         guard let client, !remoteSignOutNoticed else { return }
         do {
             _ = try await client.auth.whoAmI()
-            relayClientLogger.warning("Sync loop ended with a live token; restarting")
+            RelayLog.sync.warning("Sync loop ended with a live token; restarting")
             recordActivity("Sync loop restarted")
             syncStopRequested = false
             startSyncLoop()
@@ -2936,8 +2934,8 @@ final class RelayClient {
                 handleRemoteSignOut(
                     softLogout: Self.softLogoutHint(error), source: "liveness probe")
             } else {
-                relayClientLogger.warning(
-                    "Sync liveness probe failed, restarting loop: \(error.localizedDescription, privacy: .public)")
+                RelayLog.sync.warning(
+                    "Sync liveness probe failed, restarting loop: \(error.localizedDescription, privacy: .private)")
                 syncStopRequested = false
                 startSyncLoop()
             }
@@ -2975,7 +2973,7 @@ final class RelayClient {
         guard let client, !remoteSignOutNoticed else { return }
         do {
             _ = try await client.auth.whoAmI()
-            relayClientLogger.warning(
+            RelayLog.session.warning(
                 "Session probe succeeded after \(source, privacy: .public); resuming sync")
             recordActivity("Session probe succeeded; sync resumed")
             await persistSessionLoudly(for: client, context: "session probe")
@@ -2988,8 +2986,8 @@ final class RelayClient {
                 handleRemoteSignOut(
                     softLogout: Self.softLogoutHint(error), source: source)
             } else {
-                relayClientLogger.error(
-                    "Session probe failed (\(source, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                RelayLog.session.error(
+                    "Session probe failed (\(source, privacy: .public)): \(error.localizedDescription, privacy: .private)")
                 syncState = .error(error.localizedDescription)
                 syncStats.recordError(error.localizedDescription)
                 recordActivity("Session probe failed")
@@ -3006,7 +3004,7 @@ final class RelayClient {
         guard remoteSignOutNoticed, let client else { return }
         do {
             _ = try await client.auth.whoAmI()
-            relayClientLogger.info("Session retry succeeded; resuming sync")
+            RelayLog.session.info("Session retry succeeded; resuming sync")
             recordActivity("Session retry succeeded; sync resumed")
             await persistSessionLoudly(for: client, context: "session retry")
             remoteSignOutNoticed = false
@@ -3016,11 +3014,11 @@ final class RelayClient {
             startSessionServices()
         } catch {
             if Self.isSessionInvalidation(error) {
-                relayClientLogger.error(
+                RelayLog.session.error(
                     "Session retry failed: token still rejected; keeping sign-out alert armed")
             } else {
-                relayClientLogger.error(
-                    "Session retry inconclusive: \(error.localizedDescription, privacy: .public)")
+                RelayLog.session.error(
+                    "Session retry inconclusive: \(error.localizedDescription, privacy: .private)")
                 remoteSignOutNoticed = false
                 syncState = .error(error.localizedDescription)
                 syncStats.recordError(error.localizedDescription)
@@ -3053,7 +3051,7 @@ final class RelayClient {
             guard let client else { return .rejected }
             let starting = await client.session.credentials
             let startingFingerprint = await Self.fingerprint(of: starting.refreshToken)
-            relayClientLogger.debug(
+            RelayLog.session.debug(
                 "Reactive token refresh starting refreshToken=\(startingFingerprint, privacy: .public)")
             do {
                 try await client.auth.refresh()
@@ -3063,8 +3061,8 @@ final class RelayClient {
             } catch {
                 let rejected = await client.session.credentials
                 let rejectedFingerprint = await Self.fingerprint(of: rejected.refreshToken)
-                relayClientLogger.warning(
-                    "Automatic session token refresh failed refreshToken=\(rejectedFingerprint, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                RelayLog.session.warning(
+                    "Automatic session token refresh failed refreshToken=\(rejectedFingerprint, privacy: .public): \(error.localizedDescription, privacy: .private)")
                 // A rejected refresh token is dead server-side: report it so
                 // the transport fails fast instead of re-attempting. Anything
                 // else (e.g. a network failure) may recover on a later pass.
@@ -3096,7 +3094,7 @@ final class RelayClient {
         Task { await stopSDKSync() }
         syncStats.recordError("Session signed out remotely")
         recordActivity("Session signed out remotely")
-        relayClientLogger.error(
+        RelayLog.session.error(
             "Access token rejected (source: \(source, privacy: .public), soft logout: \(softLogout.map(String.init(describing:)) ?? "unknown", privacy: .public)): session signed out remotely"
         )
     }
@@ -3113,7 +3111,7 @@ final class RelayClient {
         syncStopRequested = true
         syncTask?.cancel()
         syncTask = nil
-        relayClientLogger.info(
+        RelayLog.sync.info(
             "\(wantSliding ? "Switching to sliding sync" : "Switching to classic sync", privacy: .public)")
         Task {
             await client.stopSync()
@@ -3155,16 +3153,16 @@ final class RelayClient {
     private func refreshSessionTokens() async {
         guard let client else { return }
         let starting = await client.session.credentials
-        relayClientLogger.debug(
+        RelayLog.session.debug(
             "Scheduled token refresh starting refreshToken=\(Self.fingerprint(of: starting.refreshToken), privacy: .public)")
         do {
             try await client.auth.refresh()
             await persistSessionLoudly(for: client, context: "token refresh")
-            relayClientLogger.debug("Session tokens refreshed")
+            RelayLog.session.debug("Session tokens refreshed")
         } catch {
             let rejected = await client.session.credentials
-            relayClientLogger.warning(
-                "Session token refresh failed refreshToken=\(Self.fingerprint(of: rejected.refreshToken), privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.warning(
+                "Session token refresh failed refreshToken=\(Self.fingerprint(of: rejected.refreshToken), privacy: .public): \(error.localizedDescription, privacy: .private)")
             recordActivity("Session token refresh failed")
             if Self.isSessionInvalidation(error) {
                 // The refresh token is dead; the access token may still
@@ -3181,8 +3179,8 @@ final class RelayClient {
             for await event in stream {
                 switch event {
                 case .requestReceived(let request):
-                    relayClientLogger.info(
-                        "Verification request received from \(request.sender.value, privacy: .public) device \(request.deviceId, privacy: .public)")
+                    RelayLog.session.info(
+                        "Verification request received from \(request.sender.value, privacy: .private(mask: .hash)) device \(request.deviceId, privacy: .private(mask: .hash))")
                     recordActivity("Verification request received")
                     pendingVerificationRequest = IncomingVerification(
                         flowId: request.transactionId,
@@ -3194,8 +3192,8 @@ final class RelayClient {
                 case .sasReady:
                     break
                 case .failed(let transactionId, let message):
-                    relayClientLogger.error(
-                        "Verification failed \(transactionId, privacy: .public): \(message, privacy: .public)")
+                    RelayLog.session.error(
+                        "Verification failed \(transactionId, privacy: .private(mask: .hash)): \(message, privacy: .private)")
                     recordActivity("Verification failed")
                 }
             }
@@ -3210,7 +3208,7 @@ final class RelayClient {
         secretsTask = Task {
             let stream = await client.secrets.events()
             for await _ in stream {
-                relayClientLogger.info(
+                RelayLog.session.info(
                     "Cross-signing secrets received: refreshing verification state")
                 recordActivity("Cross-signing secrets received")
                 await refreshVerificationState()
@@ -3341,8 +3339,8 @@ final class RelayClient {
                 self.scheduleRoomCacheRebuild()
             } catch {
                 guard !Task.isCancelled else { return }
-                relayClientLogger.debug(
-                    "Invite history backfill failed room=\(roomKey, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                RelayLog.timeline.debug(
+                    "Invite history backfill failed room=\(roomKey, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             }
         }
     }
@@ -3353,7 +3351,7 @@ final class RelayClient {
         await typingTracker.users(in: roomId)
     }
 
-    /// Log own-membership transitions (invites, leaves) to the room-list
+    /// Log own-membership transitions (invites, leaves) to the sync
     /// category. Deltas only flow from live sync — startup history arrives
     /// via `syncOnce`, which never emits them — so this never replays.
     private func logMembershipTransitions(_ delta: SyncDelta) {
@@ -3361,15 +3359,15 @@ final class RelayClient {
         for (roomId, invite) in delta.invited {
             guard loggedInviteRoomIds.insert(roomId.value).inserted else { continue }
             let invitedName = roomDisplayName(for: roomId)
-            relayClientLogger.info(
-                "Invited to \(invitedName, privacy: .public) from \(invite.inviter?.value ?? "?", privacy: .public) room=\(roomId.value, privacy: .public)")
+            RelayLog.sync.info(
+                "Invited to \(invitedName, privacy: .private) from \(invite.inviter?.value ?? "?", privacy: .private(mask: .hash)) room=\(roomId.value, privacy: .private(mask: .hash))")
             recordActivity("Invited to \(invitedName)")
         }
         for roomId in delta.left.keys {
             guard loggedLeftRoomIds.insert(roomId.value).inserted else { continue }
             let leftName = roomDisplayName(for: roomId)
-            relayClientLogger.info(
-                "Left \(leftName, privacy: .public) room=\(roomId.value, privacy: .public)")
+            RelayLog.sync.info(
+                "Left \(leftName, privacy: .private) room=\(roomId.value, privacy: .private(mask: .hash))")
             recordActivity("Left \(leftName)")
         }
     }
@@ -3478,7 +3476,7 @@ final class RelayClient {
                 self.lastPathInterfaces = interfaces
                 self.isNetworkConnected = connected
                 if !connected {
-                    relayClientLogger.warning("Connectivity lost")
+                    RelayLog.sync.warning("Connectivity lost")
                     self.recordActivity("Connectivity lost")
                     if self.syncState == .running || self.syncState == .syncing {
                         self.syncState = .offline
@@ -3487,12 +3485,12 @@ final class RelayClient {
                     self.syncTask = nil
                 } else {
                     if self.syncState == .offline {
-                        relayClientLogger.info("Connectivity restored")
+                        RelayLog.sync.info("Connectivity restored")
                         self.recordActivity("Connectivity restored")
                         self.syncState = .running
                         self.scheduleSyncRestart(reason: "connectivity restored")
                     } else if interfacesChanged {
-                        relayClientLogger.info("Network interfaces changed")
+                        RelayLog.sync.info("Network interfaces changed")
                         self.recordActivity("Network changed")
                         self.scheduleSyncRestart(reason: "network changed")
                     }
@@ -3509,7 +3507,7 @@ final class RelayClient {
             let wakes = NSWorkspace.shared.notificationCenter.notifications(
                 named: NSWorkspace.didWakeNotification)
             for await _ in wakes {
-                relayClientLogger.info("System woke")
+                RelayLog.sync.info("System woke")
                 recordActivity("System woke")
                 scheduleSyncRestart(reason: "system wake")
                 // The keychain may have just become writable again
@@ -3543,7 +3541,7 @@ final class RelayClient {
         else { return }
         isRestartingSync = true
         defer { isRestartingSync = false }
-        relayClientLogger.info("Restarting sync: \(reason, privacy: .public)")
+        RelayLog.sync.info("Restarting sync: \(reason, privacy: .public)")
         recordActivity("Sync restarted")
         syncTask?.cancel()
         syncTask = nil
@@ -3578,8 +3576,8 @@ final class RelayClient {
         } catch is CancellationError {
             return false
         } catch {
-            relayClientLogger.error(
-                "Session persist failed (\(context, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            RelayLog.session.error(
+                "Session persist failed (\(context, privacy: .public)): \(error.localizedDescription, privacy: .private)")
             recordActivity("Session persist failed (\(context))")
             isSessionPersistPending = true
             schedulePersistRetry()
@@ -3595,7 +3593,7 @@ final class RelayClient {
             isSessionPersistPending = false
             return true
         }
-        relayClientLogger.debug("Retrying pending session persist")
+        RelayLog.session.debug("Retrying pending session persist")
         // Pin the current generation so a retry racing a login or
         // logout transition cancels instead of writing a stale (or
         // just-deleted) session back over the keychain.
@@ -3668,7 +3666,7 @@ final class RelayClient {
             data,
             for: KeyStoreKey(
                 service: Self.sessionService, account: Self.sessionAccount))
-        relayClientLogger.debug(
+        RelayLog.session.debug(
             "Session persisted refreshToken=\(Self.fingerprint(of: credentials.refreshToken), privacy: .public)")
     }
 
@@ -3692,15 +3690,15 @@ final class RelayClient {
               let file = MatrixStore.databaseURL(for: userId),
               let container = try? MatrixStore.makeContainer(at: file)
         else {
-            relayClientLogger.error("Normalized store unavailable; running without persistence")
+            RelayLog.store.error("Normalized store unavailable; running without persistence")
             return
         }
         let writer = MatrixStoreWriter(modelContainer: container)
         do {
             try await writer.setLocalUser(userId)
         } catch {
-            relayClientLogger.warning(
-                "Store local-user setup failed: \(error.localizedDescription, privacy: .public)")
+            RelayLog.store.warning(
+                "Store local-user setup failed: \(error.localizedDescription, privacy: .private)")
         }
         storeContainer = container
         storeWriter = writer
@@ -3943,8 +3941,8 @@ final class RelayClient {
             await scheduleRoomCacheRebuild().value
             bumpRevision(roomId)
         } catch {
-            relayClientLogger.debug(
-                "Timeline context insert failed room=\(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.debug(
+                "Timeline context insert failed room=\(roomId.value, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -3958,8 +3956,8 @@ final class RelayClient {
             await scheduleRoomCacheRebuild().value
             bumpRevision(roomId)
         } catch {
-            relayClientLogger.debug(
-                "Timeline history insert failed room=\(roomId.value, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.debug(
+                "Timeline history insert failed room=\(roomId.value, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 

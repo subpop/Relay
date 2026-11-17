@@ -16,8 +16,6 @@ import Foundation
 import Intents
 import os
 
-private let logger = Logger(subsystem: "app.subpop.Relay", category: "IntentDonation")
-
 /// Donates `INSendMessageIntent` interactions so macOS can suggest Relay
 /// conversations in the system share sheet.
 ///
@@ -52,7 +50,7 @@ final class IntentDonationService {
             do {
                 try await interaction.donate()
             } catch {
-                logger.error("Failed to donate outgoing intent for \(roomId, privacy: .public): \(error, privacy: .public)")
+                RelayLog.messaging.error("Outgoing intent donation failed room=\(roomId, privacy: .private(mask: .hash)) error=\(error, privacy: .private)")
             }
         }
     }
@@ -94,7 +92,7 @@ final class IntentDonationService {
             do {
                 try await interaction.donate()
             } catch {
-                logger.error("Failed to donate incoming intent for \(roomId, privacy: .public): \(error, privacy: .public)")
+                RelayLog.messaging.error("Incoming intent donation failed room=\(roomId, privacy: .private(mask: .hash)) error=\(error, privacy: .private)")
             }
         }
     }

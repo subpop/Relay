@@ -72,8 +72,6 @@ final class TimelineViewModel {
     private static let anchoredNewerLimit = 50
     private static let contextPageSize = 50
 
-    private nonisolated let timelineLogger = Logger(
-        subsystem: "app.subpop.Relay", category: "Timeline")
     private let roomID: RoomId
     @ObservationIgnored private let client: RelayClient
     private let errorReporter: ErrorReporter
@@ -520,7 +518,7 @@ final class TimelineViewModel {
         if client.localUserId == nil {
             // Without a local user ID every message renders as incoming;
             // log it so the failure is observable instead of silent.
-            timelineLogger.warning("Local user ID unavailable; own messages render as incoming")
+            RelayLog.timeline.warning("Local user ID unavailable; own messages render as incoming")
         }
         await refreshLiveNow()
         await refreshTypingUsers()
@@ -542,7 +540,7 @@ final class TimelineViewModel {
         window = .live
         windowSize = Self.liveLimit
         if client.localUserId == nil {
-            timelineLogger.warning("Local user ID unavailable; own messages render as incoming")
+            RelayLog.timeline.warning("Local user ID unavailable; own messages render as incoming")
         }
         guard let room = client.storedRoom(roomID) else {
             isLoading = false
@@ -606,8 +604,8 @@ final class TimelineViewModel {
             unreadContextReady = true
             return context.event != nil
         } catch {
-            timelineLogger.debug(
-                "Unread context load failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Unread context load failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             return false
         }
     }
@@ -792,8 +790,8 @@ final class TimelineViewModel {
             }
             await refreshLiveNow()
         } catch {
-            timelineLogger.debug(
-                "History pagination failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "History pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -824,8 +822,8 @@ final class TimelineViewModel {
             await refreshLiveNow()
             return true
         } catch {
-            timelineLogger.debug(
-                "History gap recovery failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "History gap recovery failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             return false
         }
     }
@@ -844,8 +842,8 @@ final class TimelineViewModel {
             focusReachedEnd = await !focused.canPaginateForward()
             await renderDetached(events: await focused.events)
         } catch {
-            timelineLogger.debug(
-                "Forward pagination failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Forward pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -897,8 +895,8 @@ final class TimelineViewModel {
             await refreshUnreadNow()
             return true
         } catch {
-            timelineLogger.debug(
-                "Unread context cursors failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Unread context cursors failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             return false
         }
     }
@@ -938,8 +936,8 @@ final class TimelineViewModel {
                 Self.maxWindowSize, unreadOlderLimit + max(page.chunk.count, 1))
             await refreshUnreadNow()
         } catch {
-            timelineLogger.debug(
-                "Unread older-page load failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Unread older-page load failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -975,8 +973,8 @@ final class TimelineViewModel {
                 Self.maxWindowSize, unreadNewerLimit + max(page.chunk.count, 1))
             await refreshUnreadNow()
         } catch {
-            timelineLogger.debug(
-                "Unread newer-page load failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Unread newer-page load failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -1017,8 +1015,8 @@ final class TimelineViewModel {
             _ = try await timeline.paginateBack()
             await renderDetached(events: await timeline.events)
         } catch {
-            timelineLogger.debug(
-                "Focus pagination failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Focus pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -1113,11 +1111,11 @@ final class TimelineViewModel {
             // Local-only store mutation: wake the timeline now rather
             // than waiting for the next sync delta.
             client.bumpRevision(roomID)
-            timelineLogger.debug(
-                "Fully-read advanced room=\(self.roomId, privacy: .public) upTo=\(eventId, privacy: .public)")
+            RelayLog.timeline.debug(
+                "Fully-read advanced room=\(self.roomId, privacy: .private(mask: .hash)) upTo=\(eventId, privacy: .private(mask: .hash))")
         } catch {
-            timelineLogger.debug(
-                "Fully-read marker send failed room=\(self.roomId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            RelayLog.timeline.warning(
+                "Fully-read marker send failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
     }
 

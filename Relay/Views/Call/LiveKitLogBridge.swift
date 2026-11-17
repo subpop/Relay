@@ -22,8 +22,6 @@ import os
 ///
 /// Install once, as early as possible (before any `LiveKit.Room` is created).
 struct LiveKitLogBridge: LiveKit.Logger {
-    private static let osLogger = os.Logger(subsystem: "app.subpop.Relay", category: "LiveKitSDK")
-
     // swiftlint:disable:next function_parameter_count
     func log(
         _ message: @autoclosure () -> CustomStringConvertible,
@@ -52,13 +50,13 @@ struct LiveKitLogBridge: LiveKit.Logger {
         // can still see the messages by enabling unredacted logging in Xcode.
         switch level {
         case .debug:
-            Self.osLogger.debug("\(rendered, privacy: .private)")
+            RelayLog.liveKitSDK.debug("\(rendered, privacy: .private)")
         case .info:
-            Self.osLogger.info("\(rendered, privacy: .private)")
+            RelayLog.liveKitSDK.info("\(rendered, privacy: .private)")
         case .warning:
-            Self.osLogger.warning("\(rendered, privacy: .private)")
+            RelayLog.liveKitSDK.warning("\(rendered, privacy: .private)")
         case .error:
-            Self.osLogger.error("\(rendered, privacy: .private)")
+            RelayLog.liveKitSDK.error("\(rendered, privacy: .private)")
         }
     }
 }

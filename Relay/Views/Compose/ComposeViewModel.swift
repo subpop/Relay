@@ -17,7 +17,6 @@ import MatrixKit
 import OSLog
 import UniformTypeIdentifiers
 
-private nonisolated let logger = Logger(subsystem: "app.subpop.Relay", category: "ComposeViewModel")
 private nonisolated let composeSignposter = OSSignposter(
     subsystem: "app.subpop.Relay.performance", category: "MessageSend")
 
@@ -404,7 +403,7 @@ final class ComposeViewModel {
             } catch is CancellationError {
                 return
             } catch {
-                logger.error("iCloud link failed for \(attachment.filename): \(error)")
+                RelayLog.messaging.error("iCloud link failed filename=\(attachment.filename, privacy: .private) error=\(error, privacy: .private)")
                 errorReporter.report(
                     .iCloudLinkFailed(
                         filename: attachment.filename, reason: error.localizedDescription))
@@ -454,7 +453,7 @@ final class ComposeViewModel {
             do {
                 try FileManager.default.copyItem(at: url, to: dest)
             } catch {
-                logger.error("Failed to copy file \(url.lastPathComponent): \(error)")
+                RelayLog.messaging.error("File copy failed filename=\(url.lastPathComponent, privacy: .private) error=\(error, privacy: .private)")
                 errorReporter.report(
                     .fileCopyFailed(
                         filename: url.lastPathComponent, reason: error.localizedDescription
@@ -554,7 +553,7 @@ final class ComposeViewModel {
                           let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true)
                     else {
                         if let error {
-                            logger.error("Error loading URL: \(error.localizedDescription)")
+                            RelayLog.messaging.error("URL load failed error=\(error.localizedDescription, privacy: .private)")
                         }
                         return
                     }
@@ -601,7 +600,7 @@ final class ComposeViewModel {
         ) { data, error in
             guard let rawData = data else {
                 if let error {
-                    logger.error("Error loading dropped image: \(error.localizedDescription)")
+                    RelayLog.messaging.error("Dropped image load failed error=\(error.localizedDescription, privacy: .private)")
                 }
                 return
             }
@@ -621,7 +620,7 @@ final class ComposeViewModel {
             do {
                 try fileData.write(to: tempURL)
             } catch {
-                logger.error("Failed to write dropped image to temp file: \(error)")
+                RelayLog.messaging.error("Dropped image write failed error=\(error, privacy: .private)")
                 return
             }
 

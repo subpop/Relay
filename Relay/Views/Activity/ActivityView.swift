@@ -368,9 +368,9 @@ private struct StatusLight: View {
 
 /// The shared log-capture command for bug reports.
 private enum ActivityDiagnostics {
-    /// Captures Relay + MatrixKit debug traffic.
+    /// Captures Relay, Relay performance, and MatrixKit debug traffic.
     static let logCommand = """
-        log stream --predicate 'subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.MatrixKit"' --level debug
+        log stream --predicate 'subsystem == "app.subpop.Relay" OR subsystem == "app.subpop.Relay.performance" OR subsystem == "app.subpop.MatrixKit"' --level debug
         """
 }
 

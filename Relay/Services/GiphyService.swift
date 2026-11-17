@@ -15,16 +15,12 @@
 import Foundation
 import OSLog
 
-
 /// A concrete ``GIFSearchServiceProtocol`` implementation backed by the GIPHY API.
 ///
 /// This service communicates with `api.giphy.com` to search and fetch trending GIFs.
 /// All GIPHY-specific types are kept private; only ``GIFSearchResult`` crosses the
 /// boundary, keeping the rest of the app provider-agnostic.
 final class GiphyService: GIFSearchServiceProtocol {
-    private nonisolated let giphyLogger = Logger(
-        subsystem: "app.subpop.Relay", category: "Giphy")
-
     // MARK: - Configuration
 
     /// The GIPHY API key, provided at init time.
@@ -73,8 +69,8 @@ final class GiphyService: GIFSearchServiceProtocol {
             throw GiphyError.invalidURL
         }
 
-        giphyLogger.info(
-            "Searched GIFs query=\(query, privacy: .public) offset=\(offset, privacy: .public) limit=\(limit, privacy: .public)"
+        RelayLog.media.info(
+            "Searched GIFs query=\(query, privacy: .private) offset=\(offset, privacy: .public) limit=\(limit, privacy: .public)"
         )
 
         return try await fetchGIFs(from: url)
@@ -96,7 +92,7 @@ final class GiphyService: GIFSearchServiceProtocol {
             throw GiphyError.invalidURL
         }
 
-        giphyLogger.info(
+        RelayLog.media.info(
             "Fetched trending GIFs offset=\(offset, privacy: .public) limit=\(limit, privacy: .public)"
         )
 
@@ -118,10 +114,10 @@ final class GiphyService: GIFSearchServiceProtocol {
 
         do {
             let (_, _) = try await session.data(from: pingbackURL)
-            giphyLogger.debug("Registered GIF action")
+            RelayLog.media.debug("Registered GIF action")
         } catch {
-            giphyLogger.debug(
-                "GIF action pingback failed: \(error.localizedDescription, privacy: .public)"
+            RelayLog.media.debug(
+                "GIF action pingback failed: \(error.localizedDescription, privacy: .private)"
             )
         }
     }
@@ -131,11 +127,11 @@ final class GiphyService: GIFSearchServiceProtocol {
 
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
-            giphyLogger.error("GIF download failed")
+            RelayLog.media.error("GIF download failed")
             throw GiphyError.downloadFailed
         }
 
-        giphyLogger.info("Downloaded GIF bytes=\(data.count, privacy: .public)")
+        RelayLog.media.info("Downloaded GIF bytes=\(data.count, privacy: .public)")
 
         return data
     }
@@ -150,7 +146,7 @@ final class GiphyService: GIFSearchServiceProtocol {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            giphyLogger.warning(
+            RelayLog.media.warning(
                 "GIPHY API error status=\(httpResponse.statusCode, privacy: .public)"
             )
             throw GiphyError.httpError(statusCode: httpResponse.statusCode)

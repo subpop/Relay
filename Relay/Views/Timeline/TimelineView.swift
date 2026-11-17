@@ -17,7 +17,6 @@ import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let logger = Logger(subsystem: "app.subpop.Relay", category: "Timeline")
 private nonisolated let timelineViewSignposter = OSSignposter(
     subsystem: "app.subpop.Relay.performance", category: "RoomSwitch")
 

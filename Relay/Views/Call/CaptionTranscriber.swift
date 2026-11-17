@@ -59,7 +59,6 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
     /// than an injected closure) is safe to touch from the audio render
     /// thread and background tasks alike. No speech content is ever
     /// passed, only metadata.
-    private static let logger = Logger(subsystem: "app.subpop.Relay", category: "Captions")
 
     /// The locale used to pick a transcriber. Defaults to `Locale.current` —
     /// captions are *for* the local user, so their preferred locale wins.
@@ -145,25 +144,25 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
                     let text = String(result.text.characters)
                     if !loggedFirst {
                         loggedFirst = true
-                        Self.logger.debug(
-                            "Caption first result identity=\(pid, privacy: .public) chars=\(text.count, privacy: .public) isFinal=\(result.isFinal, privacy: .public)"
+                        RelayLog.calls.debug(
+                            "Caption first result identity=\(pid, privacy: .private(mask: .hash)) chars=\(text.count, privacy: .public) isFinal=\(result.isFinal, privacy: .public)"
                         )
                     }
                     cb(text, result.isFinal)
                 }
-                Self.logger.debug("Caption results stream ended identity=\(pid, privacy: .public)")
+                RelayLog.calls.debug("Caption results stream ended identity=\(pid, privacy: .private(mask: .hash))")
             } catch is CancellationError {
                 // Expected on stop(); silent.
             } catch {
-                Self.logger.warning(
-                    "Caption results stream failed identity=\(pid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                RelayLog.calls.warning(
+                    "Caption results stream failed identity=\(pid, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)"
                 )
             }
         }
 
         let formatDesc = target.map { "\($0.sampleRate)Hz \($0.channelCount)ch" } ?? "nil"
-        Self.logger.info(
-            "Caption transcriber started identity=\(pid, privacy: .public) locale=\(self.locale.identifier, privacy: .public) target=\(formatDesc, privacy: .public)"
+        RelayLog.calls.info(
+            "Caption transcriber started identity=\(pid, privacy: .private(mask: .hash)) locale=\(self.locale.identifier, privacy: .public) target=\(formatDesc, privacy: .public)"
         )
     }
 
@@ -185,8 +184,8 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
         resultsTask = nil
         analyzer = nil
         transcriber = nil
-        Self.logger.info(
-            "Caption transcriber stopped identity=\(self.participantId, privacy: .public)"
+        RelayLog.calls.info(
+            "Caption transcriber stopped identity=\(self.participantId, privacy: .private(mask: .hash))"
         )
     }
 
@@ -275,13 +274,13 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
             // start() finishes setting `inputBuilder`.
             break
         case .conversionFailed(let reason):
-            Self.logger.warning(
-                "Caption conversion failed identity=\(pid, privacy: .public): \(reason ?? "?", privacy: .public)"
+            RelayLog.calls.warning(
+                "Caption conversion failed identity=\(pid, privacy: .private(mask: .hash)): \(reason ?? "?", privacy: .private)"
             )
         case .yielded(let firstTime, let frames):
             if firstTime {
-                Self.logger.debug(
-                    "Caption first audio frame yielded identity=\(pid, privacy: .public) frames=\(frames, privacy: .public)"
+                RelayLog.calls.debug(
+                    "Caption first audio frame yielded identity=\(pid, privacy: .private(mask: .hash)) frames=\(frames, privacy: .public)"
                 )
             }
         }
@@ -294,7 +293,7 @@ final class CaptionTranscriber: NSObject, AudioRenderer, @unchecked Sendable {
     /// calls are immediate.
     private static func ensureModelInstalled(for transcriber: SpeechTranscriber) async throws {
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            Self.logger.info("Downloading captions model")
+            RelayLog.calls.info("Downloading captions model")
             try await request.downloadAndInstall()
         }
     }

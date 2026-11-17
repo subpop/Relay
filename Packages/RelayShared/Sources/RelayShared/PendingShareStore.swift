@@ -16,7 +16,9 @@ import Foundation
 import os
 
 
-private let logger = Logger(subsystem: "RelayShared", category: "PendingShareStore")
+// Keep the shared package independently usable while joining Relay's unified
+// logging stream and following its category convention.
+private let sharingLogger = Logger(subsystem: "app.subpop.Relay", category: "Sharing")
 
 /// Manages pending share records and files in the app group container.
 ///
@@ -69,7 +71,7 @@ public enum PendingShareStore: Sendable {
     /// Returns the directory URL for pending share files, creating it if needed.
     static var pendingSharesDirectoryURL: URL? {
         guard let container = AppGroup.containerURL else {
-            logger.error("App group container not available")
+            sharingLogger.error("App group container unavailable")
             return nil
         }
         let url = container.appending(
@@ -79,7 +81,7 @@ public enum PendingShareStore: Sendable {
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         } catch {
-            logger.error("Failed to create pending shares directory: \(error)")
+            sharingLogger.error("Pending shares directory creation failed error=\(error, privacy: .private)")
             return nil
         }
         return url
@@ -102,7 +104,7 @@ public enum PendingShareStore: Sendable {
         do {
             return try JSONDecoder().decode([PendingShare].self, from: data)
         } catch {
-            logger.error("Failed to decode pending shares manifest: \(error)")
+            sharingLogger.error("Pending shares manifest decode failed error=\(error, privacy: .private)")
             return []
         }
     }
@@ -134,7 +136,7 @@ public enum PendingShareStore: Sendable {
             let data = try JSONEncoder().encode(shares)
             try data.write(to: manifestURL, options: .atomic)
         } catch {
-            logger.error("Failed to write pending shares manifest: \(error)")
+            sharingLogger.error("Pending shares manifest write failed error=\(error, privacy: .private)")
         }
     }
 
@@ -151,7 +153,7 @@ public enum PendingShareStore: Sendable {
             let data = try JSONEncoder().encode(rooms)
             try data.write(to: cacheURL, options: .atomic)
         } catch {
-            logger.error("Failed to write room cache: \(error)")
+            sharingLogger.error("Room cache write failed error=\(error, privacy: .private)")
         }
     }
 
@@ -165,7 +167,7 @@ public enum PendingShareStore: Sendable {
         do {
             return try JSONDecoder().decode([ShareableRoom].self, from: data)
         } catch {
-            logger.error("Failed to decode room cache: \(error)")
+            sharingLogger.error("Room cache decode failed error=\(error, privacy: .private)")
             return []
         }
     }

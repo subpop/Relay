@@ -19,8 +19,6 @@ import RelayShared
 import SwiftUI
 import UserNotifications
 
-private let logger = Logger(subsystem: "app.subpop.Relay", category: "DeepLink")
-
 /// The main entry point for the Relay macOS application.
 ///
 /// ``RelayApp`` creates the ``RelayClient``, injects it into the SwiftUI environment,
@@ -137,7 +135,7 @@ struct RelayApp: App {
                 }
                 .onOpenURL { url in
                     if let uri = MatrixURI(url: url) {
-                        logger.info("Received deep link: \(url.absoluteString)")
+                        RelayLog.app.info("Received deep link url=\(url.absoluteString, privacy: .private)")
                         client.pendingDeepLink = uri
                     }
                 }
@@ -147,7 +145,7 @@ struct RelayApp: App {
                 .onContinueUserActivity(NSStringFromClass(INSendMessageIntent.self)) { activity in
                     if let intent = activity.interaction?.intent as? INSendMessageIntent,
                        let roomId = intent.conversationIdentifier {
-                        logger.info("Received share suggestion for room: \(roomId)")
+                        RelayLog.sharing.info("Received share suggestion room=\(roomId, privacy: .private(mask: .hash))")
                         UserDefaults.standard.set(roomId, forKey: "selectedRoomId")
                     }
                 }
@@ -230,11 +228,11 @@ struct RelayApp: App {
 
         let pendingShares = PendingShareStore.loadAll()
         guard let share = pendingShares.first(where: { $0.id == shareId }) else {
-            logger.warning("Pending share not found: \(idString)")
+            RelayLog.sharing.warning("Pending share not found id=\(idString, privacy: .private(mask: .hash))")
             return
         }
 
-        logger.info("Share handoff: \(share.filenames.count) file(s) for room \(share.roomId)")
+        RelayLog.sharing.info("Share handoff files=\(share.filenames.count, privacy: .public) room=\(share.roomId, privacy: .private(mask: .hash))")
 
         // Navigate to the target room.
         UserDefaults.standard.set(share.roomId, forKey: "selectedRoomId")
@@ -251,7 +249,7 @@ struct RelayApp: App {
         }()
 
         guard !fileURLs.isEmpty || sharedText != nil else {
-            logger.warning("No valid content found for pending share \(idString)")
+            RelayLog.sharing.warning("No valid content found for pending share id=\(idString, privacy: .private(mask: .hash))")
             PendingShareStore.remove(id: shareId)
             return
         }

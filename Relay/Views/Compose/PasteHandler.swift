@@ -15,8 +15,6 @@
 import AppKit
 import OSLog
 
-private let logger = Logger(subsystem: "app.subpop.Relay", category: "PasteHandler")
-
 /// Monitors Cmd+V key events and intercepts paste when the system pasteboard
 /// contains file URLs (Finder copy), raw image data, or raw video data — but
 /// not plain text, which is left for the TextField to handle normally.
@@ -114,7 +112,7 @@ final class PasteHandler {
                 try data.write(to: tempURL)
                 return tempURL
             } catch {
-                logger.error("Failed to write pasted image to temp file: \(error)")
+                RelayLog.media.error("Pasted image write failed error=\(error, privacy: .private)")
                 continue
             }
         }
@@ -139,7 +137,7 @@ final class PasteHandler {
                 try data.write(to: tempURL)
                 return tempURL
             } catch {
-                logger.error("Failed to write pasted video to temp file: \(error)")
+                RelayLog.media.error("Pasted video write failed error=\(error, privacy: .private)")
                 continue
             }
         }
