@@ -905,23 +905,39 @@ final class RelayClient {
             sendReceipt: sendReceipt) {
             return
         }
+        optimisticReadMarkers[roomId] = latestEventId.value
+        clearDeliveredNotifications(forRoomId: roomId)
+        await markFullyReadLocally(roomId: matrixRoomId, eventId: latestEventId)
+
         var receiptSent = false
+        var receiptError: String?
         do {
             try await client.roomState.sendReceipt(
                 matrixRoomId, eventId: latestEventId,
                 receiptType: Self.receiptType(sendReceipt: sendReceipt))
             receiptSent = true
         } catch {
-            RelayLog.timeline.warning(
-                "Read receipt send failed room=\(roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
+            receiptError = error.localizedDescription
         }
         var fullyReadSent = false
+        var fullyReadError: String?
         do {
             try await client.accountData.setFullyRead(matrixRoomId, eventId: latestEventId)
             fullyReadSent = true
         } catch {
+            fullyReadError = error.localizedDescription
+        }
+        let receiptVisibility = sendReceipt ? "public" : "private"
+        let receiptStatus = "\(receiptVisibility)-\(receiptSent ? "sent" : "failed")"
+        if receiptSent && fullyReadSent {
+            RelayLog.timeline.debug(
+                "Read state updated room=\(roomId, privacy: .private(mask: .hash)) upTo=\(latestEventId.value, privacy: .private(mask: .hash)) receipt=\(receiptStatus, privacy: .public) fullyRead=sent")
+        } else {
+            let outcome = receiptSent || fullyReadSent ? "partially updated" : "update failed"
+            let receiptError = receiptError ?? "none"
+            let fullyReadError = fullyReadError ?? "none"
             RelayLog.timeline.warning(
-                "Fully-read marker send failed room=\(roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
+                "Read state \(outcome, privacy: .public) room=\(roomId, privacy: .private(mask: .hash)) upTo=\(latestEventId.value, privacy: .private(mask: .hash)) receipt=\(receiptStatus, privacy: .public) fullyRead=\(fullyReadSent ? "sent" : "failed", privacy: .public) receiptError=\(receiptError, privacy: .private) fullyReadError=\(fullyReadError, privacy: .private)")
         }
         // Record only on success: a failed mark must stay retryable, or the
         // dedupe above suppresses it until a new message arrives and the
@@ -930,8 +946,20 @@ final class RelayClient {
         // mark for an event previously cleared privately.
         guard receiptSent || fullyReadSent else { return }
         lastMarkedRead[roomId] = (latestEventId.value, sendReceipt && receiptSent)
-        optimisticReadMarkers[roomId] = latestEventId.value
-        clearDeliveredNotifications(forRoomId: roomId)
+    }
+
+    /// Apply the fully-read marker to the local store before its network
+    /// update, so unread UI responds immediately.
+    func markFullyReadLocally(roomId: RoomId, eventId: EventId) async {
+        guard let writer = storeWriter else { return }
+        do {
+            try await writer.setFullyRead(roomId: roomId, eventId: eventId)
+            await scheduleRoomCacheRebuild().value
+            bumpRevision(roomId)
+        } catch {
+            RelayLog.timeline.warning(
+                "Local read marker update failed room=\(roomId.value, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// Mark every joined room read up to its latest message. Rooms already

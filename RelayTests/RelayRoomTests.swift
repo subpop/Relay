@@ -314,16 +314,27 @@ struct RelayRoomTests {
 
     @Test func liveAnchorCandidatesPreferUnreadThenFullyRead() {
         #expect(TimelineViewModel.liveAnchorCandidates(
-            fullyReadEventId: "$fr", firstUnreadEventId: "$u") == ["$u", "$fr"])
+            fullyReadEventId: "$fr", firstUnreadEventId: "$u",
+            hasUnread: true) == ["$u", "$fr"])
     }
 
     @Test func liveAnchorCandidatesDeduplicateAndDropNils() {
         #expect(TimelineViewModel.liveAnchorCandidates(
-            fullyReadEventId: "$same", firstUnreadEventId: "$same") == ["$same"])
+            fullyReadEventId: "$same", firstUnreadEventId: "$same",
+            hasUnread: true) == ["$same"])
         #expect(TimelineViewModel.liveAnchorCandidates(
-            fullyReadEventId: nil, firstUnreadEventId: "$u") == ["$u"])
+            fullyReadEventId: nil, firstUnreadEventId: "$u",
+            hasUnread: true) == ["$u"])
         #expect(TimelineViewModel.liveAnchorCandidates(
-            fullyReadEventId: nil, firstUnreadEventId: nil).isEmpty)
+            fullyReadEventId: nil, firstUnreadEventId: nil,
+            hasUnread: true).isEmpty)
+    }
+
+    @Test func liveAnchorCandidatesStayLiveWhenRoomHasNoUnreadMessages() {
+        #expect(TimelineViewModel.liveAnchorCandidates(
+            fullyReadEventId: "$fully-read",
+            firstUnreadEventId: nil,
+            hasUnread: false).isEmpty)
     }
 
     @Test func windowSizeGrowsByFetchedPages() {

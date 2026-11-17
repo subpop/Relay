@@ -310,6 +310,9 @@ struct TimelineView: View {
                 timelineInitialLoadComplete = true
                 scroller.didCompleteInitialLoad()
                 timelineViewSignposter.endInterval("roomTimelineInitialLoad", initialLoadState)
+                Task {
+                    await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
+                }
 
                 if !readOnly {
                     markAsReadIfNeeded()
@@ -453,6 +456,9 @@ struct TimelineView: View {
                 isNearEnd = nearEnd
                 markAsReadIfNeeded()
                 guard timelineInitialLoadComplete else { return }
+                if nearEnd {
+                    loadFutureIfNeededAtEnd()
+                }
                 Task { await viewModel.promoteToLiveIfAtEnd(isNearEnd: nearEnd) }
             }, onPaginateBackward: {
                 guard timelineInitialLoadComplete,
@@ -511,7 +517,10 @@ struct TimelineView: View {
                     onScrollToEnd: {
                         scroller.scrollToEnd()
                     },
-                    onReturnToLive: { Task { await viewModel.returnToLive() } }
+                    onReturnToLive: {
+                        pendingScrollToEnd = true
+                        Task { await viewModel.returnToLive() }
+                    }
                 )
             } else {
                 ProgressView()
@@ -553,12 +562,28 @@ struct TimelineView: View {
         }
         .onChange(of: viewModel.timelineFocus) {
             if viewModel.timelineFocus == .live {
-                pendingScrollToEnd = true
                 markAsReadIfNeeded()
             }
         }
-        .onChange(of: viewModel.hasReachedEnd) {
+        .onChange(of: viewModel.hasReachedEnd) { _, reachedEnd in
             markAsReadIfNeeded()
+            guard reachedEnd, timelineInitialLoadComplete else { return }
+            Task {
+                await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
+            }
+        }
+        .onChange(
+            of: timelineInitialLoadComplete && viewModel.isLoadingMore,
+            initial: true
+        ) { _, isVisible in
+            let indicatorState = isVisible ? "shown" : "hidden"
+            let operation = isVisible ? viewModel.loadingMoreDescription : "none"
+            RelayLog.timeline.info(
+                "Timeline top progress indicator \(indicatorState, privacy: .public) room=\(roomId, privacy: .private(mask: .hash)) focus=\(viewModel.timelineFocusDescription, privacy: .public) operation=\(operation, privacy: .public)")
+        }
+        .onChange(of: viewModel.isLoadingMore, initial: true) { _, isLoading in
+            guard !isLoading else { return }
+            loadFutureIfNeededAtEnd()
         }
         .task {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
@@ -594,6 +619,29 @@ struct TimelineView: View {
     }
 
     // MARK: - Scroll Management
+
+    private func loadFutureIfNeededAtEnd() {
+        let isFocused = switch viewModel.timelineFocus {
+        case .unread, .focused: true
+        case .live, .thread: false
+        }
+        guard timelineInitialLoadComplete,
+              TimelineViewModel.shouldAutoPaginateFuture(
+                  isFocused: isFocused,
+                  isNearEnd: isNearEnd,
+                  hasReachedEnd: viewModel.hasReachedEnd,
+                  isLoadingMore: viewModel.isLoadingMore,
+                  canLoadMore: viewModel.canLoadMoreFuture)
+        else { return }
+
+        RelayLog.timeline.info(
+            "Timeline loading newer events while near end room=\(roomId, privacy: .private(mask: .hash)) focus=\(viewModel.timelineFocusDescription, privacy: .public)")
+        Task {
+            await viewModel.loadMoreFuture()
+            await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
+            markAsReadIfNeeded()
+        }
+    }
 
     private func scrollToEventWhenAvailable(
         _ eventId: String,

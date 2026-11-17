@@ -14,7 +14,6 @@
 
 import MatrixKit
 import Observation
-import OSLog
 
 /// Tracks how far through the timeline the user has read and issues read
 /// receipts.
@@ -53,20 +52,12 @@ final class TimelineReadReceiptTracker {
 
         lastFullyReadEventId = eventId
         fullyReadDebounceTask?.cancel()
-        guard isActive() else {
-            RelayLog.timeline.debug(
-                "Track fully-read without send (inactive) upTo=\(eventId, privacy: .private(mask: .hash))")
-            return
-        }
-        RelayLog.timeline.debug(
-            "Schedule fully-read debounce upTo=\(eventId, privacy: .private(mask: .hash))")
+        guard isActive() else { return }
         fullyReadDebounceTask = Task {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, isActive() else { return }
             await sendReceipt(eventId)
             lastSentFullyReadEventId = eventId
-            RelayLog.timeline.debug(
-                "Sent fully-read (debounced) upTo=\(eventId, privacy: .private(mask: .hash))")
         }
     }
 
@@ -84,13 +75,9 @@ final class TimelineReadReceiptTracker {
         else {
             return
         }
-        RelayLog.timeline.debug(
-            "Flush fully-read on room leave upTo=\(eventId, privacy: .private(mask: .hash))")
         Task {
             await sendReceipt(eventId)
             lastSentFullyReadEventId = eventId
-            RelayLog.timeline.debug(
-                "Sent fully-read (flush) upTo=\(eventId, privacy: .private(mask: .hash))")
         }
     }
 
@@ -102,14 +89,11 @@ final class TimelineReadReceiptTracker {
     /// call's values win, so scrolling away cancels a pending mark.
     func markReadIfNeeded(isNearEnd: Bool, isActive: @escaping () -> Bool, markAsRead: @escaping () async -> Void) {
         markReadDebounceTask?.cancel()
-        RelayLog.timeline.debug(
-            "Schedule mark-as-read debounce nearEnd=\(isNearEnd, privacy: .public)")
         markReadDebounceTask = Task {
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             guard isNearEnd, isActive() else { return }
             await markAsRead()
-            RelayLog.timeline.debug("Sent mark-as-read (debounced)")
         }
     }
 }

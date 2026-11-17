@@ -165,6 +165,54 @@ struct TimelineEndDetectionTests {
         #expect(!VM.shouldPromoteToLive(isFocused: false, focusReachedEnd: true, isNearEnd: true))
     }
 
+    @Test("Unread context promotes at the local newest edge without moving the scroll position")
+    func unreadContextPromotion() {
+        typealias VM = TimelineViewModel
+        #expect(VM.shouldPromoteUnreadContextToLive(reachedLocalEnd: true))
+        #expect(!VM.shouldPromoteUnreadContextToLive(reachedLocalEnd: false))
+    }
+
+    @Test("Auto-paginates forward only while a focused window is near its end")
+    func autoPagination() {
+        typealias VM = TimelineViewModel
+        #expect(VM.shouldAutoPaginateFuture(
+            isFocused: true,
+            isNearEnd: true,
+            hasReachedEnd: false,
+            isLoadingMore: false,
+            canLoadMore: true))
+        #expect(!VM.shouldAutoPaginateFuture(
+            isFocused: true,
+            isNearEnd: false,
+            hasReachedEnd: false,
+            isLoadingMore: false,
+            canLoadMore: true))
+        #expect(!VM.shouldAutoPaginateFuture(
+            isFocused: true,
+            isNearEnd: true,
+            hasReachedEnd: true,
+            isLoadingMore: false,
+            canLoadMore: true))
+        #expect(!VM.shouldAutoPaginateFuture(
+            isFocused: true,
+            isNearEnd: true,
+            hasReachedEnd: false,
+            isLoadingMore: true,
+            canLoadMore: true))
+        #expect(!VM.shouldAutoPaginateFuture(
+            isFocused: false,
+            isNearEnd: true,
+            hasReachedEnd: false,
+            isLoadingMore: false,
+            canLoadMore: true))
+        #expect(!VM.shouldAutoPaginateFuture(
+            isFocused: true,
+            isNearEnd: true,
+            hasReachedEnd: false,
+            isLoadingMore: false,
+            canLoadMore: false))
+    }
+
     @Test("Marks read only when the actual latest row is visible")
     func readBoundary() {
         typealias VM = TimelineViewModel

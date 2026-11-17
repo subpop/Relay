@@ -47,6 +47,15 @@ private enum TimelineWindow: Equatable {
     case focused(EventId)
     /// Thread rooted at one event.
     case thread(EventId)
+
+    var logName: String {
+        switch self {
+        case .live: "live"
+        case .unreadContext: "focused-unread"
+        case .focused: "focused-event"
+        case .thread: "thread"
+        }
+    }
 }
 
 /// View model driving `TimelineView` from the normalized store.
@@ -113,6 +122,7 @@ final class TimelineViewModel {
     private var hasMoreHistory = true
     /// Whether a pagination request is in flight.
     private var isPaginating = false
+    private var topLoadingOperations: Set<String> = []
     /// Whether the unread context's Matrix pagination cursors were loaded.
     private var unreadContextReady = false
     /// Whether an unread context page request is in flight.
@@ -226,6 +236,11 @@ final class TimelineViewModel {
     /// Whether older messages are being fetched.
     var isLoadingMore: Bool { isPaginating || isLoadingUnreadContext }
 
+    var loadingMoreDescription: String {
+        let operations = topLoadingOperations.sorted().joined(separator: ", ")
+        return operations.isEmpty ? "none" : operations
+    }
+
     /// Whether backward pagination reached the room start.
     var hasReachedStart: Bool {
         switch window {
@@ -244,9 +259,21 @@ final class TimelineViewModel {
         case .live, .thread:
             return true
         case .unreadContext:
-            return unreadContextReady && !hasNewerUnreadEvents && unreadNewerCursor == nil
+            return !hasNewerUnreadEvents
+                && (!unreadContextReady || unreadNewerCursor == nil)
         case .focused:
             return focusReachedEnd
+        }
+    }
+
+    var canLoadMoreFuture: Bool {
+        switch window {
+        case .unreadContext:
+            unreadContextReady || hasNewerUnreadEvents
+        case .focused:
+            focused != nil
+        case .live, .thread:
+            false
         }
     }
 
@@ -286,6 +313,10 @@ final class TimelineViewModel {
         }
     }
 
+    var timelineFocusDescription: String {
+        window.logName
+    }
+
     /// Whether the current window is at the latest stored/synced event.
     var isAtLatestEdge: Bool {
         switch window {
@@ -310,6 +341,41 @@ final class TimelineViewModel {
     /// Which window the timeline shows. Mirrors the detached actors
     /// (`focused`/`thread`), which cannot be read synchronously.
     private var window: TimelineWindow = .live
+
+    private func selectWindow(_ next: TimelineWindow, reason: String) {
+        guard window != next else { return }
+        let previous = window.logName
+        window = next
+        RelayLog.timeline.info(
+            "Timeline focus switched room=\(self.roomId, privacy: .private(mask: .hash)) from=\(previous, privacy: .public) to=\(next.logName, privacy: .public) reason=\(reason, privacy: .public)")
+    }
+
+    private func logFocusState(reason: String) {
+        RelayLog.timeline.info(
+            "Timeline focus state room=\(self.roomId, privacy: .private(mask: .hash)) focus=\(self.window.logName, privacy: .public) reason=\(reason, privacy: .public)")
+    }
+
+    private func beginTopLoading(_ operation: String) {
+        topLoadingOperations.insert(operation)
+        RelayLog.timeline.info(
+            "Timeline top loading operation started room=\(self.roomId, privacy: .private(mask: .hash)) operation=\(operation, privacy: .public)")
+    }
+
+    private func endTopLoading(_ operation: String) {
+        guard topLoadingOperations.remove(operation) != nil else { return }
+        RelayLog.timeline.info(
+            "Timeline top loading operation finished room=\(self.roomId, privacy: .private(mask: .hash)) operation=\(operation, privacy: .public) remaining=\(self.loadingMoreDescription, privacy: .public)")
+    }
+
+    private func beginPagination(_ operation: String) {
+        isPaginating = true
+        beginTopLoading(operation)
+    }
+
+    private func endPagination(_ operation: String) {
+        isPaginating = false
+        endTopLoading(operation)
+    }
 
     init(roomId: String, client: RelayClient, highlights: [String] = [], errorReporter: ErrorReporter) {
         self.roomID = RoomId(unchecked: roomId)
@@ -436,8 +502,11 @@ final class TimelineViewModel {
     /// is visible on first paint; fall back to the fully-read marker when they
     /// differ.
     nonisolated static func liveAnchorCandidates(
-        fullyReadEventId: String?, firstUnreadEventId: String?
+        fullyReadEventId: String?,
+        firstUnreadEventId: String?,
+        hasUnread: Bool
     ) -> [String] {
+        guard hasUnread else { return [] }
         var candidates: [String] = []
         if let firstUnreadEventId {
             candidates.append(firstUnreadEventId)
@@ -513,7 +582,8 @@ final class TimelineViewModel {
         clearUnreadContext()
         focused = nil
         thread = nil
-        window = .live
+        selectWindow(.live, reason: "load newest timeline")
+        logFocusState(reason: "load newest timeline")
         windowSize = Self.liveLimit
         if client.localUserId == nil {
             // Without a local user ID every message renders as incoming;
@@ -537,7 +607,8 @@ final class TimelineViewModel {
         clearUnreadContext()
         focused = nil
         thread = nil
-        window = .live
+        selectWindow(.live, reason: "resolve unread/read anchor")
+        logFocusState(reason: "resolve unread/read anchor")
         windowSize = Self.liveLimit
         if client.localUserId == nil {
             RelayLog.timeline.warning("Local user ID unavailable; own messages render as incoming")
@@ -546,13 +617,19 @@ final class TimelineViewModel {
             isLoading = false
             return nil
         }
+        let hasUnread = room.unreadCount > 0
+            || room.highlightCount > 0
+            || room.firstUnreadEventId != nil
         let candidates = Self.liveAnchorCandidates(
             fullyReadEventId: room.fullyReadEventId?.value,
-            firstUnreadEventId: room.firstUnreadEventId?.value)
+            firstUnreadEventId: room.firstUnreadEventId?.value,
+            hasUnread: hasUnread)
+        RelayLog.timeline.info(
+            "Timeline focus decision room=\(self.roomId, privacy: .private(mask: .hash)) unread=\(hasUnread) unreadCount=\(room.unreadCount) highlights=\(room.highlightCount) mode=\(candidates.isEmpty ? "live" : "focused", privacy: .public)")
         for eventId in candidates {
             clearUnreadContext()
             let anchor = EventId(unchecked: eventId)
-            window = .unreadContext(anchor)
+            selectWindow(.unreadContext(anchor), reason: "open stored context at read anchor")
 
             var payload = await client.timelinePayloadAround(
                 roomId: roomID,
@@ -561,7 +638,7 @@ final class TimelineViewModel {
                 newerLimit: unreadNewerLimit)
             if payload == nil {
                 guard await loadInitialUnreadContext(anchorEventId: anchor) else {
-                    window = .live
+                    selectWindow(.live, reason: "unread anchor context unavailable")
                     continue
                 }
                 payload = await client.timelinePayloadAround(
@@ -573,18 +650,15 @@ final class TimelineViewModel {
             guard let payload,
                   await applyUnreadPayload(payload, anchor: anchor)
             else {
-                window = .live
+                selectWindow(.live, reason: "unread anchor missing from stored context")
                 continue
             }
             await refreshTypingUsers()
             isLoading = false
-            if !unreadContextReady {
-                startUnreadContextWarmup(anchor: anchor)
-            }
             return eventId
         }
         clearUnreadContext()
-        window = .live
+        selectWindow(.live, reason: "no stored read anchor available")
         isLoading = false
         return nil
     }
@@ -691,7 +765,10 @@ final class TimelineViewModel {
         unreadContextTaskGeneration += 1
         unreadContextTask?.cancel()
         unreadContextTask = nil
-        isLoadingUnreadContext = false
+        if isLoadingUnreadContext {
+            isLoadingUnreadContext = false
+            endTopLoading("fetch unread context and refresh stored slice")
+        }
     }
 
     /// Ensure a message event is present in the current live window,
@@ -728,7 +805,7 @@ final class TimelineViewModel {
         isLoading = true
         defer { isLoading = false }
         clearUnreadContext()
-        window = .live
+        selectWindow(.live, reason: "load thread timeline")
         guard let messages = client.messageClient else {
             errorReporter.report(.messageLoadFailed("Not connected."))
             return
@@ -745,7 +822,7 @@ final class TimelineViewModel {
             try await timeline.load(localEvents: snapshot)
             thread = timeline
             focused = nil
-            window = .thread(await timeline.rootEventId)
+            selectWindow(.thread(await timeline.rootEventId), reason: "thread timeline loaded")
             focusReachedEnd = true
             await renderDetached(events: await timeline.events())
         } catch {
@@ -773,8 +850,8 @@ final class TimelineViewModel {
             hasMoreHistory = false
             return
         }
-        isPaginating = true
-        defer { isPaginating = false }
+        beginPagination("load older live history")
+        defer { endPagination("load older live history") }
         do {
             let page = try await messages.paginate(roomID, from: from, limit: 50)
             if !page.chunk.isEmpty, let writer = client.storeWriter {
@@ -802,8 +879,8 @@ final class TimelineViewModel {
     /// the stored cursor; that page's `prependHistory` also clears the
     /// anchor, so a bad anchor (e.g. a local echo) never sticks.
     private func resolveHistoryGap(before anchor: EventId, messages: MessageClient) async -> Bool {
-        isPaginating = true
-        defer { isPaginating = false }
+        beginPagination("recover trimmed history gap")
+        defer { endPagination("recover trimmed history gap") }
         do {
             // The server splits `limit` around the focus event, so ~50
             // land before it.
@@ -835,8 +912,8 @@ final class TimelineViewModel {
             return
         }
         guard let focused, !isPaginating else { return }
-        isPaginating = true
-        defer { isPaginating = false }
+        beginPagination("load newer focused context")
+        defer { endPagination("load newer focused context") }
         do {
             _ = try await focused.paginateForward()
             focusReachedEnd = await !focused.canPaginateForward()
@@ -877,7 +954,11 @@ final class TimelineViewModel {
         if unreadContextReady { return true }
         guard !isLoadingUnreadContext else { return false }
         isLoadingUnreadContext = true
-        defer { isLoadingUnreadContext = false }
+        beginTopLoading("fetch unread context and refresh stored slice")
+        defer {
+            isLoadingUnreadContext = false
+            endTopLoading("fetch unread context and refresh stored slice")
+        }
         guard let messages = client.messageClient else {
             unreadContextReady = true
             return true
@@ -903,8 +984,8 @@ final class TimelineViewModel {
 
     private func loadMoreUnreadHistory(anchor: EventId) async {
         guard !isPaginating else { return }
-        isPaginating = true
-        defer { isPaginating = false }
+        beginPagination("load older unread context")
+        defer { endPagination("load older unread context") }
         if hasOlderUnreadEvents {
             unreadOlderLimit = min(
                 Self.maxWindowSize, unreadOlderLimit + Self.contextPageSize)
@@ -943,8 +1024,8 @@ final class TimelineViewModel {
 
     private func loadMoreUnreadFuture(anchor: EventId) async {
         guard !isPaginating else { return }
-        isPaginating = true
-        defer { isPaginating = false }
+        beginPagination("load newer unread context")
+        defer { endPagination("load newer unread context") }
         if hasNewerUnreadEvents {
             unreadNewerLimit = min(
                 Self.maxWindowSize, unreadNewerLimit + Self.contextPageSize)
@@ -981,7 +1062,7 @@ final class TimelineViewModel {
     /// Focus on one event with context around it.
     func focusOnEvent(eventId: String) async {
         clearUnreadContext()
-        window = .live
+        selectWindow(.live, reason: "begin explicit event focus")
         guard let messages = client.messageClient else {
             errorReporter.report(.messageLoadFailed("Not connected."))
             return
@@ -998,7 +1079,7 @@ final class TimelineViewModel {
             try await timeline.load()
             focused = timeline
             thread = nil
-            window = .focused(await timeline.focusEventId)
+            selectWindow(.focused(await timeline.focusEventId), reason: "event context loaded")
             focusReachedEnd = await !timeline.canPaginateForward()
             await renderDetached(events: await timeline.events)
         } catch {
@@ -1009,8 +1090,8 @@ final class TimelineViewModel {
     /// Paginate a focus window backward.
     private func paginateFocusedBack(_ timeline: FocusedTimeline) async {
         guard !isPaginating else { return }
-        isPaginating = true
-        defer { isPaginating = false }
+        beginPagination("load older focused context")
+        defer { endPagination("load older focused context") }
         do {
             _ = try await timeline.paginateBack()
             await renderDetached(events: await timeline.events)
@@ -1077,18 +1158,41 @@ final class TimelineViewModel {
         isFocused && focusReachedEnd && isNearEnd
     }
 
-    /// Leave a context window for the live timeline once the user has
-    /// scrolled to its end and no newer history remains.
+    nonisolated static func shouldPromoteUnreadContextToLive(
+        reachedLocalEnd: Bool
+    ) -> Bool {
+        reachedLocalEnd
+    }
+
+    nonisolated static func shouldAutoPaginateFuture(
+        isFocused: Bool,
+        isNearEnd: Bool,
+        hasReachedEnd: Bool,
+        isLoadingMore: Bool,
+        canLoadMore: Bool
+    ) -> Bool {
+        isFocused && isNearEnd && !hasReachedEnd && !isLoadingMore && canLoadMore
+    }
+
+    /// Switch an unread-context window to live as soon as its local newest
+    /// edge is known. Explicit event-focus windows still require the user
+    /// to reach that edge.
     func promoteToLiveIfAtEnd(isNearEnd: Bool) async {
-        let isContext = switch window {
-        case .focused, .unreadContext: true
-        case .live, .thread: false
+        let shouldPromote = switch window {
+        case .unreadContext:
+            Self.shouldPromoteUnreadContextToLive(reachedLocalEnd: hasReachedEnd)
+        case .focused:
+            Self.shouldPromoteToLive(
+                isFocused: true,
+                focusReachedEnd: hasReachedEnd,
+                isNearEnd: isNearEnd)
+        case .live, .thread:
+            false
         }
-        guard Self.shouldPromoteToLive(
-            isFocused: isContext,
-            focusReachedEnd: hasReachedEnd,
-            isNearEnd: isNearEnd)
-        else { return }
+        let reachedLiveEdge = hasReachedEnd
+        RelayLog.timeline.info(
+            "Timeline live-transition check room=\(self.roomId, privacy: .private(mask: .hash)) focus=\(self.window.logName, privacy: .public) reachedLiveEdge=\(reachedLiveEdge) nearEnd=\(isNearEnd) decision=\(shouldPromote ? "switch to live" : "stay focused", privacy: .public)")
+        guard shouldPromote else { return }
         await returnToLive()
     }
 
@@ -1097,7 +1201,7 @@ final class TimelineViewModel {
         clearUnreadContext()
         focused = nil
         thread = nil
-        window = .live
+        selectWindow(.live, reason: "context reached live edge")
         focusReachedEnd = true
         windowSize = min(Self.maxWindowSize, max(Self.liveLimit, snapshot.count))
         await refreshLiveNow()
@@ -1105,14 +1209,11 @@ final class TimelineViewModel {
 
     /// Advance the fully-read marker (synced across devices).
     func sendFullyReadReceipt(upTo eventId: String) async {
+        let marker = EventId(unchecked: eventId)
+        await client.markFullyReadLocally(roomId: roomID, eventId: marker)
         do {
             try await client.messageSender?.setFullyRead(
-                roomID, eventId: EventId(unchecked: eventId))
-            // Local-only store mutation: wake the timeline now rather
-            // than waiting for the next sync delta.
-            client.bumpRevision(roomID)
-            RelayLog.timeline.debug(
-                "Fully-read advanced room=\(self.roomId, privacy: .private(mask: .hash)) upTo=\(eventId, privacy: .private(mask: .hash))")
+                roomID, eventId: marker)
         } catch {
             RelayLog.timeline.warning(
                 "Fully-read marker send failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
