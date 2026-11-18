@@ -63,9 +63,7 @@ enum TimelineMessageContextMenu {
         if (permissions?.canPin ?? false) && message.eventId.value.hasPrefix("$") {
             result.append(.togglePin)
         }
-        if isOutgoing, canSendMessages,
-           message.eventId.value.hasPrefix("$"), case .text = message.kind
-        {
+        if isOutgoing, canSendMessages, canEdit(message), case .text = message.kind {
             result.append(.edit)
         }
         if (isOutgoing || (permissions?.canRedactOther ?? false))
@@ -77,6 +75,18 @@ enum TimelineMessageContextMenu {
         result.append(.showSource)
         #endif
         return result
+    }
+
+    /// Server events are editable normally. A local text echo is editable
+    /// only after its send has failed; pending and restored echoes are not.
+    static func canEdit(_ message: ObservableTimelineEvent) -> Bool {
+        guard message.isEditable else { return false }
+        if message.eventId.value.hasPrefix("$") { return true }
+        if message.eventId.value.hasPrefix("local:"),
+           case .failed? = message.sendState {
+            return true
+        }
+        return false
     }
 
     /// Whether toggling a reaction uses an allowed send or own-event redaction.

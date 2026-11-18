@@ -759,7 +759,9 @@ struct TimelineView: View {
     private func refreshEditLastMessageTarget() {
         guard !readOnly else { return }
         guard let message = viewModel.events.last(where: {
-            guard $0.sender.value == viewModel.currentUserId, $0.isEditable else {
+            guard $0.sender.value == viewModel.currentUserId,
+                  TimelineMessageContextMenu.canEdit($0)
+            else {
                 return false
             }
             if case .text = $0.kind { return true }

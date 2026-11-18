@@ -20,19 +20,38 @@ import Testing
 
 @Suite
 struct TimelineMessageContextMenuTests {
-    private func message(eventId: String) -> ObservableTimelineEvent {
-        ObservableTimelineEvent(
+    private func message(
+        eventId: String, sendState: SendState? = nil
+    ) -> ObservableTimelineEvent {
+        let event = ObservableTimelineEvent(
             eventId: EventId(unchecked: eventId),
             sender: UserId(unchecked: "@alice:matrix.org"),
             timestamp: .now,
             kind: .text(body: "hello"),
             isEditable: true)
+        event.sendState = sendState
+        return event
     }
 
     @Test func localEchoCannotBeEdited() {
         let entries = TimelineMessageContextMenu.entries(
             for: message(eventId: "local:txn"), isOutgoing: true)
         #expect(!entries.contains(.edit))
+    }
+
+    @Test func pendingLocalEchoCannotBeEdited() {
+        let event = message(eventId: "local:txn", sendState: .pending)
+        #expect(!TimelineMessageContextMenu.canEdit(event))
+        let entries = TimelineMessageContextMenu.entries(for: event, isOutgoing: true)
+        #expect(!entries.contains(.edit))
+    }
+
+    @Test func failedLocalEchoCanBeEdited() {
+        let event = message(
+            eventId: "local:txn", sendState: .failed("Not authenticated"))
+        #expect(TimelineMessageContextMenu.canEdit(event))
+        let entries = TimelineMessageContextMenu.entries(for: event, isOutgoing: true)
+        #expect(entries.contains(.edit))
     }
 
     @Test func serverMessageCanBeEdited() {

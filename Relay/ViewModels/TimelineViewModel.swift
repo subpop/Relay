@@ -1472,7 +1472,8 @@ final class TimelineViewModel {
             try await client.messageSender?.edit(
                 roomID,
                 eventId: EventId(unchecked: messageId), newBody: newText,
-                mentions: mentionsParam(mentionedUserIds))
+                mentions: mentionsParam(mentionedUserIds),
+                onEchoStaged: echoStagedRefresh())
         } catch {
             errorReporter.report(.editFailed(error.localizedDescription))
         }
