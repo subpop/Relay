@@ -59,6 +59,7 @@ struct RelayApp: App {
             SearchCommand(appActions: appActions)
             QuickSwitchCommand(appActions: appActions)
             MarkAllRoomsAsReadCommand(client: client)
+            SettingsCommands()
             SidebarCommands()
             InspectorCommands()
             TextSizeCommands()
@@ -81,13 +82,15 @@ struct RelayApp: App {
             }
         }
 
-        Settings {
+        Window("Settings", id: SettingsWindowID.value) {
             SettingsView()
                 .environment(client)
                 .environment(\.errorReporter, client.errorReporter)
                 .environment(\.gifSearchService, gifSearchService)
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
+        .defaultSize(width: 820, height: 560)
+        .windowResizability(.contentMinSize)
 
         Window("Activity", id: "activity") {
             ActivityView()
@@ -312,6 +315,23 @@ struct RelayApp: App {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(notificationRequest)
+    }
+}
+
+private enum SettingsWindowID {
+    static let value = "settings"
+}
+
+struct SettingsCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                openWindow(id: SettingsWindowID.value)
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
     }
 }
 

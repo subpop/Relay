@@ -17,29 +17,40 @@ import SwiftUI
 
 // MARK: - Settings View
 
-/// The settings window, organized into tabs for account profile, appearance,
-/// behavior, notifications, session management, encryption status, and labs.
+/// The settings window, organized into sidebar pages for account profile,
+/// appearance, behavior, notifications, session management, encryption status, and labs.
 struct SettingsView: View {
     @Environment(RelayClient.self) private var client
+    @State private var destination: SettingsDestination? = .account
 
     var body: some View {
         Group {
             if client.userId() != nil {
-                TabView {
-                    SettingsAccountTab()
-                        .tabItem { Label("Account", systemImage: "person.crop.circle") }
-                    SettingsAppearanceTab()
-                        .tabItem { Label("Appearance", systemImage: "paintbrush") }
-                    SettingsBehaviorTab()
-                        .tabItem { Label("Behavior", systemImage: "gearshape") }
-                    SettingsNotificationsTab()
-                        .tabItem { Label("Notifications", systemImage: "bell") }
-                    SettingsSessionsTab()
-                        .tabItem { Label("Sessions", systemImage: "desktopcomputer") }
-                    SettingsEncryptionTab()
-                        .tabItem { Label("Encryption", systemImage: "lock.fill") }
-                    SettingsLabsTab()
-                        .tabItem { Label("Labs", systemImage: "flask") }
+                NavigationSplitView {
+                    List(selection: $destination) {
+                        ForEach(SettingsDestination.allCases) { destination in
+                            destination.label.tag(destination)
+                        }
+                    }
+                    .navigationTitle("Settings")
+                    .frame(minWidth: 170)
+                } detail: {
+                    switch destination ?? .account {
+                    case .account:
+                        SettingsAccountTab()
+                    case .appearance:
+                        SettingsAppearanceTab()
+                    case .behavior:
+                        SettingsBehaviorTab()
+                    case .notifications:
+                        SettingsNotificationsTab()
+                    case .sessions:
+                        SettingsSessionsTab()
+                    case .encryption:
+                        SettingsEncryptionTab()
+                    case .labs:
+                        SettingsLabsTab()
+                    }
                 }
             } else {
                 ContentUnavailableView(
@@ -49,13 +60,37 @@ struct SettingsView: View {
                 )
             }
         }
-        .frame(width: 480)
+        .frame(minWidth: 800, minHeight: 560)
+    }
+}
+
+private enum SettingsDestination: CaseIterable, Hashable, Identifiable {
+    case account
+    case appearance
+    case behavior
+    case notifications
+    case sessions
+    case encryption
+    case labs
+
+    var id: Self { self }
+
+    var label: Label<Text, Image> {
+        switch self {
+        case .account: Label("Account", systemImage: "person.crop.circle")
+        case .appearance: Label("Appearance", systemImage: "paintbrush")
+        case .behavior: Label("Behavior", systemImage: "gearshape")
+        case .notifications: Label("Notifications", systemImage: "bell")
+        case .sessions: Label("Sessions", systemImage: "desktopcomputer")
+        case .encryption: Label("Encryption", systemImage: "lock.fill")
+        case .labs: Label("Labs", systemImage: "flask")
+        }
     }
 }
 
 // MARK: - Previews
 
-#Preview("General") {
+#Preview("Settings") {
     SettingsView()
         .environment(PreviewFixtures.previewClient())
 }
