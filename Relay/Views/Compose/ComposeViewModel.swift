@@ -150,9 +150,25 @@ final class ComposeViewModel {
         if query.isEmpty {
             return Array(members.prefix(12))
         }
+
+        let searchQuery = Self.mentionSearchKey(query)
+        guard !searchQuery.isEmpty else { return [] }
         return members.filter { member in
-            member.resolvedName.localizedStandardContains(query)
+            let name = Self.mentionSearchKey(member.resolvedName)
+            let userId = Self.mentionSearchKey(member.userId.value)
+            return name.localizedStandardContains(searchQuery)
+                || userId.localizedStandardContains(searchQuery)
         }
+    }
+
+    /// Canonicalizes and folds user-entered text and member fields so
+    /// canonically equivalent, diacritic-bearing, and Latin-script variants
+    /// match predictably.
+    private static func mentionSearchKey(_ string: String) -> String {
+        let folded = string.precomposedStringWithCanonicalMapping
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return folded.applyingTransform(StringTransform("Latin-ASCII"), reverse: false)
+            ?? folded
     }
 
     // MARK: - Mention Actions
