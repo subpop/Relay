@@ -370,13 +370,10 @@ struct TimelineView: View {
                 }
             }
             .onChange(of: viewModel.events.count) {
-                guard !readOnly else { return }
-                memberSnapshotTask?.cancel()
-                memberSnapshotTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
-                    compose.members = await viewModel.roomMembers()
-                }
+                scheduleMemberSnapshotRefresh()
+            }
+            .onChange(of: client.roomRevisions[roomId]) { _, _ in
+                scheduleMemberSnapshotRefresh()
             }
             .onChange(of: compose.text) { oldValue, newValue in
                 guard !readOnly, sendTypingNotifications else { return }
@@ -616,6 +613,16 @@ struct TimelineView: View {
             "fetchRoomPermissions", id: timelineViewSignposter.makeSignpostID())
         defer { timelineViewSignposter.endInterval("fetchRoomPermissions", state) }
         return await viewModel.roomPermissions()
+    }
+
+    private func scheduleMemberSnapshotRefresh() {
+        guard !readOnly else { return }
+        memberSnapshotTask?.cancel()
+        memberSnapshotTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            compose.members = await viewModel.roomMembers()
+        }
     }
 
     // MARK: - Scroll Management

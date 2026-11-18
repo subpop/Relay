@@ -109,6 +109,7 @@ struct TimelineInspectorView: View {
     @Binding var selectedTab: InspectorTab
 
     @State private var viewModel: TimelineInspectorViewModel
+    @State private var memberRefreshTask: Task<Void, Never>?
 
     private var availableTabs: [InspectorTab] {
         var tabs = InspectorTab.tabs(for: context)
@@ -163,6 +164,9 @@ struct TimelineInspectorView: View {
                 initialTab = nil
             }
         }
+        .onChange(of: client.roomRevisions[roomId]) { _, _ in
+            scheduleMemberRefresh()
+        }
         .onAppear {
             if let tab = initialTab {
                 selectedTab = tab
@@ -172,6 +176,18 @@ struct TimelineInspectorView: View {
                 // context (e.g. a space) — fall back rather than show it anyway.
                 selectedTab = .general
             }
+        }
+        .onDisappear {
+            memberRefreshTask?.cancel()
+        }
+    }
+
+    private func scheduleMemberRefresh() {
+        memberRefreshTask?.cancel()
+        memberRefreshTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            await viewModel.refreshCachedMembers()
         }
     }
 

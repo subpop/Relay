@@ -96,6 +96,11 @@ final class TimelineInspectorViewModel {
         isLoadingMembers = false
     }
 
+    func refreshCachedMembers() async {
+        guard let client else { return }
+        allMembers = await client.roomMemberDetails(roomId: RoomId(unchecked: roomId))
+    }
+
     /// Whether `userId` is currently banned from the room.
     func isBanned(_ userId: String) -> Bool {
         details?.bannedUserIds.contains(UserId(unchecked: userId)) ?? false
