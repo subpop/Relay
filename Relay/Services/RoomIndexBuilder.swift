@@ -20,31 +20,14 @@ import SwiftData
 
 private nonisolated let roomIndexSignposter = OSSignposter(
     subsystem: "app.subpop.Relay.performance", category: "RoomIndex")
-/// Snapshot payload for one room's live timeline window. Sendable value,
-/// produced off the main actor.
-struct TimelinePayload: Sendable {
-    var snapshot: [MessageEvent]
-    var sendStates: [EventId: SendState]
-    var firstUnreadEventId: String?
-    var prevBatch: String?
-    /// Set after a retention trim left `prevBatch` unable to reach the
-    /// trimmed range: back-pagination resumes before this event via
-    /// `/context` instead.
-    var historyGapEventId: String? = nil
-    /// Whether more locally stored events exist beyond the slice on each side.
-    var hasOlderStoredEvents = false
-    var hasNewerStoredEvents = false
-}
-
-/// Background builder for store-backed UI snapshots.
+/// Background builder for room-list snapshots.
 ///
 /// Owns a private `ModelContext` confined to this actor: every fetch and
 /// JSON decode here runs off the main thread, keeping sync bursts and
-/// timeline refreshes from stalling UI on large stores (which keep full
-/// event history). Callers receive finished `Sendable` values and assign
-/// them on the main actor. Methods are suspension-free by construction
-/// (fetch + decode + build only), so the confined context never crosses
-/// a suspension point.
+/// room-list rebuilds from stalling UI on large stores. Callers receive
+/// finished `Sendable` values and assign them on the main actor. Methods
+/// are suspension-free by construction (fetch + decode + build only), so
+/// the confined context never crosses a suspension point.
 actor RoomIndexBuilder {
     private var context: ModelContext
     private let localUser: UserId?
@@ -202,117 +185,6 @@ actor RoomIndexBuilder {
         return children
     }
 
-    /// Live-window payload for one room: the newest window of events
-    /// (oldest first), delivery states read off the same rows (no extra
-    /// query), and the room's marker/cursor columns.
-    func timelinePayload(roomId: String, limit: Int) -> TimelinePayload {
-        let state = roomIndexSignposter.beginInterval(
-            "fetchTimelinePayload", id: roomIndexSignposter.makeSignpostID(),
-            "limit \(limit)")
-        let rows = windowRows(roomId: roomId, limit: limit)
-        let decoder = JSONDecoder()
-        var snapshot: [MessageEvent] = []
-        snapshot.reserveCapacity(rows.count)
-        var sendStates: [EventId: SendState] = [:]
-        for row in rows {
-            if let event = row.messageEvent(decoder: decoder) {
-                snapshot.append(event)
-            }
-            switch row.sendState {
-            case "pending":
-                sendStates[EventId(unchecked: row.eventId)] = .pending
-            case "failed":
-                sendStates[EventId(unchecked: row.eventId)] = .failed(
-                    row.sendFailureReason ?? "Send failed")
-            default:
-                break
-            }
-        }
-        let marker = markerSummary(roomId: roomId)
-        let payload = TimelinePayload(
-            snapshot: snapshot,
-            sendStates: sendStates,
-            firstUnreadEventId: marker.firstUnreadEventId,
-            prevBatch: marker.prevBatch,
-            historyGapEventId: marker.historyGapEventId)
-        roomIndexSignposter.endInterval(
-            "fetchTimelinePayload", state, "stored rows \(rows.count)")
-        return payload
-    }
-
-    /// Store-backed payload centered on one anchor event ID.
-    ///
-    /// Returns nil when the anchor is not present in local SwiftData.
-    func timelinePayloadAround(
-        roomId: String,
-        anchorEventId: String,
-        olderLimit: Int,
-        newerLimit: Int
-    ) -> TimelinePayload? {
-        let state = roomIndexSignposter.beginInterval(
-            "fetchTimelinePayloadAround", id: roomIndexSignposter.makeSignpostID(),
-            "older \(olderLimit) newer \(newerLimit)")
-        guard let anchor = eventRow(roomId: roomId, eventId: anchorEventId) else {
-            roomIndexSignposter.endInterval("fetchTimelinePayloadAround", state, "anchor missing")
-            return nil
-        }
-
-        let olderRowsDesc = olderRows(
-            roomId: roomId, before: anchor, limit: max(olderLimit, 0) + 1)
-        let newerRowsAsc = newerRows(
-            roomId: roomId, after: anchor, limit: max(newerLimit, 0) + 1)
-        let hasOlderStoredEvents = olderRowsDesc.count > olderLimit
-        let hasNewerStoredEvents = newerRowsAsc.count > newerLimit
-        let olderRows = Array(olderRowsDesc.prefix(max(olderLimit, 0)))
-        let newerRows = Array(newerRowsAsc.prefix(max(newerLimit, 0)))
-        var rows = Array(olderRows.reversed())
-        rows.append(anchor)
-        rows.append(contentsOf: newerRows)
-
-        let decoder = JSONDecoder()
-        var snapshot: [MessageEvent] = []
-        snapshot.reserveCapacity(rows.count)
-        var sendStates: [EventId: SendState] = [:]
-        for row in rows {
-            if let event = row.messageEvent(decoder: decoder) {
-                snapshot.append(event)
-            }
-            switch row.sendState {
-            case "pending":
-                sendStates[EventId(unchecked: row.eventId)] = .pending
-            case "failed":
-                sendStates[EventId(unchecked: row.eventId)] = .failed(
-                    row.sendFailureReason ?? "Send failed")
-            default:
-                break
-            }
-        }
-
-        let marker = markerSummary(roomId: roomId)
-        let payload = TimelinePayload(
-            snapshot: snapshot,
-            sendStates: sendStates,
-            firstUnreadEventId: marker.firstUnreadEventId,
-            prevBatch: marker.prevBatch,
-            historyGapEventId: marker.historyGapEventId,
-            hasOlderStoredEvents: hasOlderStoredEvents,
-            hasNewerStoredEvents: hasNewerStoredEvents)
-        roomIndexSignposter.endInterval(
-            "fetchTimelinePayloadAround", state, "stored rows \(rows.count)")
-        return payload
-    }
-
-    /// Marker and pagination-cursor columns for one room (single indexed
-    /// row fetch, for detached windows that don't need the event window).
-    func markerSummary(roomId: String) -> (
-        firstUnreadEventId: String?, prevBatch: String?, historyGapEventId: String?
-    ) {
-        let id = roomId
-        let row = try? context.fetch(FetchDescriptor<SDRoom>(
-            predicate: #Predicate { $0.roomId == id })).first
-        return (row?.firstUnreadEventId, row?.prevBatch, row?.historyGapEventId)
-    }
-
     // MARK: - Private
 
     /// Newest stored event rows for a room, newest first (bounded).
@@ -337,49 +209,6 @@ actor RoomIndexBuilder {
                 ])
         }
         descriptor.fetchLimit = limit
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    /// One stored event row by room+event ID.
-    private func eventRow(roomId: String, eventId: String) -> SDRoomEvent? {
-        let id = roomId
-        let target = eventId
-        let descriptor = FetchDescriptor<SDRoomEvent>(
-            predicate: #Predicate { $0.roomId == id && $0.eventId == target })
-        return try? context.fetch(descriptor).first
-    }
-
-    /// Rows before an event in stable `(timestamp, event ID)` order, newest first.
-    private func olderRows(roomId: String, before event: SDRoomEvent, limit: Int) -> [SDRoomEvent] {
-        let id = roomId
-        let ts = event.ts
-        let eventId = event.eventId
-        var descriptor = FetchDescriptor<SDRoomEvent>(
-            predicate: #Predicate {
-                $0.roomId == id && ($0.ts < ts || ($0.ts == ts && $0.eventId < eventId))
-            },
-            sortBy: [
-                SortDescriptor(\.ts, order: .reverse),
-                SortDescriptor(\.eventId, order: .reverse),
-            ])
-        descriptor.fetchLimit = max(limit, 0)
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    /// Rows after an event in stable `(timestamp, event ID)` order, oldest first.
-    private func newerRows(roomId: String, after event: SDRoomEvent, limit: Int) -> [SDRoomEvent] {
-        let id = roomId
-        let ts = event.ts
-        let eventId = event.eventId
-        var descriptor = FetchDescriptor<SDRoomEvent>(
-            predicate: #Predicate {
-                $0.roomId == id && ($0.ts > ts || ($0.ts == ts && $0.eventId > eventId))
-            },
-            sortBy: [
-                SortDescriptor(\.ts, order: .forward),
-                SortDescriptor(\.eventId, order: .forward),
-            ])
-        descriptor.fetchLimit = max(limit, 0)
         return (try? context.fetch(descriptor)) ?? []
     }
 
@@ -415,11 +244,5 @@ actor RoomIndexBuilder {
             }
         }
         return nil
-    }
-
-    /// Newest window of stored events, oldest first (mirrors
-    /// `MatrixStoreReader.timeline(_:limit:)`).
-    private func windowRows(roomId: String, limit: Int) -> [SDRoomEvent] {
-        Array(newestRows(roomId: roomId, messageLikeOnly: false, limit: limit).reversed())
     }
 }

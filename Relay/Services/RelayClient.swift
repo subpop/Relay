@@ -367,10 +367,12 @@ final class RelayClient {
     var storeWriter: MatrixStoreWriter?
     /// Fetch-based reads over the normalized store.
     var storeReader: MatrixStoreReader?
+    /// Timeline reads run separately from room-list snapshot rebuilds.
+    private var timelinePayloadReader: TimelinePayloadReader?
     /// Rooms whose stored image packs were reconciled with server state this session.
     @ObservationIgnored private var imagePackRefreshedRooms: Set<RoomId> = []
-    /// Store-backed room snapshots driving the room list and every
-    /// per-room lookup. Rebuilt off the main thread after each sync
+    /// Store-backed room snapshots driving the room list and cached
+    /// room presentation. Rebuilt off the main thread after each sync
     /// delta (see `scheduleRoomCacheRebuild()`); `@Observable`
     /// invalidation refreshes readers when it is reassigned.
     private var cachedRooms: [RelayRoom] = []
@@ -388,9 +390,8 @@ final class RelayClient {
     @ObservationIgnored private var pendingInviteHistoryBackfills: Set<String> = []
     /// In-flight one-page history fetches, keyed by room ID.
     @ObservationIgnored private var inviteHistoryBackfillTasks: [String: Task<Void, Never>] = [:]
-    /// Background builder for the cached snapshots. Owns the only
-    /// off-main `ModelContext`, so room-list rebuilds never touch the
-    /// main thread. Recreated per session in `openStore(for:)`.
+    /// Background builder for the cached room snapshots. Recreated per
+    /// session in `openStore(for:)`.
     private var roomIndex: RoomIndexBuilder?
     /// Store-backed room sends (echoes, encryption dispatch, reactions,
     /// edits, redacts, pins, markers). Recreated per session in
@@ -707,6 +708,7 @@ final class RelayClient {
         await typingTracker.setLocalUser(nil)
         spaceChildIds = [:]
         roomIndex = nil
+        timelinePayloadReader = nil
         messageSender = nil
         storeContainer = nil
         storeWriter = nil
@@ -3732,6 +3734,7 @@ final class RelayClient {
         storeWriter = writer
         let reader = MatrixStoreReader(modelContainer: container, localUser: userId)
         storeReader = reader
+        timelinePayloadReader = TimelinePayloadReader(reader: reader)
         roomIndex =  RoomIndexBuilder(container: container, localUser: userId)
         messageSender =  MessageSender(
             messages: client.messages, media: client.media,
@@ -3933,15 +3936,11 @@ final class RelayClient {
         await scheduleRoomCacheRebuild().value
     }
 
-    /// Live-window payload for a room, fetched off the main actor (see
-    /// `RoomIndexBuilder`). Empty when the store is unavailable.
+    /// Live-window payload for a room, fetched independently of the
+    /// room-list snapshot rebuild.
     func timelinePayload(roomId: RoomId, limit: Int) async -> TimelinePayload {
-        guard let index = roomIndex else {
-            return TimelinePayload(
-                snapshot: [], sendStates: [:],
-                firstUnreadEventId: nil, prevBatch: nil)
-        }
-        return await index.timelinePayload(roomId: roomId.value, limit: limit)
+        guard let timelinePayloadReader else { return .empty }
+        return await timelinePayloadReader.timelinePayload(roomId: roomId, limit: limit)
     }
 
     /// Store-backed payload centered on one anchor event. Returns nil when the
@@ -3952,9 +3951,9 @@ final class RelayClient {
         olderLimit: Int,
         newerLimit: Int
     ) async -> TimelinePayload? {
-        guard let index = roomIndex else { return nil }
-        return await index.timelinePayloadAround(
-            roomId: roomId.value,
+        guard let timelinePayloadReader else { return nil }
+        return await timelinePayloadReader.timelinePayloadAround(
+            roomId: roomId,
             anchorEventId: anchorEventId,
             olderLimit: olderLimit,
             newerLimit: newerLimit)
@@ -3994,8 +3993,8 @@ final class RelayClient {
     func markerSummary(roomId: RoomId) async -> (
         firstUnreadEventId: String?, prevBatch: String?, historyGapEventId: String?
     ) {
-        guard let index = roomIndex else { return (nil, nil, nil) }
-        return await index.markerSummary(roomId: roomId.value)
+        guard let timelinePayloadReader else { return (nil, nil, nil) }
+        return await timelinePayloadReader.markerSummary(roomId: roomId)
     }
 
     /// Heal a missing room avatar with a direct state fetch, adopting
@@ -4024,6 +4023,7 @@ final class RelayClient {
         roomRebuildTask = nil
         roomRebuildRequested = false
         roomIndex = nil
+        timelinePayloadReader = nil
         messageSender = nil
         await typingTracker.setLocalUser(nil)
         storeContainer = nil

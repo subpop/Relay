@@ -527,7 +527,7 @@ struct RelayRoomTests {
         #expect(members.first { $0.userId.value == "@alice:example.com" }?.powerLevel == 50)
     }
 
-    @Test func builderPayloadCarriesWindowSendStatesAndMarkers() async throws {
+    @Test func timelinePayloadReadsIndependentlyOfRoomIndexRebuild() async throws {
         let container = try MatrixStore.makeInMemory()
         let context = ModelContext(container)
         let room = SDRoom(
@@ -547,13 +547,20 @@ struct RelayRoomTests {
         context.insert(echo)
         try context.save()
 
+        let reader = TimelinePayloadReader(
+            reader: MatrixStoreReader(modelContainer: container))
         let builder = RoomIndexBuilder(container: container, localUser: nil)
-        let payload = await builder.timelinePayload(roomId: "!test:example.com", limit: 50)
+        async let rebuild = builder.rebuild()
+        async let timeline = reader.timelinePayload(
+            roomId: RoomId(unchecked: "!test:example.com"), limit: 50)
+        let (rooms, payload) = await (rebuild, timeline)
+        #expect(rooms.joined.count == 1)
         #expect(payload.snapshot.map(\.eventId.value) == ["local:txn1"])
         #expect(payload.sendStates[EventId(unchecked: "local:txn1")] == .pending)
         #expect(payload.firstUnreadEventId == "$m2")
         #expect(payload.prevBatch == "s1")
-        let marker = await builder.markerSummary(roomId: "!test:example.com")
+        let marker = await reader.markerSummary(
+            roomId: RoomId(unchecked: "!test:example.com"))
         #expect(marker.firstUnreadEventId == "$m2")
         #expect(marker.prevBatch == "s1")
     }
@@ -582,9 +589,10 @@ struct RelayRoomTests {
         }
         try context.save()
 
-        let builder = RoomIndexBuilder(container: container, localUser: nil)
-        let payload = try #require(await builder.timelinePayloadAround(
-            roomId: "!test:example.com",
+        let reader = TimelinePayloadReader(
+            reader: MatrixStoreReader(modelContainer: container))
+        let payload = try #require(await reader.timelinePayloadAround(
+            roomId: RoomId(unchecked: "!test:example.com"),
             anchorEventId: "$b",
             olderLimit: 1,
             newerLimit: 1))
@@ -617,9 +625,10 @@ struct RelayRoomTests {
         }
         try context.save()
 
-        let builder = RoomIndexBuilder(container: container, localUser: nil)
-        let payload = try #require(await builder.timelinePayloadAround(
-            roomId: "!test:example.com",
+        let reader = TimelinePayloadReader(
+            reader: MatrixStoreReader(modelContainer: container))
+        let payload = try #require(await reader.timelinePayloadAround(
+            roomId: RoomId(unchecked: "!test:example.com"),
             anchorEventId: "$b",
             olderLimit: 0,
             newerLimit: 0))
