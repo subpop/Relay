@@ -117,6 +117,12 @@ final class TimelineViewModel {
     /// can't reach the trimmed range. Back-pagination resumes before it
     /// via `/context` and then continues from the cursor that returns.
     private var historyGapEventId: EventId?
+    private(set) var timelineGaps: [StoredTimelineGap] = []
+    private(set) var loadingGapId: String?
+    private(set) var gapLoadError: String?
+    private(set) var failedGapId: String?
+    private var hasOlderLiveEvents = false
+    var shouldShowUnanchoredGap: Bool { !hasOlderLiveEvents }
     /// Whether older history may exist. True until a page comes back
     /// cursorless.
     private var hasMoreHistory = true
@@ -453,6 +459,9 @@ final class TimelineViewModel {
             snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
         historyCursor = payload.prevBatch.map { BatchToken($0) }
         historyGapEventId = payload.historyGapEventId.map { EventId(unchecked: $0) }
+        timelineGaps = payload.timelineGaps
+        hasOlderLiveEvents = payload.hasOlderStoredEvents
+        if hasOlderLiveEvents { hasMoreHistory = true }
         if historyGapEventId != nil {
             // A trim can land while the room is open; reopen history.
             hasMoreHistory = true
@@ -592,7 +601,7 @@ final class TimelineViewModel {
         }
         await refreshLiveNow()
         await refreshTypingUsers()
-        if historyCursor == nil && historyGapEventId == nil {
+        if historyCursor == nil && historyGapEventId == nil && !hasOlderLiveEvents {
             // No back-pagination cursor or trim gap stored: the window
             // is the whole known history.
             hasMoreHistory = false
@@ -841,6 +850,11 @@ final class TimelineViewModel {
             return
         }
         guard !isPaginating, hasMoreHistory else { return }
+        if hasOlderLiveEvents {
+            windowSize = Self.grownWindowSize(current: windowSize, fetched: 50)
+            await refreshLiveNow()
+            return
+        }
         guard let messages = client.messageClient else { return }
         if let anchor = historyGapEventId,
            await resolveHistoryGap(before: anchor, messages: messages) {
@@ -869,6 +883,37 @@ final class TimelineViewModel {
         } catch {
             RelayLog.timeline.warning(
                 "History pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Fill the boundary between two retained sync windows. A page
+    /// overlapping only previously fetched gap pages does not close it.
+    func loadMissingMessages(at gap: StoredTimelineGap) async {
+        guard case .live = window, loadingGapId == nil,
+              timelineGaps.contains(gap),
+              let messages = client.messageClient,
+              let writer = client.storeWriter else { return }
+        loadingGapId = gap.newerEventId
+        gapLoadError = nil
+        failedGapId = nil
+        defer { loadingGapId = nil }
+        do {
+            let page = try await messages.paginate(
+                roomID, from: BatchToken(gap.prevBatch), limit: 50)
+            try await writer.fillTimelineGap(
+                page.chunk, roomId: roomID, newerEventId: gap.newerEventId,
+                end: page.end.map { BatchToken($0) })
+            windowSize = Self.grownWindowSize(current: windowSize, fetched: page.chunk.count)
+            await refreshLiveNow()
+            if page.end == nil && timelineGaps.contains(where: {
+                $0.newerEventId == gap.newerEventId
+            }) {
+                gapLoadError = "No earlier messages are available."
+                failedGapId = gap.newerEventId
+            }
+        } catch {
+            gapLoadError = error.localizedDescription
+            failedGapId = gap.newerEventId
         }
     }
 

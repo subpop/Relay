@@ -450,6 +450,8 @@ final class RelayClient {
     private var notificationContinuations: [AsyncStream<RoomMessageNotification>.Continuation] = []
     /// Newest notified event timestamp (ms) per room ID. Dedupes sync
     /// replays (e.g. limited-timeline gaps after reconnects).
+    private var notifiedEventIds: Set<String> = []
+    private var openRoomSubscriptions: Set<RoomId> = []
     private var lastNotifiedEventTimestamp: [String: Int] = [:]
     /// Pending invites already logged. The server repeats invites in every
     /// sync until resolved; without this each would log once per sync.
@@ -688,6 +690,7 @@ final class RelayClient {
         pendingVerificationRequest = nil
         activeVerificationSession = nil
         shouldPresentVerificationSheet = false
+        notifiedEventIds = []
         lastNotifiedEventTimestamp = [:]
         syncStats = SyncStats()
         recentActivity = []
@@ -795,6 +798,21 @@ final class RelayClient {
     }
 
     // MARK: - Rooms
+
+    func subscribeToOpenRoom(_ roomId: RoomId) async {
+        openRoomSubscriptions.insert(roomId)
+        guard usingSlidingSync, let client else { return }
+        await client.slidingSync.subscribe(
+            roomId,
+            requiredState: SlidingSyncClient.defaultLists["main"]?.requiredState,
+            timelineLimit: 50)
+    }
+
+    func unsubscribeFromOpenRoom(_ roomId: RoomId) async {
+        openRoomSubscriptions.remove(roomId)
+        guard usingSlidingSync, let client else { return }
+        await client.slidingSync.unsubscribe(roomId)
+    }
 
     /// Accept a pending invitation.
     @discardableResult
@@ -2886,7 +2904,13 @@ final class RelayClient {
         syncTask = Task {
             do {
                 if useSliding {
-                    try await client.startSlidingSync()
+                    let subscriptions = Dictionary(uniqueKeysWithValues:
+                        openRoomSubscriptions.map { roomId in
+                            (roomId, SlidingSyncRoomSubscription(
+                                requiredState: SlidingSyncClient.defaultLists["main"]?.requiredState,
+                                timelineLimit: 50))
+                        })
+                    try await client.startSlidingSync(subscriptions: subscriptions)
                 } else {
                     try await client.startSync(filter: .leanInitial)
                 }
@@ -3264,7 +3288,9 @@ final class RelayClient {
     /// The monitor subscribes before the live loop starts, and startup
     /// history arrives via `syncOnce` (which never emits deltas), so only
     /// new messages notify. Own messages, redactions, edits, and events
-    /// at or below the per-room notified watermark are skipped.
+    /// already-notified event IDs are skipped. Sliding sync additionally
+    /// supplies live IDs so historical room windows never notify; classic
+    /// sync retains its timestamp watermark to avoid replaying old pages.
     private func startNotificationMonitor() {
         guard let client, notificationTask == nil else { return }
         notificationTask = Task {
@@ -3308,21 +3334,29 @@ final class RelayClient {
         for (roomId, joined) in delta.joined where !joined.timeline.isEmpty {
             guard let room = storedRoom(roomId) else { continue }
             for event in joined.timeline {
+                if let liveEventIds = delta.liveEventIds,
+                    !liveEventIds[roomId, default: []].contains(event.eventId) {
+                    continue
+                }
                 if event.type == "m.room.encrypted" { continue }
                 guard event.type == EventType.roomMessage.rawValue,
                       !event.isRedacted,
                       event.sender != myId,
                       let content = event.messageContent,
                       !content.body.isEmpty,
-                      content.relatesTo?.relType != .replacement,
-                      event.originServerTs > lastNotifiedEventTimestamp[roomId.value, default: 0]
+                       content.relatesTo?.relType != .replacement,
+                       (delta.liveEventIds != nil ||
+                        event.originServerTs > lastNotifiedEventTimestamp[roomId.value, default: 0]),
+                       !notifiedEventIds.contains(event.eventId.value)
                 else { continue }
-                lastNotifiedEventTimestamp[roomId.value] = event.originServerTs
                 let mode = await effectiveNotificationMode(for: room)
                 guard mode != .mute else { continue }
                 let mention = isMention(
                     body: content.body, mentions: content.mentions, myId: myId)
                 if mode == .mentionsAndKeywordsOnly, !mention { continue }
+                notifiedEventIds.insert(event.eventId.value)
+                lastNotifiedEventTimestamp[roomId.value] = max(
+                    lastNotifiedEventTimestamp[roomId.value, default: 0], event.originServerTs)
                 notifyMessage(RoomMessageNotification(
                     eventId: event.eventId.value,
                     roomId: roomId.value,

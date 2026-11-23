@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import MatrixKit
+import MatrixKitSwiftData
 import SwiftUI
 
 /// Pure SwiftUI timeline renderer using `ScrollView` + `LazyVStack`.
@@ -24,6 +25,12 @@ import SwiftUI
 /// - Scroll-to-bottom button when scrolled away from live
 struct TimelineScrollView: View {
     let rows: [MessageRow]
+    let timelineGaps: [StoredTimelineGap]
+    let showUnanchoredGap: Bool
+    let loadingGapId: String?
+    let gapLoadError: String?
+    let failedGapId: String?
+    let onLoadGap: (StoredTimelineGap) -> Void
     let config: TimelineConfig
     let bottomInset: CGFloat
     /// The consolidated timeline interaction callbacks. Injected into the
@@ -60,7 +67,21 @@ struct TimelineScrollView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 2) {
+                if showUnanchoredGap,
+                   let gap = timelineGaps.first,
+                   !rows.contains(where: { $0.id == gap.newerEventId }) {
+                    TimelineGapRow(
+                        isLoading: loadingGapId == gap.newerEventId,
+                        error: failedGapId == gap.newerEventId ? gapLoadError : nil,
+                        onLoad: { onLoadGap(gap) })
+                }
                 ForEach(rows) { row in
+                    if let gap = timelineGaps.first(where: { $0.newerEventId == row.id }) {
+                        TimelineGapRow(
+                            isLoading: loadingGapId == gap.newerEventId,
+                            error: failedGapId == gap.newerEventId ? gapLoadError : nil,
+                            onLoad: { onLoadGap(gap) })
+                    }
                     TimelineRowView(
                         row: row,
                         isHighlighted: config.highlightedMessageID == row.message.eventId.value,
@@ -277,5 +298,53 @@ struct TimelineScrollView: View {
         var isLive: Bool
         var isLoadingMore: Bool
         var uploadProgress: Double?
+    }
+}
+
+private struct TimelineGapRow: View {
+    let isLoading: Bool
+    let error: String?
+    let onLoad: () -> Void
+
+    var body: some View {
+        VStack {
+            HStack {
+                Rectangle()
+                    .fill(.quaternary)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 40, height: 20)
+                        .padding(.vertical, 4)
+                        .accessibilityLabel("Loading more messages")
+                } else {
+                    Button(action: onLoad) {
+                        Label("Load more messages", systemImage: "ellipsis")
+                            .labelStyle(.iconOnly)
+                            .font(.title2)
+                            .foregroundStyle(.quaternary)
+                            .frame(width: 30, height: 15)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .strokeBorder(.quaternary, lineWidth: 1)
+                            }
+                            .contentShape(.rect(cornerRadius: 4))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 4)
+                    .help("Load more messages")
+                }
+                Rectangle()
+                    .fill(.quaternary)
+                    .frame(height: 1)
+                    .padding(.trailing, 16)
+            }
+            if let error { Text(error).foregroundStyle(.secondary) }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical)
+        .accessibilityElement(children: .combine)
     }
 }

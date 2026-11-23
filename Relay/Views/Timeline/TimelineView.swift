@@ -239,6 +239,9 @@ struct TimelineView: View {
                 DropTargetOverlay(readOnly: readOnly, isTargeted: isTimelineDropTargeted)
             }
             .task {
+                if !readOnly {
+                    await client.subscribeToOpenRoom(RoomId(unchecked: roomId))
+                }
                 let initialLoadState = timelineViewSignposter.beginInterval(
                     "roomTimelineInitialLoad", id: timelineViewSignposter.makeSignpostID())
                 timelineInitialLoadComplete = false
@@ -343,6 +346,9 @@ struct TimelineView: View {
                 }
             }
             .onDisappear {
+                if !readOnly {
+                    Task { await client.unsubscribeFromOpenRoom(RoomId(unchecked: roomId)) }
+                }
                 viewModel.cancelUnreadContextWarmup()
                 if !readOnly, sendTypingNotifications {
                     Task { await viewModel.setTyping(false) }
@@ -436,6 +442,12 @@ struct TimelineView: View {
     private var messageList: some View {
         TimelineScrollView(
             rows: viewModel.messageRows,
+            timelineGaps: viewModel.timelineFocus == .live ? viewModel.timelineGaps : [],
+            showUnanchoredGap: viewModel.shouldShowUnanchoredGap,
+            loadingGapId: viewModel.loadingGapId,
+            gapLoadError: viewModel.gapLoadError,
+            failedGapId: viewModel.failedGapId,
+            onLoadGap: { gap in Task { await viewModel.loadMissingMessages(at: gap) } },
             config: .init(
                 firstUnreadMessageID: displayedUnreadMessageId,
                 highlightedMessageID: highlightedMessageId,
