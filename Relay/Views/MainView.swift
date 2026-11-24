@@ -18,6 +18,8 @@ import SwiftUI
 
 private nonisolated let mainViewSignposter = OSSignposter(
     subsystem: "app.subpop.Relay.performance", category: "RoomSwitch")
+private nonisolated let mainViewRowsSignposter = OSSignposter(
+    subsystem: "app.subpop.Relay.performance", category: "RoomList")
 /// The primary navigation view shown after login, with a room list sidebar and detail area.
 struct MainView: View {
     @Environment(RelayClient.self) private var client
@@ -202,9 +204,12 @@ struct MainView: View {
 
     /// Joined rooms mapped for rows and the quick switcher.
     private var roomRows: [RoomRowData] {
-        client.rooms
+        let state = mainViewRowsSignposter.beginInterval("mapRoomRows")
+        let rows = client.rooms
             .filter { $0.membership == .join }
             .map { RoomRowData.from(room: $0, isMuted: client.isMuted(roomId: $0.roomId.value), client: client) }
+        mainViewRowsSignposter.endInterval("mapRoomRows", state, "\(rows.count) rows")
+        return rows
     }
 
     /// Joined spaces mapped for the rail.
