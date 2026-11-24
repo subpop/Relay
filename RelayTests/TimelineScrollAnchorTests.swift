@@ -13,6 +13,8 @@
 // limitations under the License.
 
 import Foundation
+import Observation
+import Synchronization
 import Testing
 
 @testable import Relay
@@ -22,12 +24,31 @@ import Testing
 @Suite("Scroll anchor")
 @MainActor
 struct TimelineScrollAnchorTests {
+    @Test("Unchanged scroll metrics do not invalidate observers")
+    func unchangedMetrics() {
+        let scroller = TimelineScroller()
+        scroller.updateMetrics(viewportHeight: 500, contentHeight: 1000, bottomInset: 20)
+        let contentHeightChanged = Mutex(false)
+        withObservationTracking {
+            _ = scroller.contentHeight
+        } onChange: {
+            contentHeightChanged.withLock { $0 = true }
+        }
+
+        scroller.updateMetrics(viewportHeight: 500, contentHeight: 1000, bottomInset: 20)
+        #expect(!contentHeightChanged.withLock { $0 })
+        scroller.updateMetrics(viewportHeight: 600, contentHeight: 1000, bottomInset: 20)
+        #expect(!contentHeightChanged.withLock { $0 })
+        scroller.updateMetrics(viewportHeight: 600, contentHeight: 1100, bottomInset: 20)
+        #expect(contentHeightChanged.withLock { $0 })
+    }
+
     private func pending(
         id: String = "m3",
         rowCount: Int = 3,
         contentHeight: CGFloat = 1000
     ) -> PendingScrollAnchor {
-        PendingScrollAnchor(id: id, rowCount: rowCount, contentHeight: contentHeight)
+        PendingScrollAnchor(id: id, firstRowID: "m0", rowCount: rowCount, contentHeight: contentHeight)
     }
 
     private func target(
@@ -103,6 +124,23 @@ struct TimelineScrollAnchorTests {
         #expect(target() == "m3")
     }
 
+    @Test("Anchors after the window slides back without growing")
+    func slidingBack() {
+        #expect(target(pending: pending(rowCount: 4),
+                       rowIDs: ["older", "m0", "m1", "m3"], contentHeight: 1000) == "m3")
+        #expect(target(pending: pending(rowCount: 4),
+                       rowIDs: ["older", "m0", "m1", "m3"], contentHeight: 1000,
+                       isNearEnd: true, nearTop: false) == "m3")
+    }
+
+    @Test("Anchors a visible row after the window slides forward")
+    func slidingForward() {
+        #expect(TimelineScroller.forwardAnchorTarget(
+            pending: pending(), rowIDs: ["m1", "m2", "m3", "newer"]) == "m3")
+        #expect(TimelineScroller.forwardAnchorTarget(
+            pending: pending(), rowIDs: ["m0", "m1", "m2", "m3"]) == nil)
+    }
+
     @Test("Backfill gate fires once per entry into the top zone")
     func backfillGate() {
         var gate = TimelineScroller.BackfillGate()
@@ -170,47 +208,6 @@ struct TimelineEndDetectionTests {
         typealias VM = TimelineViewModel
         #expect(VM.shouldPromoteUnreadContextToLive(reachedLocalEnd: true))
         #expect(!VM.shouldPromoteUnreadContextToLive(reachedLocalEnd: false))
-    }
-
-    @Test("Auto-paginates forward only while a focused window is near its end")
-    func autoPagination() {
-        typealias VM = TimelineViewModel
-        #expect(VM.shouldAutoPaginateFuture(
-            isFocused: true,
-            isNearEnd: true,
-            hasReachedEnd: false,
-            isLoadingMore: false,
-            canLoadMore: true))
-        #expect(!VM.shouldAutoPaginateFuture(
-            isFocused: true,
-            isNearEnd: false,
-            hasReachedEnd: false,
-            isLoadingMore: false,
-            canLoadMore: true))
-        #expect(!VM.shouldAutoPaginateFuture(
-            isFocused: true,
-            isNearEnd: true,
-            hasReachedEnd: true,
-            isLoadingMore: false,
-            canLoadMore: true))
-        #expect(!VM.shouldAutoPaginateFuture(
-            isFocused: true,
-            isNearEnd: true,
-            hasReachedEnd: false,
-            isLoadingMore: true,
-            canLoadMore: true))
-        #expect(!VM.shouldAutoPaginateFuture(
-            isFocused: false,
-            isNearEnd: true,
-            hasReachedEnd: false,
-            isLoadingMore: false,
-            canLoadMore: true))
-        #expect(!VM.shouldAutoPaginateFuture(
-            isFocused: true,
-            isNearEnd: true,
-            hasReachedEnd: false,
-            isLoadingMore: false,
-            canLoadMore: false))
     }
 
     @Test("Marks read only when the actual latest row is visible")

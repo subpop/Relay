@@ -58,6 +58,8 @@ struct TimelineScrollView: View {
     /// the geometry handler once the page lands (or discarded when the user
     /// grabs the scroll view, which cancels any pending correction).
     @State private var pendingAnchor: PendingScrollAnchor?
+    @State private var pendingForwardAnchor: PendingScrollAnchor?
+    @State private var wasNearBottom = false
     /// Pace gate for backward-pagination triggers (one firing per entry
     /// into the top zone, with cooldown).
     @State private var backfillGate = TimelineScroller.BackfillGate()
@@ -182,11 +184,22 @@ struct TimelineScrollView: View {
                 {
                     pendingAnchor = PendingScrollAnchor(
                         id: rows.first(where: { visibleRowIDs.contains($0.id) })?.id ?? rows[0].id,
+                        firstRowID: rows[0].id,
                         rowCount: rows.count,
                         contentHeight: new.contentHeight)
                     onPaginateBackward()
                 }
-                if !config.hasReachedBottom, new.nearBottom {
+                let enteredBottom = new.nearBottom && !wasNearBottom
+                wasNearBottom = new.nearBottom
+                if !config.hasReachedBottom, new.nearBottom, !config.isLoadingMore,
+                   (!config.usesSlidingWindow || (isUserScrolling && enteredBottom)) {
+                    if config.usesSlidingWindow {
+                        pendingForwardAnchor = PendingScrollAnchor(
+                            id: rows.first(where: { visibleRowIDs.contains($0.id) })?.id ?? rows[0].id,
+                            firstRowID: rows[0].id,
+                            rowCount: rows.count,
+                            contentHeight: new.contentHeight)
+                    }
                     onPaginateForward()
                 }
 
@@ -208,6 +221,23 @@ struct TimelineScrollView: View {
                 }
             }
         }
+        .onChange(of: config.isLoadingMore) { _, isLoading in
+            guard !isLoading else { return }
+            if let target = TimelineScroller.anchorTarget(
+                pending: pendingAnchor, rowIDs: rows.map(\.id),
+                contentHeight: scroller.contentHeight, isLoadingMore: false,
+                isNearEnd: isNearEndLatched, nearTop: backfillGate.wasNearTop)
+            {
+                pendingAnchor = nil
+                scroller.anchorRow(id: target)
+            }
+            if let target = TimelineScroller.forwardAnchorTarget(
+                pending: pendingForwardAnchor, rowIDs: rows.map(\.id))
+            {
+                scroller.anchorRow(id: target)
+            }
+            pendingForwardAnchor = nil
+        }
         .onScrollPhaseChange { _, newPhase in
             // Ensure scroll state mutation callbacks are deferred until the
             // next main actor pass.
@@ -217,6 +247,10 @@ struct TimelineScrollView: View {
                     // The user grabbed control; any pending re-anchor targets
                     // a stale reading position.
                     pendingAnchor = nil
+                    pendingForwardAnchor = nil
+                    if config.usesSlidingWindow && !config.hasReachedBottom {
+                        wasNearBottom = false
+                    }
                 }
             }
         }
@@ -295,7 +329,7 @@ struct TimelineScrollView: View {
         var highlightedMessageID: String?
         var showURLPreviews: Bool
         var hasReachedBottom: Bool
-        var isLive: Bool
+        var usesSlidingWindow: Bool
         var isLoadingMore: Bool
         var uploadProgress: Double?
     }

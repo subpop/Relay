@@ -440,8 +440,13 @@ struct TimelineView: View {
     // MARK: - Message List
 
     private var messageList: some View {
-        TimelineScrollView(
-            rows: viewModel.messageRows,
+        let rows = viewModel.messageRows
+        let usesSlidingWindow = switch viewModel.timelineFocus {
+        case .live, .unread, .focused: true
+        case .thread: false
+        }
+        return TimelineScrollView(
+            rows: rows,
             timelineGaps: viewModel.timelineFocus == .live ? viewModel.timelineGaps : [],
             showUnanchoredGap: viewModel.shouldShowUnanchoredGap,
             loadingGapId: viewModel.loadingGapId,
@@ -453,7 +458,7 @@ struct TimelineView: View {
                 highlightedMessageID: highlightedMessageId,
                 showURLPreviews: showURLPreviews,
                 hasReachedBottom: viewModel.hasReachedEnd,
-                isLive: viewModel.timelineFocus == .live,
+                usesSlidingWindow: usesSlidingWindow,
                 isLoadingMore: viewModel.isLoadingMore,
                 uploadProgress: viewModel.uploadProgress
             ),
@@ -463,11 +468,8 @@ struct TimelineView: View {
             scroller: scroller,
             onNearEndChanged: { nearEnd in
                 isNearEnd = nearEnd
-                markAsReadIfNeeded()
+                markAsReadIfNeeded(rows: rows)
                 guard timelineInitialLoadComplete else { return }
-                if nearEnd {
-                    loadFutureIfNeededAtEnd()
-                }
                 Task { await viewModel.promoteToLiveIfAtEnd(isNearEnd: nearEnd) }
             }, onPaginateBackward: {
                 guard timelineInitialLoadComplete,
@@ -490,9 +492,9 @@ struct TimelineView: View {
             onBottomMostVisibleMessageChanged: { rowID in
                 lastBottomRowId = rowID
                 isLatestMessageVisible = TimelineViewModel.shouldMarkReadAtLatest(
-                    latestRowVisible: rowID == viewModel.messageRows.last?.id,
+                    latestRowVisible: rowID == rows.last?.id,
                     timelineReachedLatest: viewModel.isAtLatestEdge)
-                markAsReadIfNeeded()
+                markAsReadIfNeeded(rows: rows)
             },
             onUnreadMarkerVisibilityChanged: { visible in
                 if visible {
@@ -520,8 +522,8 @@ struct TimelineView: View {
                 TimelinePaginationOverlay(
                     isLoading: viewModel.isLoading,
                     isLoadingMore: viewModel.isLoadingMore,
-                    isEmpty: viewModel.messageRows.isEmpty,
-                    isLive: viewModel.timelineFocus == .live,
+                    isEmpty: rows.isEmpty,
+                    isLive: viewModel.timelineFocus == .live && viewModel.isAtLatestEdge,
                     isNearEnd: isNearEnd,
                     onScrollToEnd: {
                         scroller.scrollToEnd()
@@ -543,7 +545,7 @@ struct TimelineView: View {
                 actions: timelineActionsRef
             )
         }
-        .onChange(of: viewModel.messageRows.map(\.id)) {
+        .onChange(of: rows.map(\.id)) {
             guard timelineInitialLoadComplete else { return }
 
             if pendingScrollToEnd {
@@ -553,13 +555,14 @@ struct TimelineView: View {
                     pendingScrollToEnd = false
                     scroller.scrollToEnd()
                 }
-            } else if viewModel.timelineFocus == .live, !viewModel.isLoadingMore {
+            } else if viewModel.timelineFocus == .live,
+                      viewModel.hasReachedEnd, !viewModel.isLoadingMore {
                 if isNearEnd {
                     scroller.scrollToEnd()
                 }
             }
 
-            markAsReadIfNeeded()
+            markAsReadIfNeeded(rows: rows)
             refreshEditLastMessageTarget()
         }
         .onChange(of: scroller.isScrollable) { _, isScrollable in
@@ -571,11 +574,11 @@ struct TimelineView: View {
         }
         .onChange(of: viewModel.timelineFocus) {
             if viewModel.timelineFocus == .live {
-                markAsReadIfNeeded()
+                markAsReadIfNeeded(rows: rows)
             }
         }
         .onChange(of: viewModel.hasReachedEnd) { _, reachedEnd in
-            markAsReadIfNeeded()
+            markAsReadIfNeeded(rows: rows)
             guard reachedEnd, timelineInitialLoadComplete else { return }
             Task {
                 await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
@@ -589,10 +592,6 @@ struct TimelineView: View {
             let operation = isVisible ? viewModel.loadingMoreDescription : "none"
             RelayLog.timeline.info(
                 "Timeline top progress indicator \(indicatorState, privacy: .public) room=\(roomId, privacy: .private(mask: .hash)) focus=\(viewModel.timelineFocusDescription, privacy: .public) operation=\(operation, privacy: .public)")
-        }
-        .onChange(of: viewModel.isLoadingMore, initial: true) { _, isLoading in
-            guard !isLoading else { return }
-            loadFutureIfNeededAtEnd()
         }
         .task {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
@@ -609,10 +608,10 @@ struct TimelineView: View {
             // App regained focus: resume read marking after the dwell, and
             // catch up the fully-read marker to the last visible row (its
             // change handler doesn't refire on reactivation alone).
-            markAsReadIfNeeded()
+            markAsReadIfNeeded(rows: rows)
             if isLatestMessageVisible,
                let rowID = lastBottomRowId,
-               let row = viewModel.messageRows.first(where: { $0.id == rowID }) {
+               let row = rows.first(where: { $0.id == rowID }) {
                 advanceFullyReadMarker(to: row.message.eventId.value)
             }
         }
@@ -638,29 +637,6 @@ struct TimelineView: View {
     }
 
     // MARK: - Scroll Management
-
-    private func loadFutureIfNeededAtEnd() {
-        let isFocused = switch viewModel.timelineFocus {
-        case .unread, .focused: true
-        case .live, .thread: false
-        }
-        guard timelineInitialLoadComplete,
-              TimelineViewModel.shouldAutoPaginateFuture(
-                  isFocused: isFocused,
-                  isNearEnd: isNearEnd,
-                  hasReachedEnd: viewModel.hasReachedEnd,
-                  isLoadingMore: viewModel.isLoadingMore,
-                  canLoadMore: viewModel.canLoadMoreFuture)
-        else { return }
-
-        RelayLog.timeline.info(
-            "Timeline loading newer events while near end room=\(roomId, privacy: .private(mask: .hash)) focus=\(viewModel.timelineFocusDescription, privacy: .public)")
-        Task {
-            await viewModel.loadMoreFuture()
-            await viewModel.promoteToLiveIfAtEnd(isNearEnd: isNearEnd)
-            markAsReadIfNeeded()
-        }
-    }
 
     private func scrollToEventWhenAvailable(
         _ eventId: String,
@@ -726,14 +702,15 @@ struct TimelineView: View {
 
     // MARK: - Read Receipts
 
-    private func markAsReadIfNeeded() {
+    private func markAsReadIfNeeded(rows: [MessageRow]? = nil) {
         guard !readOnly, timelineInitialLoadComplete else { return }
+        let rows = rows ?? viewModel.messageRows
         isLatestMessageVisible = TimelineViewModel.shouldMarkReadAtLatest(
-            latestRowVisible: lastBottomRowId == viewModel.messageRows.last?.id,
+            latestRowVisible: lastBottomRowId == rows.last?.id,
             timelineReachedLatest: viewModel.isAtLatestEdge)
         guard isLatestMessageVisible else { return }
         if let lastBottomRowId,
-           let row = viewModel.messageRows.first(where: { $0.id == lastBottomRowId }) {
+           let row = rows.first(where: { $0.id == lastBottomRowId }) {
             advanceFullyReadMarker(to: row.message.eventId.value)
         }
         readReceiptTracker.markReadIfNeeded(

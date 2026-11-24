@@ -337,14 +337,20 @@ struct RelayRoomTests {
             hasUnread: false).isEmpty)
     }
 
-    @Test func windowSizeGrowsByFetchedPages() {
-        #expect(TimelineViewModel.grownWindowSize(current: 500, fetched: 50) == 550)
-        #expect(TimelineViewModel.grownWindowSize(current: 500, fetched: 0) == 500)
+    @Test func liveWindowKeepsOlderEdgeWhenPagingBack() {
+        #expect(TimelineViewModel.liveSlice(Array(0..<150), keeping: .older) == Array(0..<100))
+        #expect(TimelineViewModel.liveSlice(Array(0..<50), keeping: .older).count == 50)
     }
 
-    @Test func windowSizeClampsAtMaximum() {
-        #expect(TimelineViewModel.grownWindowSize(current: 1990, fetched: 50) == 2000)
-        #expect(TimelineViewModel.grownWindowSize(current: 2000, fetched: 50) == 2000)
+    @Test func liveWindowKeepsNewerEdgeWhenPagingForward() {
+        #expect(TimelineViewModel.liveSlice(Array(0..<150), keeping: .newer) == Array(50..<150))
+        #expect(TimelineViewModel.liveSlice(Array(0..<50), keeping: .newer).count == 50)
+    }
+
+    @Test func focusedWindowSlidesOverBufferedEvents() {
+        let events = Array(0..<150)
+        #expect(TimelineViewModel.focusedSlice(events, start: 0) == Array(0..<100))
+        #expect(TimelineViewModel.focusedSlice(events, start: 50) == Array(50..<150))
     }
 
     @Test func spaceChildrenUnionEdgesAndHierarchyBlobs() async throws {
@@ -636,5 +642,87 @@ struct RelayRoomTests {
         #expect(payload.snapshot.map(\.eventId.value) == ["$b"])
         #expect(payload.hasOlderStoredEvents)
         #expect(payload.hasNewerStoredEvents)
+    }
+
+    @Test func liveWindowSlidesThroughStoredHistoryInBothDirections() async throws {
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let roomId = RoomId(unchecked: "!test:example.com")
+        let room = SDRoom(roomId: roomId.value, membership: Membership.join.rawValue)
+        context.insert(room)
+        for index in 0..<6 {
+            let event = textEvent(
+                id: "$\(index)", sender: "@alice:example.com",
+                body: "\(index)", ts: index * 1_000)
+            let row = SDRoomEvent(
+                roomId: roomId.value, eventId: event.eventId.value,
+                ts: event.originServerTs, type: event.type,
+                sender: event.sender.value,
+                content: try JSONEncoder().encode(event.content), isMessageLike: true)
+            row.room = room
+            context.insert(row)
+        }
+        try context.save()
+
+        let reader = TimelinePayloadReader(reader: MatrixStoreReader(modelContainer: container))
+        let latest = await reader.timelinePayload(roomId: roomId, limit: 3)
+        #expect(latest.snapshot.map(\.eventId.value) == ["$3", "$4", "$5"])
+
+        let older = try #require(await reader.timelinePayloadAround(
+            roomId: roomId, anchorEventId: "$3", olderLimit: 1, newerLimit: 2))
+        let back = TimelineViewModel.liveSlice(older.snapshot, keeping: .older, limit: 3)
+        #expect(back.map(\.eventId.value) == ["$2", "$3", "$4"])
+        #expect(older.hasOlderStoredEvents)
+        #expect(older.snapshot.count > back.count)
+
+        let newer = try #require(await reader.timelinePayloadAround(
+            roomId: roomId, anchorEventId: "$4", olderLimit: 2, newerLimit: 1))
+        let forward = TimelineViewModel.liveSlice(newer.snapshot, keeping: .newer, limit: 3)
+        #expect(forward.map(\.eventId.value) == ["$3", "$4", "$5"])
+        #expect(newer.hasOlderStoredEvents)
+        #expect(!newer.hasNewerStoredEvents)
+    }
+
+    @Test func unreadWindowSlidesAroundStoredAnchor() async throws {
+        let container = try MatrixStore.makeInMemory()
+        let context = ModelContext(container)
+        let roomId = RoomId(unchecked: "!test:example.com")
+        let room = SDRoom(roomId: roomId.value, membership: Membership.join.rawValue)
+        context.insert(room)
+        for index in 0..<150 {
+            let event = textEvent(
+                id: "$\(index)", sender: "@alice:example.com",
+                body: "\(index)", ts: index * 1_000)
+            let row = SDRoomEvent(
+                roomId: roomId.value, eventId: event.eventId.value,
+                ts: event.originServerTs, type: event.type,
+                sender: event.sender.value,
+                content: try JSONEncoder().encode(event.content), isMessageLike: true)
+            row.room = room
+            context.insert(row)
+        }
+        try context.save()
+
+        let reader = TimelinePayloadReader(reader: MatrixStoreReader(modelContainer: container))
+        let initial = try #require(await reader.timelinePayloadAround(
+            roomId: roomId, anchorEventId: "$70", olderLimit: 49, newerLimit: 50))
+        #expect(initial.snapshot.count == 100)
+        #expect(initial.snapshot.first?.eventId.value == "$21")
+
+        let older = try #require(await reader.timelinePayloadAround(
+            roomId: roomId, anchorEventId: "$21", olderLimit: 50, newerLimit: 99))
+        let back = TimelineViewModel.liveSlice(older.snapshot, keeping: .older)
+        #expect(back.count == 100)
+        #expect(back.first?.eventId.value == "$0")
+        #expect(back.last?.eventId.value == "$99")
+        #expect(older.snapshot.count > back.count)
+
+        let newer = try #require(await reader.timelinePayloadAround(
+            roomId: roomId, anchorEventId: "$99", olderLimit: 99, newerLimit: 50))
+        let forward = TimelineViewModel.liveSlice(newer.snapshot, keeping: .newer)
+        #expect(forward.count == 100)
+        #expect(forward.first?.eventId.value == "$50")
+        #expect(forward.last?.eventId.value == "$149")
+        #expect(newer.snapshot.count > forward.count)
     }
 }

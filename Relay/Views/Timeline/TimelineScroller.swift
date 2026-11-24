@@ -31,9 +31,11 @@ import SwiftUI
 struct PendingScrollAnchor: Equatable, Sendable {
     /// The topmost visible row when pagination was triggered.
     let id: String
-    /// Row count at trigger time; the landing page must grow it.
+    /// The first row before a page changes either end of the window.
+    let firstRowID: String
+    /// Row count at trigger time; a page may grow or slide this window.
     let rowCount: Int
-    /// Content height at trigger time; realized growth proves layout settled.
+    /// Content height at trigger time; used to confirm a growing page has laid out.
     let contentHeight: CGFloat
 }
 
@@ -66,9 +68,9 @@ final class TimelineScroller {
 
     /// Updates scroll metrics from `TimelineScrollView` geometry.
     func updateMetrics(viewportHeight: CGFloat, contentHeight: CGFloat, bottomInset: CGFloat) {
-        self.viewportHeight = viewportHeight
-        self.contentHeight = contentHeight
-        self.bottomInset = bottomInset
+        if self.viewportHeight != viewportHeight { self.viewportHeight = viewportHeight }
+        if self.contentHeight != contentHeight { self.contentHeight = contentHeight }
+        if self.bottomInset != bottomInset { self.bottomInset = bottomInset }
     }
 
     /// Marks the initial load window as complete. Called when `TimelineView`
@@ -153,7 +155,7 @@ final class TimelineScroller {
     /// the live edge, the offset never rode down with the new content (still
     /// near the top), rows actually grew, the new content materialized with
     /// real height, and the trigger-time top row is still present but no
-    /// longer first.
+    /// longer first. A fixed-size window can slide without height growth.
     static func anchorTarget(
         pending: PendingScrollAnchor?,
         rowIDs: [String],
@@ -163,14 +165,22 @@ final class TimelineScroller {
         nearTop: Bool
     ) -> String? {
         guard let pending, !isLoadingMore else { return nil }
-        guard !isNearEnd, nearTop else { return nil }
-        guard rowIDs.count > pending.rowCount else { return nil }
-        guard contentHeight - pending.contentHeight > anchorGrowthThreshold else {
+        let slid = rowIDs.count <= pending.rowCount && rowIDs.first != pending.firstRowID
+        if !slid { guard !isNearEnd, nearTop else { return nil } }
+        guard rowIDs.count > pending.rowCount || slid else { return nil }
+        guard slid || contentHeight - pending.contentHeight > anchorGrowthThreshold else {
             return nil
         }
         guard let index = rowIDs.firstIndex(of: pending.id), index > 0 else {
             return nil
         }
+        return pending.id
+    }
+
+    /// Re-pin a visible row after older rows are trimmed on forward paging.
+    static func forwardAnchorTarget(pending: PendingScrollAnchor?, rowIDs: [String]) -> String? {
+        guard let pending, rowIDs.first != pending.firstRowID,
+              rowIDs.contains(pending.id) else { return nil }
         return pending.id
     }
 

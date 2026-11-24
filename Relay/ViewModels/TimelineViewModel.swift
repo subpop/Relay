@@ -67,19 +67,12 @@ private enum TimelineWindow: Equatable {
 /// store-backed pipeline.
 @Observable
 final class TimelineViewModel {
-    /// Newest-window size for the live timeline. Older history pages in
-    /// through `loadMoreHistory()`. Matches the retired live window's
-    /// 500-event cap: the unread divider anchors to the first-unread
-    /// event, which only renders when the window reaches it.
-    private static let liveLimit = 500
-    /// Upper bound for the grown live window (see `windowSize`). Keeps
-    /// per-refresh render work bounded for marathon scrollers while
-    /// staying far above the base window.
-    private static let maxWindowSize = 2000
-    /// Initial store-backed slice size around the unread/read anchor.
-    private static let anchoredOlderLimit = 50
-    private static let anchoredNewerLimit = 50
+    /// Maximum number of stored events rendered in a non-thread window.
+    private static let liveLimit = 100
     private static let contextPageSize = 50
+    /// Initial store-backed slice size around the unread/read anchor.
+    private static let anchoredOlderLimit = contextPageSize - 1
+    private static let anchoredNewerLimit = contextPageSize
 
     private let roomID: RoomId
     @ObservationIgnored private let client: RelayClient
@@ -88,11 +81,9 @@ final class TimelineViewModel {
 
     /// Whether the initial load is in flight.
     var isLoading = true
-    /// First unread event ID for the "New" divider. The store anchors
-    /// to the oldest unread in full history, which can predate the
-    /// loaded window and match no rendered row; the anchor is clamped
-    /// to the window (window-first fallback) mirroring the retired
-    /// live timeline, so the divider renders while anything is unread.
+    /// First unread event ID for the "New" divider. The initial window
+    /// falls back to its first row when the stored marker is outside it;
+    /// subsequent pages only display the divider when its event is present.
     var firstUnreadMessageId: String?
     /// Whether membership events render.
     var showMembershipEvents = true
@@ -122,6 +113,7 @@ final class TimelineViewModel {
     private(set) var gapLoadError: String?
     private(set) var failedGapId: String?
     private var hasOlderLiveEvents = false
+    private var hasNewerLiveEvents = false
     var shouldShowUnanchoredGap: Bool { !hasOlderLiveEvents }
     /// Whether older history may exist. True until a page comes back
     /// cursorless.
@@ -139,37 +131,41 @@ final class TimelineViewModel {
     /// Whether adjacent locally stored events remain outside the rendered slice.
     private var hasOlderUnreadEvents = false
     private var hasNewerUnreadEvents = false
-    /// Number of rows loaded on each side of the unread anchor.
-    private var unreadOlderLimit = TimelineViewModel.anchoredOlderLimit
-    private var unreadNewerLimit = TimelineViewModel.anchoredNewerLimit
+    /// The first event in the sliding unread window; the unread marker remains
+    /// the identity of the context mode even after it leaves the window.
+    private var unreadWindowAnchor: EventId?
     @ObservationIgnored private var unreadContextTask: Task<Bool, Never>?
     @ObservationIgnored private var unreadContextTaskGeneration = 0
 
     /// Detached focus window, when focusing an event.
     @ObservationIgnored private var focused: FocusedTimeline?
+    private var focusedWindowStart = 0
+    private var focusReachedStart = false
     /// Detached thread window, when viewing a thread.
     @ObservationIgnored private var thread: ThreadTimeline?
     /// Whether the focus window reached the live edge.
     private var focusReachedEnd = true
 
-    /// Current live-window size. Starts at `liveLimit` and grows by
-    /// each back-pagination page (up to `maxWindowSize`) so paginated
-    /// rows stay rendered: the store keeps full history, so refetching
-    /// "newest N" with growing N reproduces accumulated-window
-    /// semantics. Without this, pages landing outside a fixed window
-    /// would vanish on the next refresh.
-    private var windowSize = TimelineViewModel.liveLimit
+    enum LivePage { case older, newer }
 
-    /// Grow the live window by a fetched page, clamped to
-    /// `maxWindowSize`. Pure so the accumulation rule stays unit-tested.
-    static func grownWindowSize(current: Int, fetched: Int) -> Int {
-        min(maxWindowSize, current + max(fetched, 0))
+    /// Retain the requested edge of an overlapping store window. The other
+    /// edge stays in SwiftData and can be loaded again in either direction.
+    static func liveSlice<T>(_ events: [T], keeping page: LivePage, limit: Int = liveLimit) -> [T] {
+        switch page {
+        case .older: Array(events.prefix(limit))
+        case .newer: Array(events.suffix(limit))
+        }
+    }
+
+    static func focusedSlice<T>(_ events: [T], start: Int) -> [T] {
+        Array(events.dropFirst(start).prefix(liveLimit))
     }
 
     /// Observation loop over the room's revision counter.
     @ObservationIgnored private var observeTask: Task<Void, Never>?
     /// Pending coalesced live refresh.
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshAfterPagination = false
     /// Monotonic refresh generation; stale fetch completions drop.
     private var refreshGeneration = 0
 
@@ -232,11 +228,18 @@ final class TimelineViewModel {
 
     /// Pre-computed rows with grouping metadata.
     var messageRows: [MessageRow] {
-        MessageRowBuilder.buildRows(
-            for: filteredEvents,
+        let state = timelineSignposter.beginInterval(
+            "buildTimelineRows", id: timelineSignposter.makeSignpostID())
+        let events = filteredEvents
+        let rows = MessageRowBuilder.buildRows(
+            for: events,
             localUserId: client.localUserId,
             hasReachedStart: hasReachedStart,
             decryptionFailures: decryptionFailures)
+        timelineSignposter.endInterval(
+            "buildTimelineRows", state,
+            "events \(events.count), rows \(rows.count)")
+        return rows
     }
 
     /// Whether older messages are being fetched.
@@ -251,10 +254,12 @@ final class TimelineViewModel {
     var hasReachedStart: Bool {
         switch window {
         case .live:
-            return !hasMoreHistory
+            return !hasOlderLiveEvents && !hasMoreHistory
         case .unreadContext:
             return unreadContextReady && !hasOlderUnreadEvents && unreadOlderCursor == nil
-        case .focused, .thread:
+        case .focused:
+            return focusReachedStart
+        case .thread:
             return false
         }
     }
@@ -262,24 +267,15 @@ final class TimelineViewModel {
     /// Whether forward pagination reached the live edge.
     var hasReachedEnd: Bool {
         switch window {
-        case .live, .thread:
+        case .live:
+            return !hasNewerLiveEvents
+        case .thread:
             return true
         case .unreadContext:
             return !hasNewerUnreadEvents
                 && (!unreadContextReady || unreadNewerCursor == nil)
         case .focused:
             return focusReachedEnd
-        }
-    }
-
-    var canLoadMoreFuture: Bool {
-        switch window {
-        case .unreadContext:
-            unreadContextReady || hasNewerUnreadEvents
-        case .focused:
-            focused != nil
-        case .live, .thread:
-            false
         }
     }
 
@@ -327,7 +323,7 @@ final class TimelineViewModel {
     var isAtLatestEdge: Bool {
         switch window {
         case .live:
-            return true
+            return !hasNewerLiveEvents
         case .unreadContext:
             return hasReachedEnd
         case .focused:
@@ -375,12 +371,20 @@ final class TimelineViewModel {
 
     private func beginPagination(_ operation: String) {
         isPaginating = true
+        switch window {
+        case .live, .unreadContext: refreshTask?.cancel()
+        case .focused, .thread: break
+        }
         beginTopLoading(operation)
     }
 
     private func endPagination(_ operation: String) {
         isPaginating = false
         endTopLoading(operation)
+        if refreshAfterPagination {
+            refreshAfterPagination = false
+            requestRefresh()
+        }
     }
 
     init(roomId: String, client: RelayClient, highlights: [String] = [], errorReporter: ErrorReporter) {
@@ -417,21 +421,53 @@ final class TimelineViewModel {
     /// here. Stale completions (a newer refresh issued mid-fetch) are
     /// dropped via the generation guard. Unread context uses a separate
     /// anchored refresh.
-    private func refreshLiveNow() async {
+    private func refreshLiveNow(page: LivePage? = nil) async {
         guard case .live = window else { return }
         let refreshState = timelineSignposter.beginInterval(
             "refreshLiveTimeline", id: timelineSignposter.makeSignpostID(),
-            "window limit \(self.windowSize)")
+            "window limit \(Self.liveLimit)")
         defer { timelineSignposter.endInterval("refreshLiveTimeline", refreshState) }
         refreshGeneration += 1
         let generation = refreshGeneration
         let fetchState = timelineSignposter.beginInterval(
             "fetchTimelinePayload", id: timelineSignposter.makeSignpostID())
-        let payload = await client.timelinePayload(roomId: roomID, limit: windowSize)
+        let anchor = switch page {
+        case .older, nil: snapshot.first?.eventId
+        case .newer: snapshot.last?.eventId
+        }
+        let useAnchor = page != nil || hasNewerLiveEvents
+        let around: TimelinePayload?
+        if useAnchor, let anchor {
+            let olderLimit: Int
+            let newerLimit: Int
+            switch page {
+            case .older:
+                olderLimit = Self.contextPageSize
+                newerLimit = Self.liveLimit - 1
+            case .newer:
+                olderLimit = Self.liveLimit - 1
+                newerLimit = Self.contextPageSize
+            case nil:
+                olderLimit = 0
+                newerLimit = Self.liveLimit - 1
+            }
+            around = await client.timelinePayloadAround(
+                roomId: roomID, anchorEventId: anchor.value,
+                olderLimit: olderLimit, newerLimit: newerLimit)
+        } else {
+            around = nil
+        }
+        let payload: TimelinePayload
+        if let around {
+            payload = around
+        } else {
+            payload = await client.timelinePayload(roomId: roomID, limit: Self.liveLimit)
+        }
         timelineSignposter.endInterval("fetchTimelinePayload", fetchState)
         guard generation == refreshGeneration, !Task.isCancelled else { return }
         guard case .live = window else { return }
-        let nextSnapshot = payload.snapshot
+        let nextSnapshot = Self.liveSlice(
+            payload.snapshot, keeping: page == .older && around != nil ? .older : .newer)
         let nextMembers = await client.roomMembersMap(roomId: roomID)
         let renderState = timelineSignposter.beginInterval(
             "renderTimelineEvents", id: timelineSignposter.makeSignpostID(),
@@ -455,12 +491,22 @@ final class TimelineViewModel {
         sendStates = payload.sendStates
         renderedEvents = nextRenderedEvents
         decryptionFailures = nextDecryptionFailures
-        firstUnreadMessageId = Self.windowAnchor(
-            snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
+        let hasNewer = around != nil && (payload.hasNewerStoredEvents
+            || (page == .older && payload.snapshot.count > Self.liveLimit))
+        if hasNewer {
+            firstUnreadMessageId = payload.firstUnreadEventId.flatMap { id in
+                snapshot.contains(where: { $0.eventId.value == id }) ? id : nil
+            }
+        } else {
+            firstUnreadMessageId = Self.windowAnchor(
+                snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
+        }
         historyCursor = payload.prevBatch.map { BatchToken($0) }
         historyGapEventId = payload.historyGapEventId.map { EventId(unchecked: $0) }
         timelineGaps = payload.timelineGaps
         hasOlderLiveEvents = payload.hasOlderStoredEvents
+            || (page == .newer && payload.snapshot.count > Self.liveLimit)
+        hasNewerLiveEvents = hasNewer
         if hasOlderLiveEvents { hasMoreHistory = true }
         if historyGapEventId != nil {
             // A trim can land while the room is open; reopen history.
@@ -471,6 +517,10 @@ final class TimelineViewModel {
     /// Render a staged local echo immediately instead of waiting for the
     /// ordinary revision debounce or the homeserver's sync echo.
     private func refreshForLocalEcho() async {
+        if isPaginating {
+            refreshAfterPagination = true
+            return
+        }
         refreshTask?.cancel()
         await refreshLiveNow()
     }
@@ -571,7 +621,11 @@ final class TimelineViewModel {
         if roomRev != lastRoomRevision {
             lastRoomRevision = roomRev
             if !isLoading {
-                requestRefresh()
+                if isPaginating {
+                    refreshAfterPagination = true
+                } else {
+                    requestRefresh()
+                }
             }
         }
         if typingRev != lastTypingRevision {
@@ -593,7 +647,7 @@ final class TimelineViewModel {
         thread = nil
         selectWindow(.live, reason: "load newest timeline")
         logFocusState(reason: "load newest timeline")
-        windowSize = Self.liveLimit
+        hasNewerLiveEvents = false
         if client.localUserId == nil {
             // Without a local user ID every message renders as incoming;
             // log it so the failure is observable instead of silent.
@@ -618,7 +672,7 @@ final class TimelineViewModel {
         thread = nil
         selectWindow(.live, reason: "resolve unread/read anchor")
         logFocusState(reason: "resolve unread/read anchor")
-        windowSize = Self.liveLimit
+        hasNewerLiveEvents = false
         if client.localUserId == nil {
             RelayLog.timeline.warning("Local user ID unavailable; own messages render as incoming")
         }
@@ -643,8 +697,8 @@ final class TimelineViewModel {
             var payload = await client.timelinePayloadAround(
                 roomId: roomID,
                 anchorEventId: eventId,
-                olderLimit: unreadOlderLimit,
-                newerLimit: unreadNewerLimit)
+                olderLimit: Self.anchoredOlderLimit,
+                newerLimit: Self.anchoredNewerLimit)
             if payload == nil {
                 guard await loadInitialUnreadContext(anchorEventId: anchor) else {
                     selectWindow(.live, reason: "unread anchor context unavailable")
@@ -653,8 +707,8 @@ final class TimelineViewModel {
                 payload = await client.timelinePayloadAround(
                     roomId: roomID,
                     anchorEventId: eventId,
-                    olderLimit: unreadOlderLimit,
-                    newerLimit: unreadNewerLimit)
+                    olderLimit: Self.anchoredOlderLimit,
+                    newerLimit: Self.anchoredNewerLimit)
             }
             guard let payload,
                   await applyUnreadPayload(payload, anchor: anchor)
@@ -695,13 +749,16 @@ final class TimelineViewModel {
 
     private func applyUnreadPayload(
         _ payload: TimelinePayload,
-        anchor: EventId
+        anchor: EventId,
+        page: LivePage? = nil
     ) async -> Bool {
         let expectedWindow = TimelineWindow.unreadContext(anchor)
         let nextMembers = await client.roomMembersMap(roomId: roomID)
+        let windowSnapshot = Self.liveSlice(
+            payload.snapshot, keeping: page == .older ? .older : .newer)
         var renderSnapshot: [MessageEvent] = []
-        renderSnapshot.reserveCapacity(payload.snapshot.count)
-        for event in payload.snapshot {
+        renderSnapshot.reserveCapacity(windowSnapshot.count)
+        for event in windowSnapshot {
             guard !Task.isCancelled else { return false }
             renderSnapshot.append(await client.decryptEvent(event, in: roomID) ?? event)
         }
@@ -718,34 +775,48 @@ final class TimelineViewModel {
         sendStates = payload.sendStates
         renderedEvents = nextRenderedEvents
         decryptionFailures = nextDecryptionFailures
-        firstUnreadMessageId = Self.windowAnchor(
-            snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
+        let isInitialWindow = unreadWindowAnchor == nil
+        unreadWindowAnchor = snapshot.first?.eventId
+        if isInitialWindow {
+            firstUnreadMessageId = Self.windowAnchor(
+                snapshot: snapshot, storedAnchor: payload.firstUnreadEventId)
+        } else {
+            firstUnreadMessageId = payload.firstUnreadEventId.flatMap { id in
+                snapshot.contains(where: { $0.eventId.value == id }) ? id : nil
+            }
+        }
         historyCursor = payload.prevBatch.map { BatchToken($0) }
         historyGapEventId = payload.historyGapEventId.map { EventId(unchecked: $0) }
         hasMoreHistory = historyCursor != nil || historyGapEventId != nil
         hasOlderUnreadEvents = payload.hasOlderStoredEvents
+            || (page == .newer && payload.snapshot.count > Self.liveLimit)
         hasNewerUnreadEvents = payload.hasNewerStoredEvents
+            || (page == .older && payload.snapshot.count > Self.liveLimit)
         return true
     }
 
     /// Refresh only the current unread slice; sync updates must not replace it
     /// with the newest-window payload.
-    private func refreshUnreadNow() async {
+    private func refreshUnreadNow(page: LivePage? = nil) async {
         guard case .unreadContext(let anchor) = window else { return }
         refreshGeneration += 1
         let generation = refreshGeneration
-        guard let payload = await client.timelinePayloadAround(
-            roomId: roomID,
-            anchorEventId: anchor.value,
-            olderLimit: unreadOlderLimit,
-            newerLimit: unreadNewerLimit)
+        let edge = page == .newer ? snapshot.last?.eventId : unreadWindowAnchor
+        guard let edge,
+              let payload = await client.timelinePayloadAround(
+                  roomId: roomID,
+                  anchorEventId: edge.value,
+                  olderLimit: page == .newer ? Self.liveLimit - 1
+                      : (page == .older ? Self.contextPageSize : 0),
+                  newerLimit: page == .older ? Self.liveLimit - 1
+                      : (page == .newer ? Self.contextPageSize : Self.liveLimit - 1))
         else { return }
         guard generation == refreshGeneration,
               case .unreadContext(let currentAnchor) = window,
               currentAnchor == anchor,
               !Task.isCancelled
         else { return }
-        _ = await applyUnreadPayload(payload, anchor: anchor)
+        _ = await applyUnreadPayload(payload, anchor: anchor, page: page)
     }
 
     private func refreshCurrentNow() async {
@@ -766,8 +837,7 @@ final class TimelineViewModel {
         unreadNewerCursor = nil
         hasOlderUnreadEvents = false
         hasNewerUnreadEvents = false
-        unreadOlderLimit = Self.anchoredOlderLimit
-        unreadNewerLimit = Self.anchoredNewerLimit
+        unreadWindowAnchor = nil
     }
 
     func cancelUnreadContextWarmup() {
@@ -793,16 +863,16 @@ final class TimelineViewModel {
 
         var pagesLoaded = 0
         while pagesLoaded < maxPages,
-              hasMoreHistory,
+              !hasReachedStart,
               !Task.isCancelled
         {
-            let previousCount = renderedEvents.count
+            let previousFirstEventId = snapshot.first?.eventId
             await loadMoreHistory()
             pagesLoaded += 1
             if renderedEvents.contains(where: { $0.eventId.value == eventId }) {
                 return true
             }
-            if renderedEvents.count == previousCount {
+            if snapshot.first?.eventId == previousFirstEventId {
                 break
             }
         }
@@ -849,10 +919,11 @@ final class TimelineViewModel {
             await paginateFocusedBack(focused)
             return
         }
-        guard !isPaginating, hasMoreHistory else { return }
+        guard !isPaginating, hasMoreHistory || hasOlderLiveEvents else { return }
         if hasOlderLiveEvents {
-            windowSize = Self.grownWindowSize(current: windowSize, fetched: 50)
-            await refreshLiveNow()
+            beginPagination("reveal older stored history")
+            defer { endPagination("reveal older stored history") }
+            await refreshLiveNow(page: .older)
             return
         }
         guard let messages = client.messageClient else { return }
@@ -867,19 +938,19 @@ final class TimelineViewModel {
         beginPagination("load older live history")
         defer { endPagination("load older live history") }
         do {
-            let page = try await messages.paginate(roomID, from: from, limit: 50)
+            let page = try await messages.paginate(
+                roomID, from: from, limit: Self.contextPageSize)
             if !page.chunk.isEmpty, let writer = client.storeWriter {
                 try? await writer.prependHistory(
                     page.chunk, roomId: roomID,
                     prevBatch: page.end.map { BatchToken($0) })
-                windowSize = Self.grownWindowSize(current: windowSize, fetched: page.chunk.count)
             }
             if let end = page.end {
                 historyCursor = BatchToken(end)
             } else {
                 hasMoreHistory = false
             }
-            await refreshLiveNow()
+            await refreshLiveNow(page: .older)
         } catch {
             RelayLog.timeline.warning(
                 "History pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
@@ -899,11 +970,10 @@ final class TimelineViewModel {
         defer { loadingGapId = nil }
         do {
             let page = try await messages.paginate(
-                roomID, from: BatchToken(gap.prevBatch), limit: 50)
+                roomID, from: BatchToken(gap.prevBatch), limit: Self.contextPageSize)
             try await writer.fillTimelineGap(
                 page.chunk, roomId: roomID, newerEventId: gap.newerEventId,
                 end: page.end.map { BatchToken($0) })
-            windowSize = Self.grownWindowSize(current: windowSize, fetched: page.chunk.count)
             await refreshLiveNow()
             if page.end == nil && timelineGaps.contains(where: {
                 $0.newerEventId == gap.newerEventId
@@ -933,15 +1003,13 @@ final class TimelineViewModel {
             if let writer = client.storeWriter {
                 try await writer.resolveHistoryGap(
                     context.eventsBefore, roomId: roomID, prevBatch: context.start)
-                windowSize = Self.grownWindowSize(
-                    current: windowSize, fetched: context.eventsBefore.count)
             }
             historyGapEventId = nil
             historyCursor = context.start
             if context.start == nil {
                 hasMoreHistory = false
             }
-            await refreshLiveNow()
+            await refreshLiveNow(page: .older)
             return true
         } catch {
             RelayLog.timeline.warning(
@@ -950,8 +1018,15 @@ final class TimelineViewModel {
         }
     }
 
-    /// Paginate forward toward the live edge (focused or unread context).
+    /// Paginate forward toward the live edge (live, focused, or unread context).
     func loadMoreFuture() async {
+        if case .live = window {
+            guard hasNewerLiveEvents, !isPaginating else { return }
+            beginPagination("load newer live history")
+            defer { endPagination("load newer live history") }
+            await refreshLiveNow(page: .newer)
+            return
+        }
         if case .unreadContext(let anchor) = window {
             await loadMoreUnreadFuture(anchor: anchor)
             return
@@ -960,9 +1035,15 @@ final class TimelineViewModel {
         beginPagination("load newer focused context")
         defer { endPagination("load newer focused context") }
         do {
-            _ = try await focused.paginateForward()
-            focusReachedEnd = await !focused.canPaginateForward()
-            await renderDetached(events: await focused.events)
+            let count = await focused.events.count
+            if focusedWindowStart + Self.liveLimit < count {
+                focusedWindowStart += min(
+                    Self.contextPageSize, count - focusedWindowStart - Self.liveLimit)
+            } else {
+                _ = try await focused.paginateForward(limit: Self.contextPageSize)
+                focusedWindowStart = max(0, await focused.events.count - Self.liveLimit)
+            }
+            await renderFocused(focused)
         } catch {
             RelayLog.timeline.warning(
                 "Forward pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
@@ -1032,16 +1113,12 @@ final class TimelineViewModel {
         beginPagination("load older unread context")
         defer { endPagination("load older unread context") }
         if hasOlderUnreadEvents {
-            unreadOlderLimit = min(
-                Self.maxWindowSize, unreadOlderLimit + Self.contextPageSize)
-            await refreshUnreadNow()
+            await refreshUnreadNow(page: .older)
             return
         }
         guard await loadUnreadContextCursors(anchor: anchor) else { return }
         if hasOlderUnreadEvents {
-            unreadOlderLimit = min(
-                Self.maxWindowSize, unreadOlderLimit + Self.contextPageSize)
-            await refreshUnreadNow()
+            await refreshUnreadNow(page: .older)
             return
         }
         guard let from = unreadOlderCursor,
@@ -1058,9 +1135,7 @@ final class TimelineViewModel {
                 roomId: roomID,
                 prevBatch: page.end.map { BatchToken($0) })
             unreadOlderCursor = page.end.map { BatchToken($0) }
-            unreadOlderLimit = min(
-                Self.maxWindowSize, unreadOlderLimit + max(page.chunk.count, 1))
-            await refreshUnreadNow()
+            await refreshUnreadNow(page: .older)
         } catch {
             RelayLog.timeline.warning(
                 "Unread older-page load failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
@@ -1072,16 +1147,12 @@ final class TimelineViewModel {
         beginPagination("load newer unread context")
         defer { endPagination("load newer unread context") }
         if hasNewerUnreadEvents {
-            unreadNewerLimit = min(
-                Self.maxWindowSize, unreadNewerLimit + Self.contextPageSize)
-            await refreshUnreadNow()
+            await refreshUnreadNow(page: .newer)
             return
         }
         guard await loadUnreadContextCursors(anchor: anchor) else { return }
         if hasNewerUnreadEvents {
-            unreadNewerLimit = min(
-                Self.maxWindowSize, unreadNewerLimit + Self.contextPageSize)
-            await refreshUnreadNow()
+            await refreshUnreadNow(page: .newer)
             return
         }
         guard let from = unreadNewerCursor,
@@ -1095,9 +1166,7 @@ final class TimelineViewModel {
                 roomID, from: from, limit: Self.contextPageSize, direction: .forward)
             await client.insertTimelineHistory(page.chunk, roomId: roomID)
             unreadNewerCursor = page.end.map { BatchToken($0) }
-            unreadNewerLimit = min(
-                Self.maxWindowSize, unreadNewerLimit + max(page.chunk.count, 1))
-            await refreshUnreadNow()
+            await refreshUnreadNow(page: .newer)
         } catch {
             RelayLog.timeline.warning(
                 "Unread newer-page load failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
@@ -1125,8 +1194,8 @@ final class TimelineViewModel {
             focused = timeline
             thread = nil
             selectWindow(.focused(await timeline.focusEventId), reason: "event context loaded")
-            focusReachedEnd = await !timeline.canPaginateForward()
-            await renderDetached(events: await timeline.events)
+            focusedWindowStart = 0
+            await renderFocused(timeline)
         } catch {
             errorReporter.report(.messageLoadFailed(error.localizedDescription))
         }
@@ -1138,12 +1207,27 @@ final class TimelineViewModel {
         beginPagination("load older focused context")
         defer { endPagination("load older focused context") }
         do {
-            _ = try await timeline.paginateBack()
-            await renderDetached(events: await timeline.events)
+            if focusedWindowStart > 0 {
+                focusedWindowStart = max(0, focusedWindowStart - Self.contextPageSize)
+            } else {
+                _ = try await timeline.paginateBack(limit: Self.contextPageSize)
+            }
+            await renderFocused(timeline)
         } catch {
             RelayLog.timeline.warning(
                 "Focus pagination failed room=\(self.roomId, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
         }
+    }
+
+    private func renderFocused(_ timeline: FocusedTimeline) async {
+        let events = await timeline.events
+        let start = min(focusedWindowStart, events.count)
+        let end = min(events.count, start + Self.liveLimit)
+        let canPageBack = await timeline.canPaginateBack()
+        let canPageForward = await timeline.canPaginateForward()
+        focusReachedStart = start == 0 && !canPageBack
+        focusReachedEnd = end == events.count && !canPageForward
+        await renderDetached(events: Self.focusedSlice(events, start: start))
     }
 
     /// Render a detached (focus/thread) window. Marker columns come
@@ -1209,16 +1293,6 @@ final class TimelineViewModel {
         reachedLocalEnd
     }
 
-    nonisolated static func shouldAutoPaginateFuture(
-        isFocused: Bool,
-        isNearEnd: Bool,
-        hasReachedEnd: Bool,
-        isLoadingMore: Bool,
-        canLoadMore: Bool
-    ) -> Bool {
-        isFocused && isNearEnd && !hasReachedEnd && !isLoadingMore && canLoadMore
-    }
-
     /// Switch an unread-context window to live as soon as its local newest
     /// edge is known. Explicit event-focus windows still require the user
     /// to reach that edge.
@@ -1248,7 +1322,7 @@ final class TimelineViewModel {
         thread = nil
         selectWindow(.live, reason: "context reached live edge")
         focusReachedEnd = true
-        windowSize = min(Self.maxWindowSize, max(Self.liveLimit, snapshot.count))
+        hasNewerLiveEvents = false
         await refreshLiveNow()
     }
 
