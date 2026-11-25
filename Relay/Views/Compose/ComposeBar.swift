@@ -141,17 +141,6 @@ private struct ComposeBarContent: View {
                 AttachmentStagingView(compose: compose)
             }
 
-            if let replyMessage = compose.replyingTo {
-                ReplyEditBanner(
-                    label: "Replying to \(replyMessage.senderDisplayName ?? replyMessage.sender.value)",
-                    systemImage: "arrowshape.turn.up.left"
-                ) {
-                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                        compose.cancelReply()
-                    }
-                }
-            }
-
             if compose.editingMessage != nil {
                 ReplyEditBanner(
                     label: "Editing Message",
@@ -209,7 +198,10 @@ private struct ComposeBarContent: View {
                             .allowsHitTesting(false)
                     }
                 }
-                ComposeSendButton(isVisible: compose.hasContent) {
+                ComposeSendButton(
+                    isVisible: compose.hasContent,
+                    isReplying: compose.replyingTo != nil
+                ) {
                     Task { await onSend() }
                 }
             }
@@ -243,16 +235,17 @@ private struct ComposeBarContent: View {
     }
 }
 
-/// The up-arrow button at the trailing end of the compose field.
+/// The send button at the trailing end of the compose field.
 ///
 /// It takes up its space even while hidden, so the text doesn't reflow when
 /// the first character is typed.
 private struct ComposeSendButton: View {
     var isVisible: Bool
+    var isReplying: Bool
     var action: () -> Void
 
     var body: some View {
-        Button("Send", systemImage: "arrow.up", action: action)
+        Button("Send", systemImage: isReplying ? "arrow.turn.up.left" : "arrow.up", action: action)
             .labelStyle(.iconOnly)
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.circle)
