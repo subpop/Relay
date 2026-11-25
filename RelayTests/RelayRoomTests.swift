@@ -80,6 +80,20 @@ struct RelayRoomTests {
             ])
     }
 
+    private func stickerEvent(id: String, sender: String, body: String) -> MessageEvent {
+        MessageEvent(
+            type: "m.sticker",
+            eventId: EventId(unchecked: id),
+            sender: UserId(unchecked: sender),
+            roomId: RoomId(unchecked: "!test:example.com"),
+            originServerTs: 3_000,
+            content: [
+                "body": .string(body),
+                "url": .string("mxc://example.com/sticker"),
+                "info": .object(["mimetype": .string("image/png")]),
+            ])
+    }
+
     private func reactionEvent(
         id: String, target: String, key: String, sender: String
     ) -> MessageEvent {
@@ -177,6 +191,21 @@ struct RelayRoomTests {
             id: "$p1", sender: "@alice:example.com", question: "Lunch?")
         let row = RoomRowData.from(room: room, isMuted: false)
         #expect(row.lastMessage == "Lunch?")
+        #expect(row.lastMessageAuthor == "Alice")
+        #expect(row.lastMessageTimestamp != nil)
+    }
+
+    @Test func rowMappingPreviewsSticker() {
+        var room = self.room()
+        room.memberDetails = [
+            UserId(unchecked: "@alice:example.com"): MemberContent(
+                membership: .join, displayname: "Alice"),
+        ]
+        room.latestMessage = stickerEvent(
+            id: "$s1", sender: "@alice:example.com", body: "wave")
+
+        let row = RoomRowData.from(room: room, isMuted: false)
+        #expect(row.lastMessage == "Sent a sticker")
         #expect(row.lastMessageAuthor == "Alice")
         #expect(row.lastMessageTimestamp != nil)
     }

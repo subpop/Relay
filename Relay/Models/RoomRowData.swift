@@ -80,6 +80,10 @@ struct RoomRowData: Identifiable, Hashable, Sendable {
         if let content = event.messageContent {
             return preview(for: content)
         }
+        if EventType(rawValue: event.type) == .sticker,
+           event.stickerContent != nil {
+            return "Sent a sticker"
+        }
         guard EventType(rawValue: event.type) == .pollStart,
             let start = event.pollStartContent
         else { return nil }
