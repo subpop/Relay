@@ -2330,9 +2330,10 @@ final class RelayClient {
 
     #if DEBUG
     /// The stored event as pretty-printed JSON, for the debug "Show Message
-    /// Source" action. Nil when the event isn't in the local store.
+    /// Source" action, including its latest edit. Nil when the event isn't
+    /// in the local store.
     func storedEventJSON(eventId: EventId) -> String? {
-        guard let data = try? storeReader?.eventJSON(eventId) else { return nil }
+        guard let data = try? storeReader?.eventSourceJSON(eventId) else { return nil }
         return String(data: data, encoding: .utf8)
     }
     #endif
