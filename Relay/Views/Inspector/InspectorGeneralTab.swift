@@ -94,8 +94,11 @@ struct InspectorGeneralTab: View {
                 if !isEditing {
                     InspectorAboutSection(details: details)
                 }
-                if !isEditing, canEditCanonicalAlias {
-                    InspectorAliasSection(viewModel: viewModel)
+                if !isEditing {
+                    InspectorAliasSection(
+                        viewModel: viewModel,
+                        canEditAliases: canEditCanonicalAlias
+                    )
                 }
                 if context == .room, !details.pinnedEventIds.isEmpty, !isEditing {
                     InspectorPinnedSection(
@@ -545,19 +548,6 @@ private struct InspectorAboutSection: View {
             VStack(spacing: 0) {
                 InspectorInfoRow(label: "Members", value: "\(details.memberCount)")
 
-                if let alias = details.canonicalAlias {
-                    Divider().padding(.vertical, 4)
-                    InspectorInfoRow(label: "Alias", value: alias)
-                }
-
-                if !details.alternativeAliases.isEmpty {
-                    Divider().padding(.vertical, 4)
-                    InspectorInfoRow(
-                        label: "Additional Aliases",
-                        value: "\(details.alternativeAliases.count)"
-                    )
-                }
-
                 Divider().padding(.vertical, 4)
                 InspectorInfoRow(label: "Room Version", value: details.roomVersion ?? "—")
             }
@@ -573,10 +563,11 @@ private struct InspectorAboutSection: View {
 
 // MARK: - Alias Management Section
 
-/// Displays and manages room aliases (canonical and alternative) for users
-/// with `canEditCanonicalAlias` permission.
+/// Displays room aliases to everyone, and lets users with
+/// `canEditCanonicalAlias` permission manage them.
 private struct InspectorAliasSection: View {
     let viewModel: TimelineInspectorViewModel
+    let canEditAliases: Bool
 
     @State private var isAddingAlias = false
     @State private var newAliasLocalPart = ""
@@ -588,13 +579,15 @@ private struct InspectorAliasSection: View {
     private var canonicalAlias: String? { details?.canonicalAlias }
     private var altAliases: [String] { details?.alternativeAliases ?? [] }
 
-    /// All aliases (canonical first, then alternatives) for display.
+    /// All unique aliases (canonical first, then alternatives) for display.
     private var allAliases: [String] {
         var result: [String] = []
         if let canonical = canonicalAlias {
             result.append(canonical)
         }
-        result.append(contentsOf: altAliases)
+        for alias in altAliases where !result.contains(alias) {
+            result.append(alias)
+        }
         return result
     }
 
@@ -639,7 +632,7 @@ private struct InspectorAliasSection: View {
 
                 Spacer()
 
-                if !isAddingAlias {
+                if canEditAliases, !isAddingAlias {
                     Button {
                         isAddingAlias = true
                         newAliasLocalPart = ""
@@ -682,7 +675,7 @@ private struct InspectorAliasSection: View {
                     .font(.caption2)
                     .foregroundStyle(.yellow)
                     .accessibilityLabel("Primary alias")
-            } else {
+            } else if canEditAliases {
                 Button {
                     setAsPrimary(alias)
                 } label: {
@@ -693,6 +686,11 @@ private struct InspectorAliasSection: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Set \(alias) as Primary")
                 .help("Set as Primary")
+            } else {
+                Image(systemName: "star")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Alternative alias")
             }
 
             Text(alias)
@@ -703,17 +701,19 @@ private struct InspectorAliasSection: View {
 
             Spacer()
 
-            Button {
-                aliasError = nil
-                aliasToRemove = alias
-            } label: {
-                Image(systemName: "trash")
-                    .font(.caption)
+            if canEditAliases {
+                Button {
+                    aliasError = nil
+                    aliasToRemove = alias
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .accessibilityLabel("Remove \(alias)")
+                .help("Remove Alias")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.red)
-            .accessibilityLabel("Remove \(alias)")
-            .help("Remove Alias")
         }
     }
 
