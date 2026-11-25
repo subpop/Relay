@@ -93,6 +93,7 @@ struct RoomListView: View {
                     title: "Favorites",
                     rooms: favorites,
                     onToggleFavourite: toggleFavourite,
+                    onMarkAsRead: markAsRead,
                     onLeave: confirmLeave
                 )
             }
@@ -102,6 +103,7 @@ struct RoomListView: View {
                 showsTitle: showsRoomsAndDMsTitle,
                 rooms: roomsAndDMs,
                 onToggleFavourite: toggleFavourite,
+                onMarkAsRead: markAsRead,
                 onLeave: confirmLeave
             )
 
@@ -110,6 +112,7 @@ struct RoomListView: View {
                     title: "Muted Rooms",
                     rooms: muted,
                     onToggleFavourite: toggleFavourite,
+                    onMarkAsRead: markAsRead,
                     onLeave: confirmLeave
                 )
             }
@@ -281,6 +284,7 @@ private struct JoinedRoomsSection: View {
     var showsTitle = true
     let rooms: [RoomRowData]
     let onToggleFavourite: (RoomRowData) -> Void
+    let onMarkAsRead: (RoomRowData) -> Void
     let onLeave: (RoomRowData) -> Void
 
     var body: some View {
@@ -289,6 +293,7 @@ private struct JoinedRoomsSection: View {
                 JoinedRoomListRow(
                     room: room,
                     onToggleFavourite: { onToggleFavourite(room) },
+                    onMarkAsRead: { onMarkAsRead(room) },
                     onLeave: { onLeave(room) }
                 )
                 .tag(room.id)
@@ -335,10 +340,15 @@ private struct RoomListBanners: View {
 private struct JoinedRoomListRow: View {
     let room: RoomRowData
     let onToggleFavourite: () -> Void
+    let onMarkAsRead: () -> Void
     let onLeave: () -> Void
 
     var body: some View {
         RoomListRow(room: room)
+            .swipeActions(edge: .leading) {
+                Button("Mark as Read", systemImage: "envelope.open", action: onMarkAsRead)
+                    .tint(.blue)
+            }
             .swipeActions(edge: .trailing) {
                 Button("Leave", systemImage: "door.right.hand.open", role: .destructive, action: onLeave)
             }
@@ -413,6 +423,12 @@ extension RoomListView {
             } catch {
                 errorReporter.report(.favouriteFailed(error.localizedDescription))
             }
+        }
+    }
+
+    private func markAsRead(_ room: RoomRowData) {
+        Task {
+            await client.markAsRead(roomId: room.id)
         }
     }
 
