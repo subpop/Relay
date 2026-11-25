@@ -3577,7 +3577,7 @@ final class RelayClient {
                 // The keychain may have just become writable again
                 // (it locks with the screen); land any pending
                 // session persist.
-                await retryPendingSessionPersist()
+                _ = await retryPendingSessionPersist()
             }
         }
     }
