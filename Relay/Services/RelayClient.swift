@@ -319,8 +319,16 @@ final class RelayClient {
         cachedInvitedRooms
     }
 
-    /// Number of older events to fetch after accepting an invite.
-    private static let inviteHistoryBackfillLimit = 50
+    /// One page of history fetched after joining a room with a short timeline.
+    private nonisolated static let joinedRoomHistoryBackfillLimit = 50
+    /// Matches Sliding Sync's default room-list timeline window.
+    private nonisolated static let joinedRoomHistoryBackfillThreshold = 10
+
+    static nonisolated func shouldBackfillJoinedRoomHistory(
+        eventCount: Int, hasPreviousBatch: Bool
+    ) -> Bool {
+        hasPreviousBatch && eventCount <= joinedRoomHistoryBackfillThreshold
+    }
 
     /// Whether the Labs sliding-sync experiment is enabled.
     var isSlidingSyncEnabled: Bool {
@@ -386,10 +394,10 @@ final class RelayClient {
     var spaceChildIds: [RoomId: Set<RoomId>] = [:]
     /// Pending-invite snapshots, rebuilt alongside `cachedRooms`.
     private var cachedInvitedRooms: [RelayRoom] = []
-    /// Accepted invites awaiting their first joined sync history page.
-    @ObservationIgnored private var pendingInviteHistoryBackfills: Set<String> = []
+    /// Explicit joins awaiting their first joined sync timeline.
+    @ObservationIgnored private var pendingJoinedRoomHistoryBackfills: Set<String> = []
     /// In-flight one-page history fetches, keyed by room ID.
-    @ObservationIgnored private var inviteHistoryBackfillTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var joinedRoomHistoryBackfillTasks: [String: Task<Void, Never>] = [:]
     /// Background builder for the cached room snapshots. Recreated per
     /// session in `openStore(for:)`.
     private var roomIndex: RoomIndexBuilder?
@@ -703,11 +711,11 @@ final class RelayClient {
         cachedInvitedRooms = []
         roomRevisions = [:]
         typingRevisions = [:]
-        pendingInviteHistoryBackfills = []
-        for task in inviteHistoryBackfillTasks.values {
+        pendingJoinedRoomHistoryBackfills = []
+        for task in joinedRoomHistoryBackfillTasks.values {
             task.cancel()
         }
-        inviteHistoryBackfillTasks = [:]
+        joinedRoomHistoryBackfillTasks = [:]
         await typingTracker.setLocalUser(nil)
         spaceChildIds = [:]
         roomIndex = nil
@@ -827,7 +835,7 @@ final class RelayClient {
             else { return false }
             return invited.memberDetails[localUser]?.isDirect == true
         }()
-        pendingInviteHistoryBackfills.insert(roomId)
+        pendingJoinedRoomHistoryBackfills.insert(roomId)
         do {
             let joinedRoomId = try await client.joinRoom(RoomId(unchecked: roomId))
             if let invited = invitedRooms.first(where: { $0.roomId.value == roomId }) {
@@ -857,7 +865,7 @@ final class RelayClient {
             }
             return joinedRoomId
         } catch {
-            pendingInviteHistoryBackfills.remove(roomId)
+            pendingJoinedRoomHistoryBackfills.remove(roomId)
             throw error
         }
     }
@@ -886,6 +894,9 @@ final class RelayClient {
         try await client.rooms.leave(RoomId(unchecked: id))
         pendingJoinedRooms[id] = nil
         syncJoinedRoomIds.remove(id)
+        pendingJoinedRoomHistoryBackfills.remove(id)
+        joinedRoomHistoryBackfillTasks[id]?.cancel()
+        joinedRoomHistoryBackfillTasks[id] = nil
     }
 
     /// Pin or unpin a room (`m.favourite` tag).
@@ -2159,11 +2170,25 @@ final class RelayClient {
         isSpace: Bool = false
     ) async throws -> RoomId {
         guard let client else { throw MatrixError.notAuthenticated }
+        let requestedRoomId = idOrAlias.hasPrefix("!") ? idOrAlias : nil
+        if let requestedRoomId {
+            pendingJoinedRoomHistoryBackfills.insert(requestedRoomId)
+        }
         let roomId: RoomId
-        if idOrAlias.hasPrefix("!") {
-            roomId = try await client.joinRoom(RoomId(unchecked: idOrAlias))
-        } else {
-            roomId = try await client.joinRoom(RoomAlias(unchecked: idOrAlias))
+        do {
+            if let requestedRoomId {
+                roomId = try await client.joinRoom(RoomId(unchecked: requestedRoomId))
+            } else {
+                roomId = try await client.joinRoom(RoomAlias(unchecked: idOrAlias))
+            }
+        } catch {
+            if let requestedRoomId {
+                pendingJoinedRoomHistoryBackfills.remove(requestedRoomId)
+            }
+            throw error
+        }
+        if requestedRoomId == nil {
+            pendingJoinedRoomHistoryBackfills.insert(roomId.value)
         }
         publishPendingJoinedRoom(
             roomId, name: name, topic: topic, avatarURL: avatarURL,
@@ -3315,10 +3340,16 @@ final class RelayClient {
             roomRevisions[roomId.value, default: 0] += 1
         }
         for (roomId, joined) in delta.joined
-        where pendingInviteHistoryBackfills.contains(roomId.value)
+        where pendingJoinedRoomHistoryBackfills.contains(roomId.value)
         {
-            guard let prevBatch = joined.prevBatch else { continue }
-            startInviteHistoryBackfill(roomId: roomId, from: prevBatch)
+            guard !joined.timeline.isEmpty || joined.prevBatch != nil else { continue }
+            pendingJoinedRoomHistoryBackfills.remove(roomId.value)
+            guard Self.shouldBackfillJoinedRoomHistory(
+                    eventCount: joined.timeline.count,
+                    hasPreviousBatch: joined.prevBatch != nil),
+                  let prevBatch = joined.prevBatch
+            else { continue }
+            startJoinedRoomHistoryBackfill(roomId: roomId, from: prevBatch)
         }
         for roomId in delta.invited.keys {
             roomRevisions[roomId.value, default: 0] += 1
@@ -3378,34 +3409,32 @@ final class RelayClient {
         }
     }
 
-    /// Fetch one page before the first joined sync window for a room the
-    /// user accepted an invite to. The stored cursor remains available
-    /// for ordinary, on-demand timeline pagination afterwards.
-    private func startInviteHistoryBackfill(roomId: RoomId, from cursor: BatchToken) {
+    /// Fetch one page before the first short joined sync window. The stored
+    /// cursor remains available for ordinary, on-demand pagination afterwards.
+    private func startJoinedRoomHistoryBackfill(roomId: RoomId, from cursor: BatchToken) {
         let roomKey = roomId.value
-        guard inviteHistoryBackfillTasks[roomKey] == nil,
+        guard joinedRoomHistoryBackfillTasks[roomKey] == nil,
               let client,
               let writer = storeWriter
         else { return }
         let messages = client.messages
-        inviteHistoryBackfillTasks[roomKey] = Task { [weak self] in
+        joinedRoomHistoryBackfillTasks[roomKey] = Task { [weak self] in
             guard let self else { return }
-            defer { self.inviteHistoryBackfillTasks[roomKey] = nil }
+            defer { self.joinedRoomHistoryBackfillTasks[roomKey] = nil }
             do {
                 let page = try await messages.paginate(
-                    roomId, from: cursor, limit: Self.inviteHistoryBackfillLimit)
+                    roomId, from: cursor, limit: Self.joinedRoomHistoryBackfillLimit)
                 guard !Task.isCancelled else { return }
                 try await writer.prependHistory(
                     page.chunk, roomId: roomId,
                     prevBatch: page.end.map { BatchToken($0) })
                 guard !Task.isCancelled, self.storeWriter === writer else { return }
-                self.pendingInviteHistoryBackfills.remove(roomKey)
                 self.roomRevisions[roomKey, default: 0] += 1
                 self.scheduleRoomCacheRebuild()
             } catch {
                 guard !Task.isCancelled else { return }
                 RelayLog.timeline.debug(
-                    "Invite history backfill failed room=\(roomKey, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
+                    "Joined-room history backfill failed room=\(roomKey, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             }
         }
     }
