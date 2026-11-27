@@ -32,6 +32,11 @@ struct JoinRoomSheet: View {
     @State private var isJoining = false
     @FocusState private var isFieldFocused: Bool
 
+    init(selectedRoomId: Binding<String?>, initialIdentifier: String = "") {
+        self._selectedRoomId = selectedRoomId
+        self._roomIdentifier = State(initialValue: initialIdentifier)
+    }
+
     private var trimmedIdentifier: String {
         roomIdentifier.trimmingCharacters(in: .whitespaces)
     }

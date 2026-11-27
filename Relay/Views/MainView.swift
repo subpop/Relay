@@ -33,6 +33,7 @@ struct MainView: View {
     @State private var showQuickSwitch = false
     @State private var timelineViewModel: TimelineViewModel?
     @State private var focusedMessageId: String?
+    @State private var joinRoomIdentifier: String?
     @State private var showInspector = false
     @State private var inspectorProfile: UserProfile?
     @State private var inspectorTab: InspectorTab?
@@ -161,9 +162,16 @@ struct MainView: View {
         }
         .sheet(isPresented: Binding(
             get: { appActions.showJoinRoom },
-            set: { appActions.showJoinRoom = $0 }
+            set: {
+                appActions.showJoinRoom = $0
+                if !$0 {
+                    joinRoomIdentifier = nil
+                }
+            }
         )) {
-            JoinRoomSheet(selectedRoomId: $selectedRoomId)
+            JoinRoomSheet(
+                selectedRoomId: $selectedRoomId,
+                initialIdentifier: joinRoomIdentifier ?? "")
         }
         .sheet(isPresented: Binding(
             get: { appActions.showBrowseRooms },
@@ -567,8 +575,9 @@ struct MainView: View {
         case .room(let alias, _), .roomId(let alias, _):
             handleRoomTap(alias)
         case .event(let roomId, let eventId, _):
-            selectedRoomId = roomId
-            focusedMessageId = eventId
+            if handleRoomTap(roomId) {
+                focusedMessageId = eventId
+            }
         case .user:
             // User deep links have no destination in the main view.
             break
@@ -579,15 +588,23 @@ struct MainView: View {
 
     /// Handles a tap on a `matrix.to` room link.
     ///
-    /// If the user is already a member of the room, the sidebar selection
-    /// navigates to it directly. Joining unjoined rooms returns with the
-    /// directory UI.
-    private func handleRoomTap(_ identifier: String) {
+    /// Joined rooms are selected directly; other rooms open the join sheet
+    /// with the tapped ID or alias.
+    @discardableResult
+    private func handleRoomTap(_ identifier: String) -> Bool {
         if let joined = client.rooms.first(where: {
-            $0.roomId.value == identifier || $0.canonicalAlias == identifier
+            $0.membership == .join
+                && ($0.roomId.value == identifier
+                    || $0.canonicalAlias == identifier
+                    || $0.altAliases.contains(identifier))
         }) {
             selectedRoomId = joined.roomId.value
+            return true
         }
+
+        joinRoomIdentifier = identifier
+        appActions.showJoinRoom = true
+        return false
     }
 
     // MARK: - Invite Actions
